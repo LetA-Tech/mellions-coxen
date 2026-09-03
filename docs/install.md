@@ -29,7 +29,7 @@ is Mellions. `make install` does both.
 
 - Go 1.26.1 or newer (`go version`).
 - `git`, and `gh` authenticated against GitHub for the repositories
-  repositories (`gh auth status`). The survey, the claims and the assignment
+  (`gh auth status`). The survey, the claims and the assignment
   records read and write the tracker through `gh`.
 - Claude Code, Codex, or both, already installed and signed in.
 - macOS or Linux. The hooks are bash and the binary shells out to `git` and

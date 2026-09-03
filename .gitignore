@@ -1,8 +1,7 @@
 # Binaries
 /bin/
 
-# Secrets — match at ANY depth, not just the repo root. deploy/.env held a live
-# bot token and was one `git add -A` away from being committed.
+# Secrets — these patterns match at any depth, not just the repository root.
 .env
 .env.*
 !.env*.example
