@@ -1,18 +1,24 @@
 <!-- Mellions Engineer | Copyright © 2026 LetA Tech Ltd. | leta@letatech.ca -->
 
-# Public release boundary
+# Initial public repository cutover
 
 The access-controlled engineering repository contains private history even
 when its current tree is clean. Changing that repository's visibility would
-make the reachable history public. A Mellions public release therefore starts
-from a snapshot in a new Git repository with one root commit; it is not a
-visibility flip and not an orphan branch inside the private object database.
+make the reachable history public. The initial Mellions public repository
+therefore started from a snapshot in a new Git repository with one root commit;
+it was not a visibility flip or an orphan branch inside the private object
+database.
 
-Publication, repository creation or renaming, visibility changes, tags, and
-credential operations remain operator actions. The procedure here creates and
-verifies only a local, reversible candidate.
+The permanent public repository was created through the procedure below. It is
+retained as the cutover and recovery boundary, not as the day-to-day release
+process: normal releases move reviewed work from `dev` to `main` in the public
+repository.
 
-## Build the fresh root
+Repository creation or renaming, visibility changes, tags, and credential
+operations remain operator actions. The procedure creates and verifies only a
+local, reversible candidate.
+
+## Reproduce a fresh root
 
 Run from the reviewed private candidate:
 
@@ -71,16 +77,15 @@ if git -C "$public_root" cat-file -e "$candidate^{commit}" 2>/dev/null; then
 fi
 ```
 
-## Publish only after the external boundary is settled
+## Use a fresh root only for a new public destination
 
-The operator must preserve the full private repository under access control
-and choose an empty public destination. Renaming the private repository and
-creating a new public repository changes URLs and integrations; rewriting the
-existing remote risks exposing or losing the private lineage. That choice is
-made and verified outside this local procedure.
+The existing public repository is authoritative. Do not rebuild its normal
+releases from the access-controlled repository. Use this boundary only when a
+new public destination must be created, and preserve the full private
+repository under access control.
 
-Only after the destination is confirmed empty, the historical credential is
-confirmed revoked or deleted, the release-candidate PR has an executed green
-check, and the final independent audit is clean should the operator add the
-public remote and push the single-root `main` branch. Never add the private
-remote to the fresh root.
+Only after the destination is confirmed empty, every credential exposure found
+in source history is confirmed revoked or deleted, the reviewed candidate and
+its intended merge result both pass `make check` locally, and the final
+independent audit is clean should the operator add the public remote and push
+the single-root `main` branch. Never add the private remote to the fresh root.

@@ -2,11 +2,13 @@
 
 All notable Mellions Engineer changes intended for public users are recorded here.
 
-The project is being prepared for its first public open-source release. Until that release is tagged, the current public surface is tracked under **Unreleased**.
-
 ## Unreleased
 
-### Public project surface
+No user-facing changes have been recorded since `0.1.0`.
+
+## 0.1.0 — 2026-09-03
+
+### First public release
 
 - Repositioned Mellions Engineer around engineering responsibility, reliability, falsifiable completion, and long-running agent work.
 - Added a fast-scan evidence section to the README.
@@ -20,6 +22,7 @@ The project is being prepared for its first public open-source release. Until th
   is currently disabled; authors and maintainers run the gate locally against
   the reviewed commit and merge result.
 - Adopted the **Apache License, Version 2.0**, with LetA Tech Ltd. attribution and `leta@letatech.ca` as the project contact.
+- Published the source at [`LetA-Tech/mellions-coxen`](https://github.com/LetA-Tech/mellions-coxen) with a clean public history and protected `dev` and `main` branches.
 
 ### Engineering behavior
 
@@ -36,18 +39,10 @@ Current public capabilities include:
 - evidence-backed learning and self-evolution;
 - Claude Code and Codex plugin integrations.
 
-### Before the first public release
+### Distribution and verification
 
-Remaining release work includes:
+- Added reproducible release archives for macOS and Linux on `amd64` and `arm64`, with SHA-256 checksums.
+- Verified the complete local gate, public-document links, privacy controls, release archive contents, and installation from a fresh public clone.
+- Kept public release notes focused on product behavior without exposing private project history, internal issue identifiers, infrastructure, or estate-specific production records.
 
-- publishing repository About metadata, topics, and social preview;
-- validating first-time installation from a clean public environment;
-- completing the final public security/private-IP scan;
-- preparing the first tagged release and release notes;
-- publishing the project website and community entry points.
-
-## 0.1.0 — internal production baseline
-
-`0.1.0` is the current plugin version used during the private production-hardening period. It is not yet presented as the first public release.
-
-The public changelog intentionally summarizes product behavior rather than exposing private project histories, internal issue identifiers, infrastructure, or estate-specific production records.
+Codex users must review and trust Mellions hooks in `/hooks`; see [`docs/integrations.md`](docs/integrations.md) for the current runtime support boundaries.
