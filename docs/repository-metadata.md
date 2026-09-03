@@ -8,7 +8,7 @@ This file is the durable source for the GitHub repository settings that are conf
 
 ## Website
 
-`https://letatech.ca/mellions-engineer`
+`https://letatech.ca/mellions-coxen`
 
 ## Topics
 
@@ -44,7 +44,7 @@ Use a simple branded preview rather than a screenshot of terminal output.
 Recommended content:
 
 ```text
-Mellions Engineer
+Mellions Coxen
 Turn frontier coding agents into engineers who stay on the job.
 
 Engineering responsibility · falsification · continuity · autonomous completion
@@ -74,6 +74,6 @@ Avoid presenting Mellions as:
 
 Use this public distinction consistently:
 
-> **Bring your frontier coding agent. Mellions Engineer adds the engineering discipline around it.**
+> **Bring your frontier coding agent. Mellions Coxen adds the engineering discipline around it.**
 
 Implemented runtimes today are Claude Code and Codex. Model compatibility can be inherited through those runtimes. Other runtimes require a verified adapter before they are described as supported.

@@ -1,8 +1,8 @@
-<!-- Mellions Engineer | Copyright © 2026 LetA Tech Ltd. | leta@letatech.ca -->
+<!-- Mellions Coxen | Copyright © 2026 LetA Tech Ltd. | leta@letatech.ca -->
 
-# Contributing to Mellions Engineer
+# Contributing to Mellions Coxen
 
-Mellions Engineer is used in real, long-running software-engineering work with frontier coding agents.
+Mellions Coxen is used in real, long-running software-engineering work with frontier coding agents.
 
 Contributions are welcome, but the standard is production engineering rather than feature accumulation.
 
@@ -10,7 +10,7 @@ The question for every change is:
 
 > **Does this make the engineer more reliable, durable, disciplined, verifiable, or useful in real software engineering?**
 
-Mellions Engineer is a project of **LetA Tech Ltd.** Project and maintainer contact: [**leta@letatech.ca**](mailto:leta@letatech.ca).
+Mellions Coxen is a project of **LetA Tech Ltd.** Project and maintainer contact: [**leta@letatech.ca**](mailto:leta@letatech.ca).
 
 ## Contribution workflow
 
@@ -326,8 +326,8 @@ It is completely acceptable for the right contribution to delete a mechanism or 
 
 Copyright © 2026 **LetA Tech Ltd.**
 
-Mellions Engineer is licensed under the **Apache License, Version 2.0**. See [`LICENSE`](LICENSE) and [`NOTICE`](NOTICE).
+Mellions Coxen is licensed under the **Apache License, Version 2.0**. See [`LICENSE`](LICENSE) and [`NOTICE`](NOTICE).
 
-Unless you explicitly state otherwise, contributions intentionally submitted for inclusion in Mellions Engineer are provided under the terms of Apache-2.0 as described in Section 5 of the license.
+Unless you explicitly state otherwise, contributions intentionally submitted for inclusion in Mellions Coxen are provided under the terms of Apache-2.0 as described in Section 5 of the license.
 
 Project and maintainer contact: [**leta@letatech.ca**](mailto:leta@letatech.ca).

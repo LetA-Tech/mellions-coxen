@@ -1,8 +1,8 @@
-<!-- Mellions Engineer | Copyright © 2026 LetA Tech Ltd. | leta@letatech.ca -->
+<!-- Mellions Coxen | Copyright © 2026 LetA Tech Ltd. | leta@letatech.ca -->
 
 # Data handling
 
-Mellions Engineer is local engineering tooling, not a hosted Mellions service.
+Mellions Coxen is local engineering tooling, not a hosted Mellions service.
 The Go binary contains no product telemetry client. That does not make a
 Mellions session local-only: the configured coding-agent runtime, model
 provider, repository host, and tools determine where engineering data goes.

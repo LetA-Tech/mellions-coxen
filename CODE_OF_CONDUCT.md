@@ -1,8 +1,8 @@
-<!-- Mellions Engineer | Copyright © 2026 LetA Tech Ltd. | leta@letatech.ca -->
+<!-- Mellions Coxen | Copyright © 2026 LetA Tech Ltd. | leta@letatech.ca -->
 
 # Code of Conduct
 
-Mellions Engineer is an evidence-focused engineering community. Disagreement
+Mellions Coxen is an evidence-focused engineering community. Disagreement
 about code, architecture, benchmarks, or conclusions is welcome; hostility
 toward people is not.
 
