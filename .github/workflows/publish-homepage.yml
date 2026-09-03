@@ -1,0 +1,28 @@
+name: Publish homepage content
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - website/homepage.json
+      - website/homepage.schema.json
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    name: Dispatch exact content revision
+    runs-on: ubuntu-latest
+    steps:
+      - name: Request the LetA site build
+        env:
+          CONTENT_SHA: ${{ github.sha }}
+          GH_TOKEN: ${{ secrets.LETA_SITE_DISPATCH_TOKEN }}
+        run: |
+          set -euo pipefail
+          [[ "$CONTENT_SHA" =~ ^[0-9a-f]{40}$ ]]
+          gh api --method POST repos/LetA-Tech/leta-site/dispatches \
+            -f event_type=mellions-coxen-content-published \
+            -F "client_payload[content_sha]=$CONTENT_SHA" \
+            -F "client_payload[source_repository]=$GITHUB_REPOSITORY"

@@ -1,8 +1,8 @@
-# Mellions Engineer — Evidence & Benchmarks
+# Mellions Coxen — Evidence & Benchmarks
 
 > **What Mellions changes is not raw model intelligence. It changes engineering discipline: ownership, verification, continuity, coordination, and the probability that a capable agent actually finishes the job correctly.**
 
-Mellions Engineer is developed through real, long-running software engineering with frontier coding agents, plus controlled comparisons where the same model and task can be run with and without a specific Mellions behavior.
+Mellions Coxen is developed through real, long-running software engineering with frontier coding agents, plus controlled comparisons where the same model and task can be run with and without a specific Mellions behavior.
 
 This page is the public evidence layer. Private project names, internal architecture, proprietary workflows, and raw production traces are intentionally excluded.
 
@@ -87,7 +87,7 @@ After one approximately nine-hour production implementation, Claude compared its
 | Retrospective estimate for that production task | Probability of correct completion |
 |---|---:|
 | Native agent + its normal memory/compaction | **~60–65%** |
-| Agent with Mellions Engineer | **~85–90%** |
+| Agent with Mellions Coxen | **~85–90%** |
 
 Claude estimated the net positive effect at roughly **25–30%**, after accounting for Mellions' context and operational cost. It attributed most of the difference to **falsification discipline and refusal to defer established defects**.
 

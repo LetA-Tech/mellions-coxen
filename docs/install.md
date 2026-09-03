@@ -1,4 +1,4 @@
-<!-- Mellions Engineer | LetA Tech Ltd. | leta@letatech.ca -->
+<!-- Mellions Coxen | LetA Tech Ltd. | leta@letatech.ca -->
 
 # Installing Mellions
 
@@ -38,6 +38,10 @@ is Mellions. `make install` does both.
   Python; interactive use needs none).
 
 ## 1. Install
+
+The supported public path is a source checkout followed by one `make install`
+command. It installs the Go CLI and registers the Mellions plugin together. A
+one-click installer or hosted marketplace install is not published today.
 
 ```bash
 git clone https://github.com/LetA-Tech/mellions-coxen

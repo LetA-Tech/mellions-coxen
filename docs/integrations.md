@@ -1,6 +1,6 @@
 # Integrations
 
-> **Bring your frontier coding agent. Mellions Engineer adds the engineering discipline around it.**
+> **Bring your frontier coding agent. Mellions Coxen adds the engineering discipline around it.**
 
 Mellions is designed around engineering runtimes, not around one model vendor. The model remains responsible for reasoning, implementation, tool use, and technical judgment. Mellions adds durable responsibility, situational context, engineering methods, coordination, verification discipline, and recovery around that runtime.
 
