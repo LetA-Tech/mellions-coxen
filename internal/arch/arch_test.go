@@ -142,7 +142,7 @@ func TestEveryPackageAdvertisesOneVersion(t *testing.T) {
 func TestEveryPackageAdvertisesTheCanonicalRepository(t *testing.T) {
 	root := repoRoot(t)
 	const repository = "https://github.com/LetA-Tech/mellions-coxen"
-	const homepage = "https://letatech.ca/mellions-engineer"
+	const homepage = "https://letatech.ca/mellions-coxen"
 	for _, manifest := range []string{".claude-plugin/plugin.json", ".codex-plugin/plugin.json"} {
 		path := filepath.Join(root, manifest)
 		if got := manifestField(t, path, "homepage"); got != homepage {
@@ -163,10 +163,9 @@ func TestEveryPackageAdvertisesTheCanonicalRepository(t *testing.T) {
 	}
 }
 
-func TestRetiredPrivateRepositorySlugOnlyNamesTheWebsite(t *testing.T) {
+func TestRetiredPrivateRepositorySlugIsAbsent(t *testing.T) {
 	root := repoRoot(t)
 	retired := "mellions-" + "engineer"
-	const website = "https://letatech.ca/mellions-engineer"
 	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -190,8 +189,7 @@ func TestRetiredPrivateRepositorySlugOnlyNamesTheWebsite(t *testing.T) {
 			return nil
 		}
 		for n, line := range strings.Split(string(raw), "\n") {
-			withoutWebsite := strings.ReplaceAll(line, website, "")
-			if strings.Contains(withoutWebsite, retired) {
+			if strings.Contains(line, retired) {
 				t.Errorf("%s:%d still names the retired private repository", rel, n+1)
 			}
 		}

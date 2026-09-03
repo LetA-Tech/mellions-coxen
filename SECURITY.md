@@ -1,8 +1,8 @@
-<!-- Mellions Engineer | Copyright © 2026 LetA Tech Ltd. | leta@letatech.ca -->
+<!-- Mellions Coxen | Copyright © 2026 LetA Tech Ltd. | leta@letatech.ca -->
 
 # Security Policy
 
-Mellions Engineer is an open-source project licensed under Apache-2.0 and used in real software-engineering work with coding agents that may have meaningful repository and host authority.
+Mellions Coxen is an open-source project licensed under Apache-2.0 and used in real software-engineering work with coding agents that may have meaningful repository and host authority.
 
 Security reports should therefore be treated as production engineering issues rather than ordinary public bug reports.
 
@@ -79,7 +79,7 @@ The project does not claim:
 
 ## Project ownership and license
 
-Mellions Engineer is developed and maintained by **LetA Tech Ltd.**
+Mellions Coxen is developed and maintained by **LetA Tech Ltd.**
 
 Copyright © 2026 LetA Tech Ltd.
 

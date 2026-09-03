@@ -2,17 +2,25 @@
   <img src="assets/letatech-logo.svg" alt="LetA Tech" width="180" />
 </p>
 
-<h1 align="center">Mellions Engineer</h1>
+<h1 align="center">Mellions Coxen</h1>
 
-<p align="center"><strong>Turn any capable coding agent into a real software engineer.</strong></p>
+<p align="center"><strong>Turn frontier coding agents into engineers who stay on the job.</strong></p>
 
-<p align="center"><strong>Model- and agent-agnostic by design. Mellions Engineer adds engineering discipline, durable responsibility, falsifiable verification, continuity, and self-evolution.</strong></p>
+<p align="center"><strong>Model- and agent-agnostic by design. Mellions Coxen adds engineering discipline, durable responsibility, falsifiable verification, continuity, and self-evolution.</strong></p>
 
 <p align="center">Built for long-running, production-grade software engineering.</p>
 
+<p align="center">
+  <a href="https://letatech.ca/mellions-coxen"><strong>Official homepage</strong></a>
+  · <a href="docs/install.md">Install</a>
+  · <a href="docs/integrations.md">Integrations</a>
+  · <a href="https://github.com/LetA-Tech/mellions-coxen/releases">Releases</a>
+  · <a href="https://github.com/LetA-Tech/mellions-coxen/issues">Issues</a>
+</p>
+
 ---
 
-Mellions Engineer is built for capable coding agents and models without coupling its engineering model to one vendor. The underlying agent and runtime remain responsible for reasoning, tools, permissions, worktrees, subagents, sandboxing, and native execution.
+**Engineering responsibility and reliability for frontier coding agents.** Mellions Coxen is built for capable coding agents and models without coupling its engineering model to one vendor. The underlying agent and runtime remain responsible for reasoning, tools, permissions, worktrees, subagents, sandboxing, and native execution.
 
 Mellions adds what a transient coding-agent session does not reliably preserve on its own: **responsibility, continuity, engineering discipline, coordination, proof, and useful autonomy over time.**
 
@@ -88,7 +96,7 @@ Run the same engineering task with and without Mellions. Bring us the cases wher
 
 ## What changes in practice
 
-| Without a responsibility layer | With Mellions Engineer |
+| Without a responsibility layer | With Mellions Coxen |
 |---|---|
 | Finds another real defect, then asks whether to fix it | Establishes whether the defect is in scope and owns it when it is |
 | Green tests become the stopping point | Important conclusions are actively falsified |
@@ -144,7 +152,7 @@ Mellions does not replace native permissions, MCP, tool configuration, sandboxin
 - Claude Code and/or Codex
 - macOS or Linux
 
-### Install
+### Install from source
 
 ```bash
 git clone https://github.com/LetA-Tech/mellions-coxen.git
@@ -154,6 +162,8 @@ make install
 mellions config init
 mellions doctor
 ```
+
+`make install` is the single installation command after checkout: it builds the Go CLI and registers the Mellions plugin with supported coding runtimes already present on the machine. **A one-click installer or hosted marketplace install is not published today.**
 
 Then establish the program and working relationship:
 
@@ -257,7 +267,7 @@ Human engineering leader
         │
         │ intent, delegation, consequential decisions
         ▼
-Mellions Engineer
+Mellions Coxen
 responsibility · continuity · discipline · coordination · proof
         │
         ├────────────────┬────────────────┐
@@ -353,6 +363,8 @@ standard, and Apache-2.0 contribution terms.
 - [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md) — community conduct and enforcement
 - [`CHANGELOG.md`](CHANGELOG.md) — public release history
 
+The [official homepage](https://letatech.ca/mellions-coxen), [source](https://github.com/LetA-Tech/mellions-coxen), [releases](https://github.com/LetA-Tech/mellions-coxen/releases), [issues](https://github.com/LetA-Tech/mellions-coxen/issues), and [contribution guide](CONTRIBUTING.md) are one public product surface.
+
 ## Development
 
 ```bash
@@ -366,7 +378,7 @@ make release
 
 ## Production use
 
-Mellions Engineer is shaped by real, long-running, multi-repository engineering rather than demonstration tasks. Production failures are used to remove dead weight, strengthen methods that materially improve engineering quality, and repair Mellions itself before later sessions encounter the same class of problem.
+Mellions Coxen is shaped by real, long-running, multi-repository engineering rather than demonstration tasks. Production failures are used to remove dead weight, strengthen methods that materially improve engineering quality, and repair Mellions itself before later sessions encounter the same class of problem.
 
 That feedback loop is part of the product.
 
@@ -388,7 +400,7 @@ GitHub is the durable engineering record. Fast community conversation can happen
 
 ## License, ownership, and contact
 
-Mellions Engineer is open source under the **Apache License, Version 2.0**. See [`LICENSE`](LICENSE) and [`NOTICE`](NOTICE).
+Mellions Coxen is open source under the **Apache License, Version 2.0**. See [`LICENSE`](LICENSE) and [`NOTICE`](NOTICE).
 
 Copyright © 2026 **LetA Tech Ltd.**
 

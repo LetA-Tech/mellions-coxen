@@ -1,6 +1,6 @@
 # Community
 
-Mellions Engineer is being prepared for a public engineering community built around one principle:
+Mellions Coxen is being prepared for a public engineering community built around one principle:
 
 > **If a claim matters, make it reproducible. If a finding matters, bring it back to GitHub.**
 
@@ -24,7 +24,7 @@ GitHub is the engineering record.
 
 ### Discord — fast community conversation
 
-A lightweight Mellions Engineer Discord presence is planned for:
+A lightweight Mellions Coxen Discord presence is planned for:
 
 - installation and usage questions;
 - Claude Code and Codex integration discussion;
@@ -38,7 +38,7 @@ A lightweight Mellions Engineer Discord presence is planned for:
 The initial structure should stay deliberately simple:
 
 ```text
-Mellions Engineer
+Mellions Coxen
 ├── community / general
 └── benchmarks-and-experiments
 ```

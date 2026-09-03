@@ -1,4 +1,4 @@
-<!-- Mellions Engineer | Copyright © 2026 LetA Tech Ltd. | leta@letatech.ca -->
+<!-- Mellions Coxen | Copyright © 2026 LetA Tech Ltd. | leta@letatech.ca -->
 
 # Initial public repository cutover
 

@@ -7,7 +7,7 @@
     "email": "leta@letatech.ca",
     "url": "https://github.com/LetA-Tech"
   },
-  "homepage": "https://letatech.ca/mellions-engineer",
+  "homepage": "https://letatech.ca/mellions-coxen",
   "repository": "https://github.com/LetA-Tech/mellions-coxen",
   "keywords": [
     "coding-agents",
@@ -28,7 +28,7 @@
       "Interactive",
       "Write"
     ],
-    "websiteURL": "https://letatech.ca/mellions-engineer",
+    "websiteURL": "https://letatech.ca/mellions-coxen",
     "defaultPrompt": [
       "Re-establish what engineering responsibility you are carrying.",
       "Survey the current engineering state and choose the most useful actionable work.",

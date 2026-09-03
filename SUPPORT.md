@@ -1,8 +1,8 @@
-<!-- Mellions Engineer | Copyright © 2026 LetA Tech Ltd. | leta@letatech.ca -->
+<!-- Mellions Coxen | Copyright © 2026 LetA Tech Ltd. | leta@letatech.ca -->
 
 # Support
 
-Mellions Engineer is maintained as an open-source engineering project. The
+Mellions Coxen is maintained as an open-source engineering project. The
 project does not currently offer a response-time or uptime service-level
 agreement.
 
