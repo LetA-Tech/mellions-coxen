@@ -1,4 +1,4 @@
-<!-- Mellions Engineer | LetA Tech Ltd. | leta@letatech.ca -->
+<!-- Mellions Coxen | LetA Tech Ltd. | leta@letatech.ca -->
 
 # The `mellions` CLI
 
