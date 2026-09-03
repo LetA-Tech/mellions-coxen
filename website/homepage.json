@@ -1,0 +1,219 @@
+{
+  "schemaVersion": 1,
+  "product": {
+    "name": "Mellions Coxen",
+    "canonicalUrl": "https://letatech.ca/mellions-coxen",
+    "repositoryUrl": "https://github.com/LetA-Tech/mellions-coxen",
+    "sourcePath": "website/homepage.json",
+    "links": {
+      "repository": "https://github.com/LetA-Tech/mellions-coxen",
+      "installation": "https://github.com/LetA-Tech/mellions-coxen/blob/main/docs/install.md",
+      "integrations": "https://github.com/LetA-Tech/mellions-coxen/blob/main/docs/integrations.md",
+      "benchmarks": "https://github.com/LetA-Tech/mellions-coxen/blob/main/docs/benchmarks.md"
+    }
+  },
+  "locales": {
+    "en": {
+      "metadata": {
+        "title": "Mellions Coxen | Engineering reliability for coding agents",
+        "description": "Give capable coding agents durable responsibility, continuity, adversarial verification, and disciplined completion with Mellions Coxen."
+      },
+      "hero": {
+        "eyebrow": "Open-source engineering responsibility",
+        "title": "Mellions Coxen gives your coding agent the job—not just the next task.",
+        "description": "Bring a capable coding agent. Mellions adds the engineering discipline around it: durable responsibility, continuity, adversarial verification, coordination, and useful autonomy over time.",
+        "primaryCta": "Install Mellions",
+        "secondaryCta": "View on GitHub"
+      },
+      "why": {
+        "title": "A strong model still needs an engineering operating system.",
+        "description": "Mellions reduces the management work that appears when an agent must carry production engineering beyond one prompt or one context window.",
+        "points": [
+          {
+            "title": "Own the whole responsibility",
+            "description": "Established defects inside the active code path are carried through root cause, implementation, and verification instead of handed back as another approval request."
+          },
+          {
+            "title": "Try to prove the answer wrong",
+            "description": "Passing tests are evidence, not automatic proof. Consequential conclusions are challenged with mutations, comparisons, and checks that can genuinely fail."
+          },
+          {
+            "title": "Continue across interruptions",
+            "description": "Assignments and current repository state preserve the responsibility across restarts, compaction, handoff, and parallel engineering lanes."
+          }
+        ]
+      },
+      "model": {
+        "title": "Frontier-model judgment. Deterministic mechanisms where they earn their keep.",
+        "description": "The coding runtime keeps its native reasoning, tools, permissions, worktrees, subagents, sandboxing, and model choice. Mellions supplies the durable engineering layer around that capability.",
+        "steps": [
+          {
+            "label": "01",
+            "title": "Establish reality",
+            "description": "Read the running system, source, history, tracker, and governing contracts before treating the task description as truth."
+          },
+          {
+            "label": "02",
+            "title": "Carry the work",
+            "description": "Proceed autonomously on ordinary engineering decisions and escalate only the judgments that genuinely belong to a person."
+          },
+          {
+            "label": "03",
+            "title": "Falsify completion",
+            "description": "Verify the original obligation, neutralize important fixes, and make sure the claimed proof turns red for the intended reason."
+          },
+          {
+            "label": "04",
+            "title": "Leave durable state",
+            "description": "Keep the issue, pull request, assignment, and handoff aligned so another session can continue from evidence rather than replaying a conversation."
+          }
+        ]
+      },
+      "evidence": {
+        "title": "Published evidence, including the limits.",
+        "description": "Mellions is developed through production use, controlled same-model comparisons, and deterministic replay. The public record separates observed behavior from retrospective estimates and does not present one case study as a universal coding benchmark.",
+        "links": [
+          {
+            "label": "Read the benchmark methodology",
+            "target": "benchmarks"
+          },
+          {
+            "label": "Inspect the source",
+            "target": "repository"
+          }
+        ]
+      },
+      "support": {
+        "title": "Precise about what works today.",
+        "description": "The engineering model is portable, but automatic lifecycle integration is a runtime-specific support claim.",
+        "items": [
+          {
+            "name": "Claude Code",
+            "status": "First-class and production-used",
+            "description": "Native plugin, Skills, slash commands, lifecycle and awareness hooks, recovery, renewal, and unattended runner support."
+          },
+          {
+            "name": "Codex",
+            "status": "Implemented and interactive",
+            "description": "Plugin, Skills, commands, and hook manifest are present. Codex must explicitly trust the hooks; the unattended runner is currently Claude-only."
+          }
+        ],
+        "linkLabel": "See the integration matrix"
+      },
+      "install": {
+        "title": "Install from the public source.",
+        "description": "One checkout installs both the Mellions CLI and the plugin into the supported coding runtimes already present on the machine.",
+        "command": "git clone https://github.com/LetA-Tech/mellions-coxen.git\ncd mellions-coxen\nmake install\n\nmellions config init\nmellions doctor",
+        "note": "Requires Go 1.26.1 or newer, Git, an authenticated GitHub CLI, Claude Code and/or Codex, and macOS or Linux.",
+        "linkLabel": "Read the complete installation guide"
+      },
+      "closing": {
+        "title": "Give a capable agent real engineering responsibility.",
+        "description": "Start with the public source, inspect every mechanism, and bring the cases where Mellions helps, does nothing, or makes the agent worse.",
+        "primaryCta": "Install Mellions",
+        "secondaryCta": "Challenge it on GitHub"
+      }
+    },
+    "fr": {
+      "metadata": {
+        "title": "Mellions Coxen | Fiabilité d’ingénierie pour les agents de codage",
+        "description": "Donnez aux agents de codage compétents une responsabilité durable, de la continuité, une vérification contradictoire et une exécution rigoureuse avec Mellions Coxen."
+      },
+      "hero": {
+        "eyebrow": "Responsabilité d’ingénierie à code source ouvert",
+        "title": "Mellions Coxen confie le mandat à votre agent de codage, pas seulement la prochaine tâche.",
+        "description": "Apportez un agent de codage compétent. Mellions ajoute la discipline d’ingénierie autour de lui : responsabilité durable, continuité, vérification contradictoire, coordination et autonomie utile dans le temps.",
+        "primaryCta": "Installer Mellions",
+        "secondaryCta": "Voir sur GitHub"
+      },
+      "why": {
+        "title": "Même un modèle puissant a besoin d’un système d’exploitation d’ingénierie.",
+        "description": "Mellions réduit le travail de gestion qui apparaît lorsqu’un agent doit mener une ingénierie de production au-delà d’une seule consigne ou d’une seule fenêtre de contexte.",
+        "points": [
+          {
+            "title": "Assumer toute la responsabilité",
+            "description": "Les défauts établis dans le chemin de code actif sont menés de la cause fondamentale à l’implémentation et à la vérification, plutôt que retournés comme une nouvelle demande d’approbation."
+          },
+          {
+            "title": "Tenter de réfuter la réponse",
+            "description": "Des tests réussis sont des éléments de preuve, pas une preuve automatique. Les conclusions importantes sont mises à l’épreuve par des mutations, des comparaisons et des contrôles capables d’échouer réellement."
+          },
+          {
+            "title": "Continuer malgré les interruptions",
+            "description": "Les mandats et l’état actuel du dépôt préservent la responsabilité à travers les redémarrages, la compaction, les transferts et les voies d’ingénierie parallèles."
+          }
+        ]
+      },
+      "model": {
+        "title": "Le jugement d’un modèle de pointe. Des mécanismes déterministes lorsqu’ils sont justifiés.",
+        "description": "L’environnement de codage conserve son raisonnement, ses outils, ses permissions, ses arbres de travail, ses sous-agents, son bac à sable et son choix de modèle. Mellions fournit la couche d’ingénierie durable autour de cette capacité.",
+        "steps": [
+          {
+            "label": "01",
+            "title": "Établir la réalité",
+            "description": "Lire le système en fonctionnement, le code source, l’historique, le suivi et les contrats applicables avant de traiter la description de la tâche comme une vérité."
+          },
+          {
+            "label": "02",
+            "title": "Porter le travail",
+            "description": "Avancer de façon autonome sur les décisions d’ingénierie ordinaires et ne faire remonter que les jugements qui appartiennent réellement à une personne."
+          },
+          {
+            "label": "03",
+            "title": "Réfuter l’achèvement",
+            "description": "Vérifier l’obligation initiale, neutraliser les corrections importantes et s’assurer que la preuve annoncée devient rouge pour la raison attendue."
+          },
+          {
+            "label": "04",
+            "title": "Laisser un état durable",
+            "description": "Maintenir l’enjeu, la demande de tirage, le mandat et le transfert alignés afin qu’une autre session poursuive à partir des preuves plutôt que de rejouer une conversation."
+          }
+        ]
+      },
+      "evidence": {
+        "title": "Des preuves publiées, avec leurs limites.",
+        "description": "Mellions est développé par l’usage en production, des comparaisons contrôlées avec le même modèle et des reprises déterministes. Le dossier public distingue les comportements observés des estimations rétrospectives et ne présente pas une étude de cas comme un indicateur universel de codage.",
+        "links": [
+          {
+            "label": "Lire la méthodologie des évaluations",
+            "target": "benchmarks"
+          },
+          {
+            "label": "Inspecter le code source",
+            "target": "repository"
+          }
+        ]
+      },
+      "support": {
+        "title": "Précis sur ce qui fonctionne aujourd’hui.",
+        "description": "Le modèle d’ingénierie est portable, mais l’intégration automatique au cycle de vie est une affirmation de prise en charge propre à chaque environnement.",
+        "items": [
+          {
+            "name": "Claude Code",
+            "status": "Prise en charge de premier ordre et utilisée en production",
+            "description": "Extension native, Skills, commandes obliques, crochets de cycle de vie et de contexte, reprise, renouvellement et exécution sans surveillance."
+          },
+          {
+            "name": "Codex",
+            "status": "Implémenté et interactif",
+            "description": "L’extension, les Skills, les commandes et le manifeste des crochets sont présents. Codex doit approuver explicitement les crochets; l’exécution sans surveillance est actuellement réservée à Claude."
+          }
+        ],
+        "linkLabel": "Voir la matrice d’intégration"
+      },
+      "install": {
+        "title": "Installer depuis le code source public.",
+        "description": "Un seul dépôt installe l’interface de ligne de commande Mellions et l’extension dans les environnements de codage pris en charge déjà présents sur la machine.",
+        "command": "git clone https://github.com/LetA-Tech/mellions-coxen.git\ncd mellions-coxen\nmake install\n\nmellions config init\nmellions doctor",
+        "note": "Nécessite Go 1.26.1 ou une version ultérieure, Git, l’interface GitHub authentifiée, Claude Code et/ou Codex, ainsi que macOS ou Linux.",
+        "linkLabel": "Lire le guide d’installation complet"
+      },
+      "closing": {
+        "title": "Confiez une vraie responsabilité d’ingénierie à un agent compétent.",
+        "description": "Commencez par le code source public, inspectez chaque mécanisme et apportez les cas où Mellions aide, ne change rien ou nuit au travail de l’agent.",
+        "primaryCta": "Installer Mellions",
+        "secondaryCta": "Le mettre à l’épreuve sur GitHub"
+      }
+    }
+  }
+}

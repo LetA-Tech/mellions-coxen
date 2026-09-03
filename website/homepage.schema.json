@@ -1,0 +1,195 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/LetA-Tech/mellions-coxen/blob/main/website/homepage.schema.json",
+  "title": "Mellions Coxen homepage content",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "product", "locales"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "product": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "canonicalUrl", "repositoryUrl", "sourcePath", "links"],
+      "properties": {
+        "name": { "const": "Mellions Coxen" },
+        "canonicalUrl": { "const": "https://letatech.ca/mellions-coxen" },
+        "repositoryUrl": { "const": "https://github.com/LetA-Tech/mellions-coxen" },
+        "sourcePath": { "const": "website/homepage.json" },
+        "links": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["repository", "installation", "integrations", "benchmarks"],
+          "properties": {
+            "repository": { "const": "https://github.com/LetA-Tech/mellions-coxen" },
+            "installation": { "const": "https://github.com/LetA-Tech/mellions-coxen/blob/main/docs/install.md" },
+            "integrations": { "const": "https://github.com/LetA-Tech/mellions-coxen/blob/main/docs/integrations.md" },
+            "benchmarks": { "const": "https://github.com/LetA-Tech/mellions-coxen/blob/main/docs/benchmarks.md" }
+          }
+        }
+      }
+    },
+    "locales": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["en", "fr"],
+      "properties": {
+        "en": { "$ref": "#/$defs/locale" },
+        "fr": { "$ref": "#/$defs/locale" }
+      }
+    }
+  },
+  "$defs": {
+    "nonEmpty": { "type": "string", "minLength": 1 },
+    "card": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["title", "description"],
+      "properties": {
+        "title": { "$ref": "#/$defs/nonEmpty" },
+        "description": { "$ref": "#/$defs/nonEmpty" }
+      }
+    },
+    "step": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["label", "title", "description"],
+      "properties": {
+        "label": { "type": "string", "pattern": "^[0-9]{2}$" },
+        "title": { "$ref": "#/$defs/nonEmpty" },
+        "description": { "$ref": "#/$defs/nonEmpty" }
+      }
+    },
+    "evidenceLink": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["label", "target"],
+      "properties": {
+        "label": { "$ref": "#/$defs/nonEmpty" },
+        "target": { "enum": ["benchmarks", "repository"] }
+      }
+    },
+    "supportItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "status", "description"],
+      "properties": {
+        "name": { "enum": ["Claude Code", "Codex"] },
+        "status": { "$ref": "#/$defs/nonEmpty" },
+        "description": { "$ref": "#/$defs/nonEmpty" }
+      }
+    },
+    "locale": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["metadata", "hero", "why", "model", "evidence", "support", "install", "closing"],
+      "properties": {
+        "metadata": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["title", "description"],
+          "properties": {
+            "title": { "$ref": "#/$defs/nonEmpty" },
+            "description": { "$ref": "#/$defs/nonEmpty" }
+          }
+        },
+        "hero": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["eyebrow", "title", "description", "primaryCta", "secondaryCta"],
+          "properties": {
+            "eyebrow": { "$ref": "#/$defs/nonEmpty" },
+            "title": { "$ref": "#/$defs/nonEmpty" },
+            "description": { "$ref": "#/$defs/nonEmpty" },
+            "primaryCta": { "$ref": "#/$defs/nonEmpty" },
+            "secondaryCta": { "$ref": "#/$defs/nonEmpty" }
+          }
+        },
+        "why": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["title", "description", "points"],
+          "properties": {
+            "title": { "$ref": "#/$defs/nonEmpty" },
+            "description": { "$ref": "#/$defs/nonEmpty" },
+            "points": {
+              "type": "array",
+              "minItems": 3,
+              "maxItems": 3,
+              "items": { "$ref": "#/$defs/card" }
+            }
+          }
+        },
+        "model": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["title", "description", "steps"],
+          "properties": {
+            "title": { "$ref": "#/$defs/nonEmpty" },
+            "description": { "$ref": "#/$defs/nonEmpty" },
+            "steps": {
+              "type": "array",
+              "minItems": 4,
+              "maxItems": 4,
+              "items": { "$ref": "#/$defs/step" }
+            }
+          }
+        },
+        "evidence": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["title", "description", "links"],
+          "properties": {
+            "title": { "$ref": "#/$defs/nonEmpty" },
+            "description": { "$ref": "#/$defs/nonEmpty" },
+            "links": {
+              "type": "array",
+              "minItems": 2,
+              "maxItems": 2,
+              "items": { "$ref": "#/$defs/evidenceLink" }
+            }
+          }
+        },
+        "support": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["title", "description", "items", "linkLabel"],
+          "properties": {
+            "title": { "$ref": "#/$defs/nonEmpty" },
+            "description": { "$ref": "#/$defs/nonEmpty" },
+            "items": {
+              "type": "array",
+              "minItems": 2,
+              "maxItems": 2,
+              "items": { "$ref": "#/$defs/supportItem" }
+            },
+            "linkLabel": { "$ref": "#/$defs/nonEmpty" }
+          }
+        },
+        "install": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["title", "description", "command", "note", "linkLabel"],
+          "properties": {
+            "title": { "$ref": "#/$defs/nonEmpty" },
+            "description": { "$ref": "#/$defs/nonEmpty" },
+            "command": { "type": "string", "pattern": "git clone https://github\\.com/LetA-Tech/mellions-coxen\\.git" },
+            "note": { "$ref": "#/$defs/nonEmpty" },
+            "linkLabel": { "$ref": "#/$defs/nonEmpty" }
+          }
+        },
+        "closing": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["title", "description", "primaryCta", "secondaryCta"],
+          "properties": {
+            "title": { "$ref": "#/$defs/nonEmpty" },
+            "description": { "$ref": "#/$defs/nonEmpty" },
+            "primaryCta": { "$ref": "#/$defs/nonEmpty" },
+            "secondaryCta": { "$ref": "#/$defs/nonEmpty" }
+          }
+        }
+      }
+    }
+  }
+}
