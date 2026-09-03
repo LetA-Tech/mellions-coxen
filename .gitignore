@@ -1,0 +1,28 @@
+# Binaries
+/bin/
+
+# Secrets — match at ANY depth, not just the repo root. deploy/.env held a live
+# bot token and was one `git add -A` away from being committed.
+.env
+.env.*
+!.env*.example
+*.pem
+*.key
+
+# Logs and OS noise
+*.log
+.DS_Store
+
+# Local ledger
+*.db
+*.db-wal
+*.db-shm
+dist/
+config/ENVIRONMENT.md
+
+# Local worktrees
+.worktrees/
+
+# Private release preparation and historical records belong only to the
+# access-controlled source repository, never to a public candidate tree.
+/internal-docs/

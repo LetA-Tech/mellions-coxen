@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/LetA-Tech/mellions-coxen/blob/main/SECURITY.md
+    about: Please use the security reporting process instead of a public issue.

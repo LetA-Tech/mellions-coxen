@@ -1,0 +1,24 @@
+# Mellions Engineer | LetA Tech Ltd. | leta@letatech.ca
+[Unit]
+Description=Mellions — one unattended engineering shift
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=@@USER@@
+Group=@@GROUP@@
+WorkingDirectory=@@WORKDIR_SYSTEMD@@
+Environment=@@PATH_SYSTEMD@@
+Environment=@@HOME_SYSTEMD@@
+Environment=@@MELLIONS_HOME_SYSTEMD@@
+Environment=@@MELLIONS_WORKDIR_SYSTEMD@@
+Environment=@@BUDGET_SYSTEMD@@
+Environment=@@SHIFT_TIMEOUT_SYSTEMD@@
+Environment=@@MODEL_SYSTEMD@@
+ExecStart=@@SHIFT_SYSTEMD@@
+TimeoutStartSec=@@UNIT_TIMEOUT@@
+KillMode=mixed
+
+[Install]
+WantedBy=multi-user.target

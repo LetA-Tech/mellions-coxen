@@ -1,0 +1,12 @@
+# Mellions Engineer | LetA Tech Ltd. | leta@letatech.ca
+[Unit]
+Description=Mellions — scheduled unattended engineering shift
+Documentation=@@ARCHITECTURE_SYSTEMD@@
+
+[Timer]
+OnCalendar=@@CALENDAR_SYSTEMD@@
+Persistent=false
+RandomizedDelaySec=300
+
+[Install]
+WantedBy=timers.target

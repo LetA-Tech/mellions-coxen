@@ -1,0 +1,23 @@
+{
+  "name": "mellions",
+  "version": "0.1.0",
+  "description": "Engineering responsibility and reliability for frontier coding agents: continuity, ownership, falsification, coordination, and disciplined completion.",
+  "author": {
+    "name": "LetA Tech Ltd",
+    "email": "leta@letatech.ca",
+    "url": "https://github.com/LetA-Tech"
+  },
+  "homepage": "https://letatech.ca/mellions-engineer",
+  "license": "Apache-2.0",
+  "repository": "https://github.com/LetA-Tech/mellions-coxen",
+  "keywords": [
+    "coding-agents",
+    "agent-reliability",
+    "adversarial-testing",
+    "engineering-discipline",
+    "continuity",
+    "autonomous-coding"
+  ],
+  "skills": "./skills/",
+  "commands": "./commands/"
+}

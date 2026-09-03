@@ -1,0 +1,20 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "mellions",
+  "description": "Engineering responsibility and reliability for frontier coding agents.",
+  "owner": {
+    "name": "LetA Tech Ltd",
+    "email": "leta@letatech.ca",
+    "url": "https://github.com/LetA-Tech"
+  },
+  "plugins": [
+    {
+      "name": "mellions",
+      "version": "0.1.0",
+      "description": "Turn a frontier coding agent into an engineer that carries responsibility across sessions, challenges its own evidence, and stays on the job.",
+      "source": "./",
+      "category": "productivity",
+      "license": "Apache-2.0"
+    }
+  ]
+}

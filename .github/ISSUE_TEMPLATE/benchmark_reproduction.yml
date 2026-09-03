@@ -1,0 +1,67 @@
+name: Benchmark reproduction
+description: Reproduce, challenge, or extend a published Mellions Engineer behavioral result
+title: "[Benchmark] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Don't trust our benchmark. Reproduce it.**
+
+        Strong results include enough setup and raw outcome detail for another engineer to challenge them. A negative result is useful evidence too.
+  - type: dropdown
+    id: result
+    attributes:
+      label: Result type
+      options:
+        - Reproduced published behavior
+        - Failed to reproduce published behavior
+        - Mellions performed worse
+        - New treated vs untreated comparison
+        - New adversarial / falsification fixture
+    validations:
+      required: true
+  - type: input
+    id: model
+    attributes:
+      label: Model
+      placeholder: "Model and version if known"
+    validations:
+      required: true
+  - type: input
+    id: runtime
+    attributes:
+      label: Coding-agent runtime
+      placeholder: "Claude Code, Codex, or another runtime"
+    validations:
+      required: true
+  - type: textarea
+    id: controlled
+    attributes:
+      label: What was held constant?
+      description: Describe the task/fixture, prompt, runtime, tools, time limit, and other variables shared between arms.
+    validations:
+      required: true
+  - type: textarea
+    id: treatment
+    attributes:
+      label: Treatment and comparison
+      description: What Mellions method/mechanism changed between the arms? Avoid bundling unrelated differences where possible.
+    validations:
+      required: true
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Observed outcome
+      description: Give counts, exact behavior changes, and failures. Do not convert a small sample into a universal percentage claim.
+    validations:
+      required: true
+  - type: textarea
+    id: artifacts
+    attributes:
+      label: Reproduction artifacts
+      description: Link or paste sanitized fixture code, prompts, outputs, scripts, or other evidence needed to reproduce the result.
+  - type: textarea
+    id: limitations
+    attributes:
+      label: Limitations / confounders
+      description: What cannot be attributed cleanly to Mellions? What sample-size or environment caveats matter?

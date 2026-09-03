@@ -1,0 +1,24 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(*)",
+      "Read(*)",
+      "Edit(*)",
+      "Write(*)",
+      "Glob(*)",
+      "Grep(*)",
+      "WebFetch(*)",
+      "WebSearch(*)",
+      "Agent(*)"
+    ],
+    "deny": [
+      "Bash(gh repo delete*)",
+      "Bash(gh secret*)",
+      "Bash(sudo*)",
+      "Bash(kubectl apply*)",
+      "Bash(kubectl delete*)",
+      "Bash(terraform apply*)",
+      "Bash(terraform destroy*)"
+    ]
+  }
+}

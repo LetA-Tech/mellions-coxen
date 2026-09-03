@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Mellions Engineer | LetA Tech Ltd. | leta@letatech.ca
+     Starts the unattended runner at login and after an error exit, never twice.
+     A clean stop exits zero and stays stopped. -->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.letatech.mellions.runner</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>@@RUNNER_XML@@</string>
+  </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>@@PATH_XML@@</string>
+    <key>MELLIONS_HOME</key>
+    <string>@@MELLIONS_HOME_XML@@</string>
+    <key>MELLIONS_WORKDIR</key>
+    <string>@@WORKDIR_XML@@</string>
+    <key>MELLIONS_CHECKOUT</key>
+    <string>@@CHECKOUT_XML@@</string>
+  </dict>
+  <key>WorkingDirectory</key>
+  <string>@@WORKDIR_XML@@</string>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <dict>
+    <key>SuccessfulExit</key>
+    <false/>
+  </dict>
+  <key>ThrottleInterval</key>
+  <integer>60</integer>
+  <key>ExitTimeOut</key>
+  <integer>60</integer>
+  <key>ProcessType</key>
+  <string>Background</string>
+  <key>StandardOutPath</key>
+  <string>@@RUNNER_LOG_XML@@</string>
+  <key>StandardErrorPath</key>
+  <string>@@RUNNER_LOG_XML@@</string>
+</dict>
+</plist>

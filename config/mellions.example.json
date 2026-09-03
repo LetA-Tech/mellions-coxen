@@ -1,0 +1,12 @@
+{
+  "owner": "your-github-org",
+  "repos": ["service-a", "service-b"],
+  "work_root": "/home/you/workspace",
+  "sources": ["programs", "assignments", "github", "git", "stale"],
+  "owner_labels": ["needs-owner", "pending-owner-decision"],
+  "stale_min_age_hours": 168,
+  "per_repo_limit": 50,
+  "git_since_hours": 168,
+  "assignments_root": "/home/you/mellions/assignments",
+  "report_root": "/home/you/mellions"
+}

@@ -1,0 +1,90 @@
+#!/usr/bin/env bash
+# Mellions Engineer | LetA Tech Ltd. | leta@letatech.ca
+# Disposable Docker + gVisor sandbox for agent work.
+set -euo pipefail
+
+IMAGE="ubuntu:24.04"; MEM="2g"; CPUS="2"; NET="none"
+MOUNT_REPO=""; MOUNT_MODE="ro"; PUBLISH=""; NAME="sbx-$$"; KEEP_CAPS=0
+
+usage() {
+    cat >&2 <<'USAGE'
+Usage: leta-sbx [options] [--] [command ...]
+  -i IMAGE   image (default ubuntu:24.04)   -m MEM   memory cap (2g)
+  -c CPUS    cpu cap (2)                    -n MODE  network none|bridge
+  -r PATH    mount PATH at /work (ro)       -w       make mount writable
+  -p PORT    publish on 127.0.0.1 only      -C       keep default capabilities
+  -N NAME    container name
+Always --rm, --runtime=runsc, label leta.sandbox=1.
+USAGE
+    exit 1
+}
+
+while getopts ":i:m:c:n:r:wp:N:Ch" opt; do
+    case "$opt" in
+        i) IMAGE="$OPTARG" ;; m) MEM="$OPTARG" ;; c) CPUS="$OPTARG" ;;
+        n) NET="$OPTARG" ;; r) MOUNT_REPO="$OPTARG" ;; w) MOUNT_MODE="rw" ;;
+        p) PUBLISH="$OPTARG" ;; N) NAME="$OPTARG" ;; C) KEEP_CAPS=1 ;;
+        h) usage ;; *) usage ;;
+    esac
+done
+shift $((OPTIND - 1))
+
+if [ -n "$PUBLISH" ] && [ "$NET" = "none" ]; then
+    NET="bridge"; echo "leta-sbx: -p given, switching network to bridge" >&2
+fi
+
+if ! docker info --format '{{json .Runtimes}}' 2>/dev/null | grep -q '"runsc"'; then
+    echo "leta-sbx: runsc runtime not registered with Docker." >&2
+    echo "          run: sudo runsc install && sudo systemctl restart docker" >&2
+    exit 1
+fi
+
+ARGS=( run --rm --runtime=runsc --label leta.sandbox=1 --name "$NAME"
+       --memory "$MEM" --memory-swap "$MEM" --cpus "$CPUS" --pids-limit 512
+       --network "$NET" --security-opt no-new-privileges )
+
+[ "$KEEP_CAPS" -eq 0 ] && ARGS+=( --cap-drop ALL )
+
+# A writable bind mount is owned by the host user, and --cap-drop ALL removes
+# CAP_DAC_OVERRIDE, so container-root cannot write to it. Run as the invoking
+# user instead: writes succeed and files keep correct host ownership.
+if [ "$MOUNT_MODE" = "rw" ] && [ "$KEEP_CAPS" -eq 0 ]; then
+    ARGS+=( --user "$(id -u):$(id -g)" )
+fi
+
+if [ -n "$MOUNT_REPO" ]; then
+    MOUNT_REPO="$(cd "$MOUNT_REPO" && pwd)"
+    ARGS+=( --mount "type=bind,src=$MOUNT_REPO,dst=/work,readonly=$([ "$MOUNT_MODE" = ro ] && echo true || echo false)" -w /work )
+
+    # git refuses a repository whose directory is owned by another user, and a
+    # read-only mount is read by container-root while the host path is the
+    # invoking user's. The refusal is a bare exit 128 that reads like a broken
+    # repository, so anything deriving source identity inside the sandbox --
+    # an evidence bridge, a provenance check -- fails for a reason that is not
+    # about the code. The container mounts one path the operator named and is
+    # discarded, so the ownership check defends nothing here.
+    ARGS+=( -e GIT_CONFIG_COUNT=1 -e GIT_CONFIG_KEY_0=safe.directory -e GIT_CONFIG_VALUE_0='*' )
+
+    # A linked worktree's .git is a file pointing at the parent repository's
+    # git directory, and a mounted subdirectory's git directory sits above the
+    # mount; either way the target is outside it and git says "not a git
+    # repository". Carry the whole common directory at its own absolute path so
+    # the pointer resolves. The condition below is what the code actually tests
+    # -- the common directory is not under the mount -- which is wider than the
+    # worktree case: mounting any subdirectory of any repository carries that
+    # repository's whole history too. Hence the announcement on stderr. A
+    # curated subset is worse, not narrower: omit packed-refs and git exits 0
+    # reporting a branch with no commits.
+    GIT_COMMON_DIR="$(git -C "$MOUNT_REPO" rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)"
+    if [ -n "$GIT_COMMON_DIR" ] && [ -d "$GIT_COMMON_DIR" ] && \
+       [ "${GIT_COMMON_DIR##"$MOUNT_REPO"/}" = "$GIT_COMMON_DIR" ]; then
+        ARGS+=( --mount "type=bind,src=$GIT_COMMON_DIR,dst=$GIT_COMMON_DIR,readonly=true" )
+        echo "leta-sbx: carrying the repository's whole git directory $GIT_COMMON_DIR (read-only): every branch, every other worktree, every reflog" >&2
+    fi
+fi
+[ -n "$PUBLISH" ] && ARGS+=( -p "127.0.0.1:${PUBLISH}:${PUBLISH}" )
+
+if [ $# -eq 0 ]; then ARGS+=( -it "$IMAGE" bash ); else ARGS+=( -i "$IMAGE" "$@" ); fi
+
+echo "leta-sbx: $IMAGE mem=$MEM cpus=$CPUS net=$NET mount=${MOUNT_REPO:-none}/$MOUNT_MODE" >&2
+exec docker "${ARGS[@]}"

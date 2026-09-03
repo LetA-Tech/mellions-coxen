@@ -1,0 +1,20 @@
+{
+  "name": "mellions",
+  "interface": {
+    "displayName": "Mellions by LetA Tech Ltd"
+  },
+  "plugins": [
+    {
+      "name": "mellions",
+      "source": {
+        "source": "local",
+        "path": "./"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_USE"
+      },
+      "category": "Productivity"
+    }
+  ]
+}

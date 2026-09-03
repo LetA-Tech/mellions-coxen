@@ -1,0 +1,55 @@
+name: Bug report
+description: Report a reproducible Mellions Engineer defect or reliability failure
+title: "[Bug] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for helping make Mellions harder to fool. Please report what you observed, not what you assume the root cause is.
+  - type: dropdown
+    id: runtime
+    attributes:
+      label: Runtime
+      options:
+        - Claude Code
+        - Codex
+        - Mellions CLI only
+        - Other / proposed integration
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Mellions version / commit
+      description: Output from `mellions version` or the repository commit if known.
+      placeholder: "0.1.0 / abc1234"
+  - type: textarea
+    id: observed
+    attributes:
+      label: What happened?
+      description: Describe the observed behavior and why it is incorrect or harmful.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What should have happened?
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Minimal reproduction
+      description: Commands, fixture, session setup, or steps another engineer can use to reproduce the failure. Remove secrets and private project data.
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence
+      description: Relevant logs, test output, hook output, screenshots, or sanitized session excerpts.
+  - type: textarea
+    id: impact
+    attributes:
+      label: Engineering impact
+      description: Did this cause false completion, unnecessary escalation, lost continuity, duplicate work, unsafe behavior, or another concrete failure?

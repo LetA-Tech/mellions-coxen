@@ -1,0 +1,10 @@
+# Mellions Engineer | LetA Tech Ltd. | leta@letatech.ca
+# Starts the unattended runner at boot and on the configured recovery cadence.
+# The runner lock makes a recovery start a no-op while one is already alive.
+PATH=@@PATH_CRON@@
+CLAUDE_BIN=@@CLAUDE_BIN_CRON@@
+MELLIONS_HOME=@@MELLIONS_HOME_CRON@@
+MELLIONS_WORKDIR=@@WORKDIR_CRON@@
+MELLIONS_CHECKOUT=@@CHECKOUT_CRON@@
+@reboot @@RUNNER_CRON@@ >> @@RUNNER_LOG_CRON@@ 2>&1
+@@CRON_SCHEDULE@@ @@RUNNER_CRON@@ >> @@RUNNER_LOG_CRON@@ 2>&1

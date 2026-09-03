@@ -1,0 +1,48 @@
+name: Runtime integration
+description: Propose or report work to integrate Mellions with another coding-agent runtime
+title: "[Integration] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Mellions is model-agnostic in philosophy, but runtime support is a concrete engineering claim. Please describe the actual lifecycle surfaces available in the runtime rather than assuming generic compatibility.
+  - type: input
+    id: runtime
+    attributes:
+      label: Runtime
+      placeholder: "Runtime name and version"
+    validations:
+      required: true
+  - type: input
+    id: models
+    attributes:
+      label: Models commonly used through this runtime
+      description: Informational only; the adapter should target runtime capabilities rather than hard-code model names where avoidable.
+  - type: textarea
+    id: lifecycle
+    attributes:
+      label: Available lifecycle / extension surfaces
+      description: Session start/resume, hooks, Skills/plugins, tool interception, context renewal, permission model, worktrees, agent teams, etc.
+    validations:
+      required: true
+  - type: textarea
+    id: mapping
+    attributes:
+      label: Proposed Mellions mapping
+      description: How can responsibility, situational awareness, methods, recovery, and narrow deterministic checks reach the agent without replacing the runtime?
+    validations:
+      required: true
+  - type: textarea
+    id: boundaries
+    attributes:
+      label: Native-runtime boundaries
+      description: What should remain entirely owned by the runtime (permissions, MCP, tools, sandboxing, scheduling, model selection, etc.)?
+    validations:
+      required: true
+  - type: textarea
+    id: verification
+    attributes:
+      label: Verification plan
+      description: Describe a fresh-session or real engineering scenario proving the integration actually delivers Mellions context/methods at the intended lifecycle moments.
+    validations:
+      required: true

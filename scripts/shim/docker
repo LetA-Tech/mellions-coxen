@@ -1,0 +1,85 @@
+#!/usr/bin/env bash
+# Mellions Engineer | LetA Tech Ltd. | leta@letatech.ca
+# docker shim — a container on this host must be disposable or findable.
+#
+# Two containers sat up for eleven hours holding a gigabyte of anonymous volumes
+# because the harness that started them ran `docker rm -f` at the TOP of the
+# script rather than at the end. Each run removed the previous run's leftovers,
+# so exactly one stale pair was ever visible and nothing looked wrong.
+#
+# The rule this enforces is narrow and mechanical: `docker run` must either pass
+# --rm, so the container disposes of itself, or carry --label leta.sandbox=1, so
+# the sweeper can find it. Anything else is a container nobody can account for.
+#
+# It is a guardrail against the default path, not a barrier: leta is in the
+# docker group and can call /usr/bin/docker directly. That is a deliberate
+# bypass rather than an accident, which is the distinction worth drawing.
+set -euo pipefail
+REAL=/usr/bin/docker
+
+# leta-sbx always passes --rm and --label, so it satisfies the rule on its own
+# and needs no exemption. Nothing else is exempt either.
+
+has_flag() { # has_flag <needle> <args...>
+  local needle=$1; shift
+  for a in "$@"; do
+    case "$a" in
+      "$needle"|"$needle"=*) return 0 ;;
+    esac
+  done
+  return 1
+}
+
+has_sandbox_label() {
+  local prev=""
+  for a in "$@"; do
+    case "$a" in
+      --label=leta.sandbox=*) return 0 ;;
+    esac
+    [[ "$prev" == "--label" || "$prev" == "-l" ]] && [[ "$a" == leta.sandbox=* ]] && return 0
+    prev="$a"
+  done
+  return 1
+}
+
+refuse() {
+  cat >&2 <<MSG
+refused: $1
+
+A container here must be one of two things:
+
+  disposable   docker run --rm ...            gone when the command returns
+  findable     docker run -d --label leta.sandbox=1 --name X ...
+
+Use the sandbox unless the workload must outlive a single command:
+
+  leta-sbx -r "\$PWD" -- <command>     gVisor, capped, --rm, network off
+
+A service that must persist across commands — a database or broker for an
+integration gate — takes the label AND tears itself down from a trap, so an
+interrupted run cleans up too:
+
+  NAMES=(x-pg x-kafka)
+  trap 'docker rm -f "\${NAMES[@]}" >/dev/null 2>&1 || true' EXIT INT TERM
+
+A \`docker rm -f\` before starting is not teardown. It hides the leak.
+The \`mellions-sandbox\` skill has the rest.
+MSG
+  exit 1
+}
+
+case "${1:-}" in
+  run)
+    shift
+    if has_flag --rm "$@"; then exec "$REAL" run "$@"; fi
+    if has_sandbox_label "$@"; then exec "$REAL" run "$@"; fi
+    refuse "\`docker run\` with neither --rm nor --label leta.sandbox=1"
+    ;;
+  compose)
+    if [[ "${2:-}" == "up" ]]; then
+      refuse "\`docker compose up\` — compose leaves containers, networks and volumes behind"
+    fi
+    ;;
+esac
+
+exec "$REAL" "$@"
