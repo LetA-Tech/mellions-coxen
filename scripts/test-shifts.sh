@@ -111,6 +111,11 @@ chmod +x "$STUB_DIR/claude" "$STUB_DIR/mellions"
 # the stub shifts into directed tasks and fail every self-update on a host that
 # runs the runner.
 for v in $(env | sed -n 's/^\(MELLIONS_[A-Za-z0-9_]*\)=.*/\1/p'); do unset "$v"; done
+# GOTMPDIR is not MELLIONS_-prefixed and shift.sh exports it, so a shift that
+# runs `make check` hands it to these stub shifts, which then honour it exactly
+# as a lane's own choice — and L1 reads the caller's directory instead of the
+# one the shift made. The suite has to start from an unset one to set it.
+unset GOTMPDIR
 export CLAUDE_BIN="$STUB_DIR/claude" MELLIONS_BIN="$STUB_DIR/mellions"
 export MELLIONS_COOLDOWN=1s MELLIONS_TICK=1 MELLIONS_AUTOUPDATE=0 MELLIONS_TIMEOUT=60
 export MELLIONS_SHIFTS_PER_DAY=50 MELLIONS_METHOD_EVERY=4 MELLIONS_BUDGET=1m
@@ -632,6 +637,88 @@ kill -TERM "$k8" 2>/dev/null; wait_gone 10 "$k8"
 rm -f "$STUB_DIR/limit-nozone"
 
 note "K: a refused shift is filed interrupted with its window and its lane; a quoted refusal and a timeout kill that quoted it are not; the runner waits for the window rather than backing off; and the cap counts the shifts that ran"
+
+# ---- L. where a shift's build scratch goes -----------------------------------
+# Go's default work directory is /tmp, and a shift killed by a usage limit or
+# the budget never removes the one it was using. On a host whose /tmp is a
+# tmpfs under a per-user quota that ends with every suite on the machine
+# refused at a few megabytes while df still shows gigabytes free. The session
+# is what runs `go`, so what these assert on is the environment the session was
+# actually handed, read out of the stub it was started as — not the text of the
+# script that sets it.
+cat > "$STUB_DIR/claude-l" <<'STUB'
+#!/usr/bin/env bash
+cat > /dev/null
+printf '%s\n' "${GOTMPDIR-<unset>}" >> "$STUB_DIR/l.gotmpdir"
+printf '{"type":"result","result":"ready — the stub shift replied"}\n'
+STUB
+chmod +x "$STUB_DIR/claude-l"
+printf 'work\n' > "$tmp/l-task.md"
+
+run_l() {   # run_l <home> [env assignments...]
+  local home="$1"; shift
+  : > "$STUB_DIR/l.gotmpdir"
+  env "$@" MELLIONS_HOME="$home" MELLIONS_BIN="$STUB_DIR/mellions" \
+      CLAUDE_BIN="$STUB_DIR/claude-l" MELLIONS_PROMPT="$tmp/l-task.md" \
+      "$root/scripts/shift.sh" > "$tmp/l.out" 2>&1
+  saw=$(cat "$STUB_DIR/l.gotmpdir")
+}
+
+# L1: the session is handed a scratch directory on disk, and it exists.
+lhome="$tmp/l1/home"; mkdir -p "$lhome"
+run_l "$lhome"
+[ "$saw" = "$lhome/tmp/go" ] \
+  || bad "L1: the session was handed GOTMPDIR=$saw, so its builds still scratch in /tmp: $(tail -3 "$tmp/l.out")"
+[ -d "$lhome/tmp/go" ] || bad "L1: $lhome/tmp/go was never created, so Go falls back to /tmp"
+
+# L2: what earlier shifts left there is collected, and only that. A live build
+# holds a directory whose mtime is now, so age is what separates them.
+mkdir -p "$lhome/tmp/go/go-build-old" "$lhome/tmp/go/go-build-fresh" "$lhome/tmp/go/keep-me"
+touch "$lhome/tmp/go/go-build-old/f"
+touch -d '2 days ago' "$lhome/tmp/go/go-build-old" 2>/dev/null \
+  || touch -t "$(date -u -v-2d '+%Y%m%d%H%M')" "$lhome/tmp/go/go-build-old"
+run_l "$lhome"
+[ -e "$lhome/tmp/go/go-build-old" ] \
+  && bad "L2: a work directory two days old survived the shift, so the scratch only ever grows"
+[ -d "$lhome/tmp/go/go-build-fresh" ] \
+  || bad "L2: a work directory written this minute was collected — that is a live build losing its scratch"
+[ -d "$lhome/tmp/go/keep-me" ] \
+  || bad "L2: the sweep removed a directory that is not a Go work directory"
+
+# L3: an explicit choice is not overridden. A lane that points Go somewhere
+# with room, or at a filesystem it needs, keeps what it set.
+lmine="$tmp/l3/mine"; mkdir -p "$lmine" "$tmp/l3/state"
+run_l "$tmp/l3/state" GOTMPDIR="$lmine"
+[ "$saw" = "$lmine" ] \
+  || bad "L3: an explicit GOTMPDIR was replaced with $saw"
+[ -e "$tmp/l3/state/tmp/go" ] \
+  && bad "L3: the shift made its own scratch directory anyway, beside the one it was told to use"
+
+# L4: the override says where new scratch goes and nothing more. What earlier
+# shifts left under the home is still collected — nothing else ever will, and
+# this is the volume the leak was moved onto.
+l4="$tmp/l4/state"; mkdir -p "$l4/tmp/go/go-build-old" "$tmp/l4/mine"
+touch -d '2 days ago' "$l4/tmp/go/go-build-old" 2>/dev/null \
+  || touch -t "$(date -u -v-2d '+%Y%m%d%H%M')" "$l4/tmp/go/go-build-old"
+run_l "$l4" GOTMPDIR="$tmp/l4/mine"
+[ -e "$l4/tmp/go/go-build-old" ] \
+  && bad "L4: a shift started with GOTMPDIR set abandoned what earlier shifts left under the home, and nothing else collects it"
+
+# L5: the one way this fails is a directory that cannot be created, and it puts
+# Go back on the tmpfs the whole block exists to keep it off. A shift that
+# went on without saying so is indistinguishable from one that worked, so the
+# thing asserted is that the run named the path it could not make. The shift
+# still runs: Go's own default is degraded here, not broken.
+l5="$tmp/l5/state"; mkdir -p "$l5"; : > "$l5/tmp"
+run_l "$l5"
+grep -qF "$l5/tmp/go" "$tmp/l.out" \
+  || bad "L5: the shift could not create $l5/tmp/go and did not say so, so a shift back on the quota'd tmpfs reads exactly like one that worked: $(tail -3 "$tmp/l.out")"
+[ "$saw" = "<unset>" ] \
+  || bad "L5: the session was handed GOTMPDIR=$saw from a scratch directory that was never created"
+[ -s "$STUB_DIR/l.gotmpdir" ] \
+  || bad "L5: the shift refused rather than running on Go's default, which is degraded and not broken"
+
+note "L: the session's builds scratch on disk under the home, what earlier shifts left is collected and nothing younger is, an explicit GOTMPDIR stands, it does not switch the collector off, and a scratch directory that cannot be made is said rather than swallowed"
 
 # make check has to run this, or everything above is about a file nothing invokes.
 grep -q 'scripts/test-\*.sh' "$root/Makefile" || bad "the Makefile does not run scripts/test-*.sh"

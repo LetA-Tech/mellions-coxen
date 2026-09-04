@@ -129,6 +129,49 @@ elif command -v gtimeout >/dev/null 2>&1; then TIMEOUT=(gtimeout "${MELLIONS_TIM
 say "shift $stamp starting (model=$MODEL budget=$BUDGET settings=$SETTINGS)"
 [ "${#TIMEOUT[@]}" -eq 0 ] && say "no timeout(1) or gtimeout(1) on PATH — the session runs unbounded; MELLIONS_BUDGET still tells it when to stop, but nothing enforces it"
 
+# Go puts a build's scratch in $GOTMPDIR, and unset that is /tmp — on a host
+# where /tmp is a small tmpfs under a per-user quota, the shared resource every
+# session on the machine needs. `go build` removes its work directory when it
+# exits, and a shift is ended by things that give it no exit: a usage limit,
+# the budget, SIGKILL. What is left behind is never collected, so the tmpfs
+# fills with the scratch of builds that died, until a write of a few megabytes
+# is refused with EDQUOT while df still reports gigabytes free and every suite
+# on the host stops running.
+#
+# So a shift's scratch goes to disk under the home, where a leak costs disk
+# rather than the tmpfs, and each shift removes what earlier ones left there.
+# The sweep is bounded to this directory because it is the only one Mellions
+# owns: scratch under /tmp belongs to whoever wrote it.
+#
+# It is collected whether or not this shift is the one filling it. Where new
+# scratch goes and whether the directory Mellions already owns gets emptied are
+# separate questions, and only the first is an override's to answer: a shift
+# started with GOTMPDIR set would otherwise abandon what earlier shifts left
+# here, and nothing else collects it. This moves the leak onto the home volume
+# rather than ending it, so the sweep is what bounds it, not a tidiness.
+#
+# Half a day is far longer than a shift, and a work directory `go build` and
+# `go test` are still writing gains entries at its top level throughout, so
+# their mtime stays outside the window. A `go run` whose program is still
+# running is the exception: it builds once and the mtime freezes, so scratch
+# holding something long-lived is not protected by age alone.
+#
+# An explicit GOTMPDIR is honoured — whoever set it chose it. This runs here,
+# below say(), because the one way it fails is a directory that cannot be
+# created, which puts Go back on the tmpfs this exists to keep it off — and
+# unreported that is indistinguishable from a shift that worked. Said, it is a
+# degraded shift rather than a broken one, so it does not refuse.
+scratch="$HOME_DIR/tmp/go"
+[ -d "$scratch" ] &&
+  find "$scratch" -maxdepth 1 -type d -name 'go-build*' -mmin +720 -exec rm -rf {} + 2>/dev/null
+if [ -z "${GOTMPDIR:-}" ]; then
+  if scratch_err=$(mkdir -p "$scratch" 2>&1); then
+    export GOTMPDIR="$scratch"
+  else
+    say "cannot create $scratch ($scratch_err) — this shift's Go builds scratch in \${TMPDIR:-/tmp} instead, and what a build killed without an exit leaves there is collected by nothing"
+  fi
+fi
+
 # ---- 1. situational awareness ------------------------------------------------
 survey="$HOME_DIR/shifts/$stamp.survey.md"
 if [ -n "$TASK" ]; then
