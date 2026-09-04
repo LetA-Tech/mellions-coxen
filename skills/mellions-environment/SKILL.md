@@ -123,11 +123,11 @@ On a metered model subscription, the quota binds before the hardware does.
 Several concurrent sessions on a large model exhaust the pool long before they
 exhaust the RAM; treat concurrency as bounded by whichever runs out first.
 
-`/tmp` here is a small tmpfs under a per-user quota, and Go's build scratch
-and `-race` test binaries land there by default: a module-wide gate dies with
-`disk quota exceeded` at link time, reading like a broken build. Export
-`GOTMPDIR=$HOME/.cache/go-tmp` before any gate wider than one package, and
-keep copies of a tree on disk, never under `/tmp`.
+`/tmp` here is a small tmpfs under a per-user quota, where Go's build and
+`-race` scratch and any `mktemp`ing suite land by default. Full, writes fail
+`disk quota exceeded` and your shell returns a silent exit 1, reading as a
+broken build or harness. Put `GOTMPDIR`/`TMPDIR` under `$HOME` for a gate
+wider than a package; keep tree copies off `/tmp`.
 
 ## Establishing what a session actually receives
 
