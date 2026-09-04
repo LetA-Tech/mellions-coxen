@@ -42,10 +42,10 @@ grep -q 'Nothing is in flight' <<<"$out" || bad "with nothing in flight the bloc
 grep -qF -- 'mellions-continuity' <<<"$out" && bad "with nothing in flight the block still tells the session to load the continuity method"
 note "nothing in flight: no method named"
 
-# A resume inherits a responsibility it has no memory of, so the continuity
-# instruction leads. On a fresh
-# start it stays where it was, because a recovery instruction a session does not
-# need is the noise that gets a hook turned off.
+# A resume and a compaction both act on a record rather than on memory, so the
+# continuity instruction leads. On a fresh start it stays where it was, because
+# a recovery instruction a session does not need is the noise that gets a hook
+# turned off.
 cat > "$tmp/mellions" <<'STUB'
 #!/usr/bin/env bash
 case "$1 ${2:-}" in
@@ -58,8 +58,6 @@ chmod +x "$tmp/mellions"
 for src in resume compact; do
   out=$(printf '{"source":"%s"}' "$src" |
     MELLIONS_BIN="$tmp/mellions" CLAUDE_PLUGIN_ROOT="$root" bash "$root/hooks/session-work.sh")
-  grep -qF -- 'You did not attend the session before this one' <<<"$out" ||
-    bad "on $src the block does not say the session is inheriting rather than choosing"
   grep -qF -- 'settle' <<<"$out" ||
     bad "on $src the block does not name the rule a summary never carries"
   first=$(grep -nF -- 'mellions:mellions-continuity' <<<"$out" | head -1 | cut -d: -f1)
@@ -69,6 +67,26 @@ for src in resume compact; do
   fi
 done
 note "resume and compact: the method leads, above the work"
+
+# The two triggers make different claims about the reader's own history, and a
+# sentence true of one is false about the other. A resume picks up a session
+# that ended, which this reader did not attend. A compaction is this session
+# with its context replaced, so there is no earlier session it could have
+# missed — and telling it there was invites it to discount, as somebody else's
+# testimony, facts it established itself.
+out=$(printf '{"source":"resume"}' |
+  MELLIONS_BIN="$tmp/mellions" CLAUDE_PLUGIN_ROOT="$root" bash "$root/hooks/session-work.sh")
+grep -qF -- 'You did not attend the session before this one' <<<"$out" ||
+  bad "a resumed session is not told it did not attend the session it inherits from"
+note "resume: the reader is told it did not attend"
+
+out=$(printf '{"source":"compact"}' |
+  MELLIONS_BIN="$tmp/mellions" CLAUDE_PLUGIN_ROOT="$root" bash "$root/hooks/session-work.sh")
+grep -qF -- 'You did not attend the session before this one' <<<"$out" &&
+  bad "a compacted session is told it did not attend a session that is itself"
+grep -qF -- 'same session, with its context renewed' <<<"$out" ||
+  bad "a compacted session is not told what actually happened to it"
+note "compact: the reader is told its context was renewed, not handed over"
 
 out=$(printf '{"source":"startup"}' |
   MELLIONS_BIN="$tmp/mellions" CLAUDE_PLUGIN_ROOT="$root" bash "$root/hooks/session-work.sh")
