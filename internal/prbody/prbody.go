@@ -33,6 +33,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/LetA-Tech/mellions-coxen/internal/ghcmd"
 	"github.com/LetA-Tech/mellions-coxen/internal/shellsplit"
 )
 
@@ -145,13 +146,13 @@ func calls(command, cwd string, accept func(noun, verb string) bool) []Call {
 
 	var out []Call
 	for _, c := range cmds {
-		args, ok := ghArgs(c.Words, accept)
+		args, ok := ghcmd.Args(c.Words, accept)
 		if !ok {
 			continue
 		}
 		var call Call
 		for i := 0; i < len(args); i++ {
-			name, glued, hasGlued := splitFlag(args[i])
+			name, glued, hasGlued := ghcmd.SplitFlag(args[i])
 			var v string
 			switch name {
 			case "--body", "-b", "--body-file", "-F", "--base", "-B", "--repo", "-R":
@@ -217,57 +218,4 @@ func bodyFile(spec string, c *shellsplit.Command, written map[string]string, cwd
 		return ""
 	}
 	return string(b)
-}
-
-// ghArgs reports whether a command is a `gh <noun> <verb>` the caller accepts,
-// and returns what follows the verb. Leading environment assignments are
-// skipped and the program is matched on its base name, so
-// `GH_TOKEN=… /usr/bin/gh pr create` is the same command as `gh pr create`.
-func ghArgs(words []string, accept func(noun, verb string) bool) ([]string, bool) {
-	for len(words) > 0 && isAssignment(words[0]) {
-		words = words[1:]
-	}
-	if len(words) < 3 || filepath.Base(words[0]) != "gh" {
-		return nil, false
-	}
-	if !accept(words[1], words[2]) {
-		return nil, false
-	}
-	return words[3:], true
-}
-
-func isAssignment(w string) bool {
-	i := strings.IndexByte(w, '=')
-	if i <= 0 {
-		return false
-	}
-	for _, r := range w[:i] {
-		if !(r == '_' || r >= 'A' && r <= 'Z' || r >= 'a' && r <= 'z' || r >= '0' && r <= '9') {
-			return false
-		}
-	}
-	return true
-}
-
-// splitFlag reads one argument as a flag and the value glued to it. gh takes
-// --body=X, --body X, -bX, -b=X and -b X, and a hole in any one of those forms
-// is a body nothing reads.
-func splitFlag(arg string) (name, glued string, hasGlued bool) {
-	switch {
-	case strings.HasPrefix(arg, "--"):
-		if i := strings.IndexByte(arg, '='); i >= 0 {
-			return arg[:i], arg[i+1:], true
-		}
-		return arg, "", false
-	case len(arg) > 1 && arg[0] == '-':
-		rest := arg[2:]
-		switch {
-		case strings.HasPrefix(rest, "="):
-			return arg[:2], rest[1:], true
-		case rest != "":
-			return arg[:2], rest, true
-		}
-		return arg, "", false
-	}
-	return arg, "", false
 }
