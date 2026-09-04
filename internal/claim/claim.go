@@ -72,10 +72,15 @@ type Claim struct {
 	// actionable from somewhere else: the lane's record is not reachable, but
 	// the machine holding it is nameable.
 	Host string `json:"host"`
-	// State is the lane's state when the claim was last restated. Handed-off
-	// lanes still hold: handed off means finished and waiting on a person,
-	// which is the state most likely to be re-claimed by a session that saw
-	// the item still open.
+	// State is the lane's state when the claim was last restated, and it
+	// decides what the published comment asks of whoever finds it.
+	//
+	// Handed-off lanes still hold, for the reason they always did: the work is
+	// done and a session that saw the item still open would otherwise redo it.
+	// What a handed-off claim does not do is refuse a reader. That state is
+	// finished work whose worktree is kept because a reviewer may still need
+	// it, and the review — and the merge, where the reader establishes it
+	// ready — is what it is waiting for.
 	State string `json:"state"`
 	// At is when the claim was last restated, and the only input to staleness.
 	At time.Time `json:"at"`
@@ -301,6 +306,28 @@ func (t *Tracker) Claims(ctx context.Context, repo, ref string) ([]Claim, error)
 // It removes whatever this lane published before, so a restated claim is one
 // comment rather than a growing column of them, and the label is created if the
 // repository has never seen it.
+// HandedOffState is assignment.StateHandedOff. It is duplicated rather than
+// imported because internal/assignment imports this package, and the two are
+// held equal by a guard in the external test package, which can import both.
+const HandedOffState = "handed_off"
+
+// audience is what the claim asks of whoever finds it, which is not the same
+// question for every state. A handed-off lane is finished work whose worktree
+// is kept precisely because a reviewer may still need it
+// (assignment.StateHandedOff), so refusing that reader refuses the only thing
+// the state is waiting for — and unattended there is no other reader. Every
+// other state is a lane still holding the work, where the refusal is the point.
+func audience(state string) string {
+	if state == HandedOffState {
+		return "the lane has finished and written its handoff, and its worktree is kept for exactly this — " +
+			"reading it, and merging what it establishes is ready, is available to you rather than taken. " +
+			"The record is on that machine, so read the handoff before deciding; " +
+			"what is still the owner's it says so."
+	}
+	return "the lane is live and its record is on that machine, " +
+		"so taking this work — or merging this change set — is not yours while the claim stands."
+}
+
 func (t *Tracker) Publish(ctx context.Context, repo, ref, id, state string) (Claim, error) {
 	slug, err := t.slug(repo)
 	if err != nil {
@@ -320,10 +347,9 @@ func (t *Tracker) Publish(ctx context.Context, repo, ref, id, state string) (Cla
 		return Claim{}, fmt.Errorf("claim: %w", err)
 	}
 	body := fmt.Sprintf("Claimed by Mellions lane `%s` on `%s` (%s).\n\n"+
-		"Another session reading this: the lane is live and its record is on that machine, "+
-		"so taking this work — or merging this change set — is not yours while the claim stands. "+
+		"Another session reading this: %s "+
 		"A claim not restated within %s is stale and is swept rather than trusted.\n\n"+
-		"%s%s -->\n", id, t.Host, state, StaleAfter, marker, payload)
+		"%s%s -->\n", id, t.Host, state, audience(state), StaleAfter, marker, payload)
 
 	if _, err := t.run(ctx, "label", "create", Label, "--repo", slug,
 		"--color", "5319E7", "--description", "A Mellions lane holds this issue or pull request", "--force"); err != nil {
