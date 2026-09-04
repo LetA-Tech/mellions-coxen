@@ -37,6 +37,7 @@ var usageForms = map[string]string{
 	"install":           "install [flags]",
 	"partner check":     "partner check [flags] [<slug>]",
 	"pr-body-check":     "pr-body-check",
+	"pr-merge-check":    "pr-merge-check",
 	"secret check":      "secret check [flags] <command...>",
 	"secret-check":      "secret-check",
 	"shared-tree-check": "shared-tree-check",
