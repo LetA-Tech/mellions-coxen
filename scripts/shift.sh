@@ -72,6 +72,31 @@ fi
 # the reports directory rather than appending /reports here.
 export MELLIONS_HOME="$HOME_DIR"
 WORKDIR="${MELLIONS_WORKDIR:-$HOME_DIR}"
+# Go puts a build's scratch in $GOTMPDIR, and unset that is /tmp — on a host
+# where /tmp is a small tmpfs under a per-user quota, the shared resource every
+# session on the machine needs. `go build` removes its work directory when it
+# exits, and a shift is ended by things that give it no exit: a usage limit,
+# the budget, SIGKILL. What is left behind is never collected, so the tmpfs
+# fills with the scratch of builds that died, until a write of a few megabytes
+# is refused with EDQUOT while df still reports gigabytes free and every suite
+# on the host stops running.
+#
+# So a shift's scratch goes to disk under the home, where a leak costs disk
+# rather than the tmpfs, and each shift removes what earlier ones left there.
+# The sweep is bounded to this directory because it is the only one Mellions
+# owns: scratch under /tmp belongs to whoever wrote it. Half a day is far
+# longer than any shift, so nothing a live build holds is inside it.
+#
+# An explicit GOTMPDIR is honoured — whoever set it chose it. A directory that
+# cannot be created leaves GOTMPDIR unset and Go on its own default, which is
+# the degraded state this avoids rather than a broken one.
+if [ -z "${GOTMPDIR:-}" ]; then
+  scratch="$HOME_DIR/tmp/go"
+  if mkdir -p "$scratch" 2>/dev/null; then
+    find "$scratch" -maxdepth 1 -type d -name 'go-build*' -mmin +720 -exec rm -rf {} + 2>/dev/null
+    export GOTMPDIR="$scratch"
+  fi
+fi
 # python3 renders the stream and writes the reply. Without it the shift still
 # runs a full session and then files it as having said nothing, so it is
 # refused here with the rest rather than discovered in the morning.
