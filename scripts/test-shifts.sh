@@ -111,6 +111,11 @@ chmod +x "$STUB_DIR/claude" "$STUB_DIR/mellions"
 # the stub shifts into directed tasks and fail every self-update on a host that
 # runs the runner.
 for v in $(env | sed -n 's/^\(MELLIONS_[A-Za-z0-9_]*\)=.*/\1/p'); do unset "$v"; done
+# GOTMPDIR is not MELLIONS_-prefixed and shift.sh exports it, so a shift that
+# runs `make check` hands it to these stub shifts, which then honour it exactly
+# as a lane's own choice — and L1 reads the caller's directory instead of the
+# one the shift made. The suite has to start from an unset one to set it.
+unset GOTMPDIR
 export CLAUDE_BIN="$STUB_DIR/claude" MELLIONS_BIN="$STUB_DIR/mellions"
 export MELLIONS_COOLDOWN=1s MELLIONS_TICK=1 MELLIONS_AUTOUPDATE=0 MELLIONS_TIMEOUT=60
 export MELLIONS_SHIFTS_PER_DAY=50 MELLIONS_METHOD_EVERY=4 MELLIONS_BUDGET=1m
@@ -682,11 +687,11 @@ run_l "$lhome"
 
 # L3: an explicit choice is not overridden. A lane that points Go somewhere
 # with room, or at a filesystem it needs, keeps what it set.
-lmine="$tmp/l3/mine"; mkdir -p "$lmine" "$tmp/l3/home"
-run_l "$tmp/l3/home" GOTMPDIR="$lmine"
+lmine="$tmp/l3/mine"; mkdir -p "$lmine" "$tmp/l3/state"
+run_l "$tmp/l3/state" GOTMPDIR="$lmine"
 [ "$saw" = "$lmine" ] \
   || bad "L3: an explicit GOTMPDIR was replaced with $saw"
-[ -e "$tmp/l3/home/tmp/go" ] \
+[ -e "$tmp/l3/state/tmp/go" ] \
   && bad "L3: the shift made its own scratch directory anyway, beside the one it was told to use"
 
 note "L: the session's builds scratch on disk under the home, what earlier shifts left is collected and nothing younger is, and an explicit GOTMPDIR stands"
