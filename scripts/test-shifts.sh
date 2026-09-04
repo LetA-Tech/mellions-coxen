@@ -694,7 +694,17 @@ run_l "$tmp/l3/state" GOTMPDIR="$lmine"
 [ -e "$tmp/l3/state/tmp/go" ] \
   && bad "L3: the shift made its own scratch directory anyway, beside the one it was told to use"
 
-note "L: the session's builds scratch on disk under the home, what earlier shifts left is collected and nothing younger is, and an explicit GOTMPDIR stands"
+# L4: the override says where new scratch goes and nothing more. What earlier
+# shifts left under the home is still collected — nothing else ever will, and
+# this is the volume the leak was moved onto.
+l4="$tmp/l4/state"; mkdir -p "$l4/tmp/go/go-build-old" "$tmp/l4/mine"
+touch -d '2 days ago' "$l4/tmp/go/go-build-old" 2>/dev/null \
+  || touch -t "$(date -u -v-2d '+%Y%m%d%H%M')" "$l4/tmp/go/go-build-old"
+run_l "$l4" GOTMPDIR="$tmp/l4/mine"
+[ -e "$l4/tmp/go/go-build-old" ] \
+  && bad "L4: a shift started with GOTMPDIR set abandoned what earlier shifts left under the home, and nothing else collects it"
+
+note "L: the session's builds scratch on disk under the home, what earlier shifts left is collected and nothing younger is, an explicit GOTMPDIR stands, and it does not switch the collector off"
 
 # make check has to run this, or everything above is about a file nothing invokes.
 grep -q 'scripts/test-\*.sh' "$root/Makefile" || bad "the Makefile does not run scripts/test-*.sh"

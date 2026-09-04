@@ -84,18 +84,29 @@ WORKDIR="${MELLIONS_WORKDIR:-$HOME_DIR}"
 # So a shift's scratch goes to disk under the home, where a leak costs disk
 # rather than the tmpfs, and each shift removes what earlier ones left there.
 # The sweep is bounded to this directory because it is the only one Mellions
-# owns: scratch under /tmp belongs to whoever wrote it. Half a day is far
-# longer than any shift, so nothing a live build holds is inside it.
+# owns: scratch under /tmp belongs to whoever wrote it.
+#
+# It is collected whether or not this shift is the one filling it. Where new
+# scratch goes and whether the directory Mellions already owns gets emptied are
+# separate questions, and only the first is an override's to answer: a shift
+# started with GOTMPDIR set would otherwise abandon what earlier shifts left
+# here, and nothing else collects it. This moves the leak onto the home volume
+# rather than ending it, so the sweep is what bounds it, not a tidiness.
+#
+# Half a day is far longer than a shift, and a work directory `go build` and
+# `go test` are still writing gains entries at its top level throughout, so
+# their mtime stays outside the window. A `go run` whose program is still
+# running is the exception: it builds once and the mtime freezes, so scratch
+# holding something long-lived is not protected by age alone.
 #
 # An explicit GOTMPDIR is honoured — whoever set it chose it. A directory that
 # cannot be created leaves GOTMPDIR unset and Go on its own default, which is
 # the degraded state this avoids rather than a broken one.
-if [ -z "${GOTMPDIR:-}" ]; then
-  scratch="$HOME_DIR/tmp/go"
-  if mkdir -p "$scratch" 2>/dev/null; then
-    find "$scratch" -maxdepth 1 -type d -name 'go-build*' -mmin +720 -exec rm -rf {} + 2>/dev/null
-    export GOTMPDIR="$scratch"
-  fi
+scratch="$HOME_DIR/tmp/go"
+[ -d "$scratch" ] &&
+  find "$scratch" -maxdepth 1 -type d -name 'go-build*' -mmin +720 -exec rm -rf {} + 2>/dev/null
+if [ -z "${GOTMPDIR:-}" ] && mkdir -p "$scratch" 2>/dev/null; then
+  export GOTMPDIR="$scratch"
 fi
 # python3 renders the stream and writes the reply. Without it the shift still
 # runs a full session and then files it as having said nothing, so it is
