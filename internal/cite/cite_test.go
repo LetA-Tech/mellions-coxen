@@ -362,3 +362,49 @@ func TestCitationSpanDoesNotBackItself(t *testing.T) {
 		t.Errorf("got %v, want the citation reported unbacked", f)
 	}
 }
+
+// A body that quotes the cited line above the citation instead of under it is
+// a different mistake from one that never opened the file, and the refusal has
+// to say which: the first author is sent to reposition a block they already
+// wrote, the second to go and read the code. Reporting both as "quotes no line
+// equal to it" tells the first author something false about their own body.
+func TestQuotationInTheWrongPlaceIsNotTheSameAsNoQuotation(t *testing.T) {
+	files := tree{"pkg/run.go": strings.Repeat("x\n", 150) + "\t// re-offers propose (parity with the legacy resume path)."}
+
+	above := "```go\n\t// re-offers propose (parity with the legacy resume path).\n```\n\n(`pkg/run.go:151`)\n"
+	under := "`pkg/run.go:151`\n\n```go\n\t// re-offers propose (parity with the legacy resume path).\n```\n"
+	silent := "The comment at `pkg/run.go:151` is stale.\n"
+
+	if fs := Check(under, files.read); len(fs) != 0 {
+		t.Fatalf("quoted under the citation: got %d findings, want 0 (%s)", len(fs), fs[0].Reason())
+	}
+
+	fs := Check(above, files.read)
+	if len(fs) != 1 || fs[0].Kind != Unanchored {
+		t.Fatalf("quoted above the citation: got %#v, want one Unanchored finding", fs)
+	}
+	if r := fs[0].Reason(); !strings.Contains(r, "does quote it") || strings.Contains(r, "quotes no line equal to it") {
+		t.Errorf("Unanchored reason denies the body quoted the line at all: %q", r)
+	}
+
+	fs = Check(silent, files.read)
+	if len(fs) != 1 || fs[0].Kind != Unbacked {
+		t.Fatalf("no quotation anywhere: got %#v, want one Unbacked finding", fs)
+	}
+	if r := fs[0].Reason(); !strings.Contains(r, "quotes no line equal to it") {
+		t.Errorf("Unbacked reason no longer says the body quotes nothing: %q", r)
+	}
+}
+
+// A quotation already spent on one citation does not silently become "you put
+// it in the wrong place" for a second citation to a line that reads alike: the
+// second author must quote it again, and the refusal must be the one that says
+// so rather than the one that says they never opened the file.
+func TestSpentQuotationReadsAsMisplacedNotAsAbsent(t *testing.T) {
+	files := tree{"a.go": "}\n", "b.go": "}\n"}
+	doc := "`a.go:1`\n\n```go\n}\n```\n\nand `b.go:1`\n"
+	fs := Check(doc, files.read)
+	if len(fs) != 1 || fs[0].Raw != "b.go:1" || fs[0].Kind != Unanchored {
+		t.Fatalf("got %#v, want one Unanchored finding on b.go:1", fs)
+	}
+}

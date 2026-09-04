@@ -80,6 +80,10 @@ const (
 	Missing Kind = iota
 	// Unbacked: the line exists and the document quotes nothing equal to it.
 	Unbacked
+	// Unanchored: the document quotes the line, somewhere other than under
+	// this citation. The author did open the file; the quotation is where a
+	// reader cannot use it.
+	Unanchored
 )
 
 // Finding is a citation the document cannot back, with what the line says.
@@ -95,6 +99,12 @@ func (f Finding) Reason() string {
 	switch f.Kind {
 	case Missing:
 		return f.Raw + ": no such line — the file is shorter than that."
+	case Unanchored:
+		return f.Raw + ": that line says " + strconv.Quote(strings.TrimSpace(f.Actual)) +
+			", and the body does quote it — somewhere this citation cannot reach. " +
+			"Backing is anchored: a citation is backed by a span on its own line, or by the block its own paragraph introduces, " +
+			"and a quotation already spent on an earlier citation is not free to back a second. " +
+			"Put the quotation under this citation, repeating it if another one already uses it."
 	default:
 		if strings.TrimSpace(f.Actual) == "" {
 			return f.Raw + ": that line is blank. Nothing there is the claim."
@@ -199,7 +209,11 @@ func Check(doc string, read func(path string) ([]string, error)) []Finding {
 			backed[c.Raw] = true
 			continue
 		}
-		note(Finding{Citation: c, Kind: Unbacked, Actual: actual})
+		kind := Unbacked
+		if q.exhibits(normalize(actual)) {
+			kind = Unanchored
+		}
+		note(Finding{Citation: c, Kind: kind, Actual: actual})
 	}
 	var out []Finding
 	for _, raw := range order {
@@ -344,6 +358,26 @@ func readings(s string) []string {
 		}
 	}
 	return out
+}
+
+// exhibits answers whether the document quotes want anywhere at all, anchored
+// or not, spent or not. It decides nothing about backing — a citation is
+// backed only through backs. It exists so the refusal can tell an author who
+// quoted the line in the wrong place from one who never opened the file: those
+// are different mistakes with different remedies, and reporting the first as
+// the second sends the author back to a file they already read.
+func (q *quotedText) exhibits(want string) bool {
+	if want == "" {
+		return false
+	}
+	for i := range q.all {
+		for _, t := range q.all[i].texts {
+			if t == want {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // backs answers whether the document quotes want for this citation and takes
