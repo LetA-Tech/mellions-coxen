@@ -704,7 +704,21 @@ run_l "$l4" GOTMPDIR="$tmp/l4/mine"
 [ -e "$l4/tmp/go/go-build-old" ] \
   && bad "L4: a shift started with GOTMPDIR set abandoned what earlier shifts left under the home, and nothing else collects it"
 
-note "L: the session's builds scratch on disk under the home, what earlier shifts left is collected and nothing younger is, an explicit GOTMPDIR stands, and it does not switch the collector off"
+# L5: the one way this fails is a directory that cannot be created, and it puts
+# Go back on the tmpfs the whole block exists to keep it off. A shift that
+# went on without saying so is indistinguishable from one that worked, so the
+# thing asserted is that the run named the path it could not make. The shift
+# still runs: Go's own default is degraded here, not broken.
+l5="$tmp/l5/state"; mkdir -p "$l5"; : > "$l5/tmp"
+run_l "$l5"
+grep -qF "$l5/tmp/go" "$tmp/l.out" \
+  || bad "L5: the shift could not create $l5/tmp/go and did not say so, so a shift back on the quota'd tmpfs reads exactly like one that worked: $(tail -3 "$tmp/l.out")"
+[ "$saw" = "<unset>" ] \
+  || bad "L5: the session was handed GOTMPDIR=$saw from a scratch directory that was never created"
+[ -s "$STUB_DIR/l.gotmpdir" ] \
+  || bad "L5: the shift refused rather than running on Go's default, which is degraded and not broken"
+
+note "L: the session's builds scratch on disk under the home, what earlier shifts left is collected and nothing younger is, an explicit GOTMPDIR stands, it does not switch the collector off, and a scratch directory that cannot be made is said rather than swallowed"
 
 # make check has to run this, or everything above is about a file nothing invokes.
 grep -q 'scripts/test-\*.sh' "$root/Makefile" || bad "the Makefile does not run scripts/test-*.sh"
