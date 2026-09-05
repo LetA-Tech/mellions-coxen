@@ -248,6 +248,8 @@ func main() {
 		err = cmdSecret(os.Args[2:])
 	case "secret-check":
 		err = cmdSecretCheck(os.Args[2:])
+	case "estate":
+		err = cmdEstate(ctx, os.Args[2:])
 	case "config":
 		err = cmdConfig(os.Args[2:])
 	case "doctor", "inspect":
