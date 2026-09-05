@@ -15,6 +15,7 @@ import (
 // without a positional still needs an entry, so adding a subcommand is a
 // decision about its usage line rather than a step that can be skipped.
 var usageForms = map[string]string{
+	"estate read":       "estate read [flags] <path>",
 	"assign open":       "assign open [flags] [<id>]",
 	"assign list":       "assign list [flags]",
 	"assign get":        "assign get [flags] <id>",

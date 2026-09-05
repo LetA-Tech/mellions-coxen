@@ -140,6 +140,8 @@ func cmdDoctor(ctx context.Context, args []string) error {
 			state, detail := treeState(t)
 			line("load path commit", state, detail)
 		}
+		state, detail = loadPathOriginLine(ctx, hooksRoot)
+		line("load path origin", state, detail)
 	}
 	{
 		state, detail := codexTrustState(pluginreg.ReadCodexTrust(home(), pluginreg.ID, hooksRoot))
