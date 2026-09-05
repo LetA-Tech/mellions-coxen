@@ -301,11 +301,6 @@ func (t *Tracker) Claims(ctx context.Context, repo, ref string) ([]Claim, error)
 	return claims, nil
 }
 
-// Publish states that this machine's lane id holds the issue or pull request.
-//
-// It removes whatever this lane published before, so a restated claim is one
-// comment rather than a growing column of them, and the label is created if the
-// repository has never seen it.
 // HandedOffState is assignment.StateHandedOff. It is duplicated rather than
 // imported because internal/assignment imports this package, and the two are
 // held equal by a guard in the external test package, which can import both.
@@ -328,6 +323,11 @@ func audience(state string) string {
 		"so taking this work — or merging this change set — is not yours while the claim stands."
 }
 
+// Publish states that this machine's lane id holds the issue or pull request.
+//
+// It removes whatever this lane published before, so a restated claim is one
+// comment rather than a growing column of them, and the label is created if the
+// repository has never seen it.
 func (t *Tracker) Publish(ctx context.Context, repo, ref, id, state string) (Claim, error) {
 	slug, err := t.slug(repo)
 	if err != nil {

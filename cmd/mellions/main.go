@@ -507,8 +507,6 @@ func (c *Config) checkout(repo string) (string, error) {
 		repo, strings.Join(c.roots(), ", "), repo)
 }
 
-// hookContext reads what the runtime sent a hook on stdin, where it sent
-// anything. Never an error: a payload it cannot read means it knows less.
 // hookTranscript is the transcript path the runtime named in the hook payload,
 // when it did; the glob under the projects directory is the fallback.
 // hookCommand is the Bash command line a PreToolUse payload carries, which
@@ -516,6 +514,8 @@ func (c *Config) checkout(repo string) (string, error) {
 // the two differ every time a command line begins with `cd`.
 var hookTranscript, hookCommand string
 
+// hookContext reads what the runtime sent a hook on stdin, where it sent
+// anything. Never an error: a payload it cannot read means it knows less.
 func hookContext(r io.Reader) (session, cwd string) {
 	if f, ok := r.(*os.File); ok {
 		info, err := f.Stat()

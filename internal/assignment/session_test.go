@@ -125,9 +125,6 @@ func TestWorkingNotesAreRenderedAsHistory(t *testing.T) {
 	}
 }
 
-// fakeStore avoids touching a real repository: worktree mechanics are not what
-// these assert, and a test that creates worktrees in the developer's checkout
-// leaves branches behind.
 // noAmbientSession removes both runtime handles before a test declares the ones
 // it means to test with.
 //
@@ -141,6 +138,9 @@ func noAmbientSession(t *testing.T) {
 	t.Setenv("CODEX_SESSION_ID", "")
 }
 
+// fakeStore avoids touching a real repository: worktree mechanics are not what
+// these assert, and a test that creates worktrees in the developer's checkout
+// leaves branches behind.
 func fakeStore(t *testing.T) *Store {
 	t.Helper()
 	s, err := newStoreT(t.TempDir())
