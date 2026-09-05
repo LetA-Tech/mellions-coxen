@@ -50,7 +50,16 @@ make install                       # /usr/local/bin/mellions; or:
 make install PREFIX=~/.local       # ~/.local/bin/mellions, no sudo
 ```
 
-`make install` builds `bin/mellions`, copies it to `$(PREFIX)/bin`, then runs
+Where it copies to: the `mellions` already on PATH, when there is one, so a
+reinstall after `git pull` reaches the binary that runs rather than leaving a
+second copy behind an earlier PATH entry. `PREFIX` is the first-install root
+used when PATH holds none; `make install BIN=<path>` names the file outright.
+It then checks that `mellions` resolves to what it wrote, and fails naming the
+shadowing path when it does not — an install PATH does not resolve has not
+installed. `sudo make install` is refused: the second half registers the plugin
+into the invoking user's home, which under `sudo` is root's.
+
+`make install` builds `bin/mellions`, copies it onto PATH, then runs
 `mellions install -from .`, which registers this checkout with every runtime it
 finds on the machine:
 
