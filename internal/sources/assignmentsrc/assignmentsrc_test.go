@@ -218,3 +218,51 @@ func TestAnOpenAssignmentWhoseBranchLeftTheRemoteIsAStalePremise(t *testing.T) {
 		})
 	}
 }
+
+// TestBranchCommitsCountsWhatALaneProduced drives the real probe against real
+// git. The suppression it feeds is invisible to a test that injects the seam:
+// a body returning (0, true) unconditionally would silence the stale-premise
+// signal for every gone branch and leave the rest of this package green.
+func TestBranchCommitsCountsWhatALaneProduced(t *testing.T) {
+	repo, _ := repoAndStore(t)
+	git := func(args ...string) string {
+		t.Helper()
+		cmd := exec.Command("git", args...)
+		cmd.Dir = repo
+		cmd.Env = append(os.Environ(), "GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@x",
+			"GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@x")
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+		return strings.TrimSpace(string(out))
+	}
+	base := git("rev-parse", "HEAD")
+	git("branch", "reviewed", base)
+	git("checkout", "-q", "-b", "wrote", base)
+	git("commit", "-q", "--allow-empty", "-m", "work")
+	git("checkout", "-q", "main")
+
+	for _, c := range []struct {
+		name              string
+		dir, base, branch string
+		wantN             int
+		wantKnown         bool
+	}{
+		{"a lane that only reviewed", repo, base, "reviewed", 0, true},
+		{"a lane that committed", repo, base, "wrote", 1, true},
+		// Each of these must be unknown rather than zero: reported as zero they
+		// would silence the signal exactly where it is most wanted.
+		{"the branch is gone locally too", repo, base, "deleted-lane", 0, false},
+		{"the base no longer resolves", repo, strings.Repeat("0", 40), "wrote", 0, false},
+		{"the checkout has moved", filepath.Join(repo, "nowhere"), base, "wrote", 0, false},
+		{"the record carries no base", repo, "", "wrote", 0, false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			n, known := branchCommits(context.Background(), c.dir, c.base, c.branch)
+			if n != c.wantN || known != c.wantKnown {
+				t.Errorf("branchCommits = (%d, %v), want (%d, %v)", n, known, c.wantN, c.wantKnown)
+			}
+		})
+	}
+}
