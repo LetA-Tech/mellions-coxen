@@ -33,6 +33,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/LetA-Tech/mellions-coxen/internal/ghcmd"
 	"github.com/LetA-Tech/mellions-coxen/internal/shellsplit"
 )
 
@@ -45,6 +46,12 @@ type Call struct {
 	Base   string
 	Repo   string
 	Bodies []string
+	// Dir is the directory this call runs in: the session's, or wherever the
+	// command's own `cd` moved to before it. A citation is a claim about the
+	// tree the body is published FROM, and `cd <worktree> && gh pr create` is
+	// how a lane publishes, so a checker reading the session directory reads a
+	// different tree and endorses lines that are wrong for the branch (#27).
+	Dir string
 }
 
 // Close is a closing declaration a body makes.
@@ -144,14 +151,19 @@ func calls(command, cwd string, accept func(noun, verb string) bool) []Call {
 	}
 
 	var out []Call
+	dir := cwd
 	for _, c := range cmds {
-		args, ok := ghArgs(c.Words, accept)
+		if moved, ok := chdir(c.Words, cwd, dir); ok {
+			dir = moved
+			continue
+		}
+		args, ok := ghcmd.Args(c.Words, accept)
 		if !ok {
 			continue
 		}
-		var call Call
+		call := Call{Dir: dir}
 		for i := 0; i < len(args); i++ {
-			name, glued, hasGlued := splitFlag(args[i])
+			name, glued, hasGlued := ghcmd.SplitFlag(args[i])
 			var v string
 			switch name {
 			case "--body", "-b", "--body-file", "-F", "--base", "-B", "--repo", "-R":
@@ -168,7 +180,7 @@ func calls(command, cwd string, accept func(noun, verb string) bool) []Call {
 			case "--body", "-b":
 				call.Bodies = append(call.Bodies, v)
 			case "--body-file", "-F":
-				call.Bodies = append(call.Bodies, bodyFile(v, c, written, cwd))
+				call.Bodies = append(call.Bodies, bodyFile(v, c, written, dir))
 			case "--base", "-B":
 				if call.Base == "" {
 					call.Base = v
@@ -182,6 +194,51 @@ func calls(command, cwd string, accept func(noun, verb string) bool) []Call {
 		out = append(out, call)
 	}
 	return out
+}
+
+// chdir reports the directory a `cd` moves to, and whether the command was a
+// `cd` at all. A target this cannot establish — no argument, `cd -`, a `~user`
+// form — resets to the session directory rather than guessing: the whole point
+// of #27 is that resolving a body against the wrong tree reads exactly like
+// resolving it against the right one, so an unknown target must degrade to the
+// old behaviour and never to a fabricated path.
+//
+// Operators are not visible here (shellsplit yields simple commands), so a `cd`
+// guarded by `||` or confined to a subshell is followed anyway. That is the
+// safe direction: the dominant form by far is `cd <worktree> && gh ...`, and
+// being wrong the other way is the defect.
+func chdir(words []string, cwd, dir string) (string, bool) {
+	if len(words) == 0 || words[0] != "cd" {
+		return "", false
+	}
+	target := ""
+	for _, w := range words[1:] {
+		if strings.HasPrefix(w, "-") && w != "-" {
+			continue // an option such as -P, not the destination
+		}
+		target = w
+		break
+	}
+	switch {
+	case target == "", target == "-":
+		return cwd, true
+	case target == "~":
+		if home, err := os.UserHomeDir(); err == nil {
+			return home, true
+		}
+		return cwd, true
+	case strings.HasPrefix(target, "~/"):
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return cwd, true
+		}
+		return filepath.Join(home, target[2:]), true
+	case strings.HasPrefix(target, "~"):
+		return cwd, true // ~otheruser: not ours to expand
+	case filepath.IsAbs(target):
+		return filepath.Clean(target), true
+	}
+	return filepath.Join(dir, target), true
 }
 
 // bodyFile reads what --body-file names: the command's own heredoc for "-",
@@ -217,57 +274,4 @@ func bodyFile(spec string, c *shellsplit.Command, written map[string]string, cwd
 		return ""
 	}
 	return string(b)
-}
-
-// ghArgs reports whether a command is a `gh <noun> <verb>` the caller accepts,
-// and returns what follows the verb. Leading environment assignments are
-// skipped and the program is matched on its base name, so
-// `GH_TOKEN=… /usr/bin/gh pr create` is the same command as `gh pr create`.
-func ghArgs(words []string, accept func(noun, verb string) bool) ([]string, bool) {
-	for len(words) > 0 && isAssignment(words[0]) {
-		words = words[1:]
-	}
-	if len(words) < 3 || filepath.Base(words[0]) != "gh" {
-		return nil, false
-	}
-	if !accept(words[1], words[2]) {
-		return nil, false
-	}
-	return words[3:], true
-}
-
-func isAssignment(w string) bool {
-	i := strings.IndexByte(w, '=')
-	if i <= 0 {
-		return false
-	}
-	for _, r := range w[:i] {
-		if !(r == '_' || r >= 'A' && r <= 'Z' || r >= 'a' && r <= 'z' || r >= '0' && r <= '9') {
-			return false
-		}
-	}
-	return true
-}
-
-// splitFlag reads one argument as a flag and the value glued to it. gh takes
-// --body=X, --body X, -bX, -b=X and -b X, and a hole in any one of those forms
-// is a body nothing reads.
-func splitFlag(arg string) (name, glued string, hasGlued bool) {
-	switch {
-	case strings.HasPrefix(arg, "--"):
-		if i := strings.IndexByte(arg, '='); i >= 0 {
-			return arg[:i], arg[i+1:], true
-		}
-		return arg, "", false
-	case len(arg) > 1 && arg[0] == '-':
-		rest := arg[2:]
-		switch {
-		case strings.HasPrefix(rest, "="):
-			return arg[:2], rest[1:], true
-		case rest != "":
-			return arg[:2], rest, true
-		}
-		return arg, "", false
-	}
-	return arg, "", false
 }

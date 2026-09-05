@@ -139,6 +139,15 @@ const usage = `mellions — the second engineer's deterministic surface
         GitHub will not resolve it on. Silence otherwise, including where the
         default branch cannot be read. hooks/pr-reference.sh is what calls it.
 
+  mellions pr-merge-check
+        Reads a PreToolUse payload on stdin and denies a gh pr merge whose
+        state cannot support the decision: mergeability GitHub still reports as
+        UNKNOWN, or a branch behind its base where the base has since changed a
+        file the pull request also changes. Being behind alone is not refused.
+        Silence otherwise, including where the tracker cannot answer.
+        hooks/pr-merge-check.sh is what calls it, and MELLIONS_MERGE_CHECK=off
+        silences it.
+
   mellions shared-tree-check
         Reads a PreToolUse payload on stdin and denies a Bash call that runs a
         tree-mutating git command inside a checkout every lane on this host is
@@ -227,6 +236,8 @@ func main() {
 		err = cmdReport(os.Args[2:])
 	case "pr-body-check":
 		err = cmdPRBodyCheck(ctx, os.Args[2:])
+	case "pr-merge-check":
+		err = cmdPRMergeCheck(ctx, os.Args[2:])
 	case "shared-tree-check":
 		err = cmdSharedTreeCheck(os.Args[2:])
 	case "cite":
@@ -496,8 +507,6 @@ func (c *Config) checkout(repo string) (string, error) {
 		repo, strings.Join(c.roots(), ", "), repo)
 }
 
-// hookContext reads what the runtime sent a hook on stdin, where it sent
-// anything. Never an error: a payload it cannot read means it knows less.
 // hookTranscript is the transcript path the runtime named in the hook payload,
 // when it did; the glob under the projects directory is the fallback.
 // hookCommand is the Bash command line a PreToolUse payload carries, which
@@ -505,6 +514,8 @@ func (c *Config) checkout(repo string) (string, error) {
 // the two differ every time a command line begins with `cd`.
 var hookTranscript, hookCommand string
 
+// hookContext reads what the runtime sent a hook on stdin, where it sent
+// anything. Never an error: a payload it cannot read means it knows less.
 func hookContext(r io.Reader) (session, cwd string) {
 	if f, ok := r.(*os.File); ok {
 		info, err := f.Stat()

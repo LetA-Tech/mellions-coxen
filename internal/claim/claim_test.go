@@ -372,3 +372,45 @@ func TestParseRefTellsAPullRequestFromAnIssue(t *testing.T) {
 		}
 	}
 }
+
+// A handed-off lane is finished work whose worktree is kept because a reviewer
+// may still need it, and unattended that reviewer is the only one there is. The
+// claim comment is the whole of what such a reader sees before deciding, so a
+// blanket refusal there is the claim withholding work that is waiting to be
+// taken. The live-lane refusal has to survive that fix, which is what the third
+// case is for: without it, deleting the sentence outright would pass.
+func TestAHandedOffClaimAsksForTheReaderItsWorktreeIsKeptFor(t *testing.T) {
+	at := time.Date(2026, 9, 4, 5, 0, 0, 0, time.UTC)
+
+	published := func(state string) string {
+		f := &fake{view: view()}
+		if _, err := tracker(f, at).Publish(context.Background(), "mellions-coxen", "PR #10", "lane-a", state); err != nil {
+			t.Fatalf("Publish(%s): %v", state, err)
+		}
+		for _, c := range f.calls {
+			for i, a := range c {
+				if a == "--body" && i+1 < len(c) {
+					return c[i+1]
+				}
+			}
+		}
+		t.Fatalf("Publish(%s) published no body", state)
+		return ""
+	}
+
+	handed := published("handed_off")
+	if strings.Contains(handed, "the lane is live") {
+		t.Error("a handed-off claim tells the reader the lane is live, which its own state line contradicts")
+	}
+	if strings.Contains(handed, "is not yours while the claim stands") {
+		t.Error("a handed-off claim refuses the reviewer its worktree is kept for; unattended there is no other reader")
+	}
+	if !strings.Contains(handed, "handed_off") {
+		t.Error("a handed-off claim does not say which state it is in")
+	}
+
+	live := published("active")
+	if !strings.Contains(live, "is not yours while the claim stands") {
+		t.Error("an active lane's claim stopped refusing, so nothing holds work in flight against a second session")
+	}
+}

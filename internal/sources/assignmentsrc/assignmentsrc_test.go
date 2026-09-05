@@ -164,12 +164,20 @@ func TestAnOpenAssignmentWhoseBranchLeftTheRemoteIsAStalePremise(t *testing.T) {
 	for _, c := range []struct {
 		name           string
 		present, known bool
+		commits        int
+		commitsKnown   bool
 		wantStale      bool
 		wantAttr       string
 	}{
-		{"gone", false, true, true, "gone"},
-		{"present", true, true, false, "present"},
-		{"unreachable", false, false, false, "unknown"},
+		{"gone, and the lane committed", false, true, 2, true, true, "gone"},
+		{"present", true, true, 2, true, false, "present"},
+		{"unreachable", false, false, 2, true, false, "unknown"},
+		// A review lane writes nothing, so its branch stands where it was cut.
+		// Missing from the remote, that is the lane looking as it should.
+		{"gone, and nothing was ever committed on it", false, true, 0, true, false,
+			"gone (nothing was ever committed on it)"},
+		// Not knowing is not evidence of no work: the signal stays.
+		{"gone, and the checkout could not be asked", false, true, 0, false, true, "gone"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			src := New(store)
@@ -178,6 +186,18 @@ func TestAnOpenAssignmentWhoseBranchLeftTheRemoteIsAStalePremise(t *testing.T) {
 					t.Fatalf("asked about %s %s", source, branch)
 				}
 				return c.present, c.known
+			}
+			src.Commits = func(_ context.Context, source, base, branch string) (int, bool) {
+				if source != repo || branch != a.Branch {
+					t.Fatalf("asked about %s %s", source, branch)
+				}
+				// The commit, not the prose that explains how it was chosen:
+				// BasePin reads "origin/dev fetched ...", which git cannot
+				// resolve, and the count then silently reports nothing known.
+				if base != a.Base {
+					t.Fatalf("counted from %q, want the record's base %q", base, a.Base)
+				}
+				return c.commits, c.commitsKnown
 			}
 			got, err := src.Collect(context.Background(), signal.Scope{})
 			if err != nil {
@@ -194,6 +214,54 @@ func TestAnOpenAssignmentWhoseBranchLeftTheRemoteIsAStalePremise(t *testing.T) {
 			}
 			if (stale > 0) != c.wantStale {
 				t.Errorf("stale premises = %d, want stale=%v", stale, c.wantStale)
+			}
+		})
+	}
+}
+
+// TestBranchCommitsCountsWhatALaneProduced drives the real probe against real
+// git. The suppression it feeds is invisible to a test that injects the seam:
+// a body returning (0, true) unconditionally would silence the stale-premise
+// signal for every gone branch and leave the rest of this package green.
+func TestBranchCommitsCountsWhatALaneProduced(t *testing.T) {
+	repo, _ := repoAndStore(t)
+	git := func(args ...string) string {
+		t.Helper()
+		cmd := exec.Command("git", args...)
+		cmd.Dir = repo
+		cmd.Env = append(os.Environ(), "GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@x",
+			"GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@x")
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+		return strings.TrimSpace(string(out))
+	}
+	base := git("rev-parse", "HEAD")
+	git("branch", "reviewed", base)
+	git("checkout", "-q", "-b", "wrote", base)
+	git("commit", "-q", "--allow-empty", "-m", "work")
+	git("checkout", "-q", "main")
+
+	for _, c := range []struct {
+		name              string
+		dir, base, branch string
+		wantN             int
+		wantKnown         bool
+	}{
+		{"a lane that only reviewed", repo, base, "reviewed", 0, true},
+		{"a lane that committed", repo, base, "wrote", 1, true},
+		// Each of these must be unknown rather than zero: reported as zero they
+		// would silence the signal exactly where it is most wanted.
+		{"the branch is gone locally too", repo, base, "deleted-lane", 0, false},
+		{"the base no longer resolves", repo, strings.Repeat("0", 40), "wrote", 0, false},
+		{"the checkout has moved", filepath.Join(repo, "nowhere"), base, "wrote", 0, false},
+		{"the record carries no base", repo, "", "wrote", 0, false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			n, known := branchCommits(context.Background(), c.dir, c.base, c.branch)
+			if n != c.wantN || known != c.wantKnown {
+				t.Errorf("branchCommits = (%d, %v), want (%d, %v)", n, known, c.wantN, c.wantKnown)
 			}
 		})
 	}

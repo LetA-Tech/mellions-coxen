@@ -99,11 +99,21 @@ check: fmt-check vet test check-hooks
 
 # Install for this machine: the binary on PATH, then the plugin into whichever
 # runtimes are here, from this checkout.
+#
+# Where the binary goes, and whether it landed somewhere a shell will run, is
+# scripts/install-binary.sh — it prints the path it installed to. BIN= installs
+# exactly there; PREFIX= is the first-install root when no mellions is on PATH.
 PREFIX ?= /usr/local
+BIN ?=
+# A PREFIX named on the command line is a destination the operator chose, so it
+# outranks the installation already on PATH; the default one does not.
+ifeq ($(origin PREFIX),command line)
+BIN := $(PREFIX)/bin/mellions
+endif
 .PHONY: install
 install: build
-	install -m 0755 bin/mellions $(PREFIX)/bin/mellions
-	$(PREFIX)/bin/mellions install -from .
+	@target=$$(SRC=bin/mellions PREFIX='$(PREFIX)' BIN='$(BIN)' scripts/install-binary.sh) && \
+		"$$target" install -from .
 
 .PHONY: clean
 clean:

@@ -99,6 +99,16 @@
             "timeout": 8
           }
         ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/pr-merge-check.sh\"; exit 0",
+            "timeout": 5
+          }
+        ]
       }
     ],
     "UserPromptSubmit": [
