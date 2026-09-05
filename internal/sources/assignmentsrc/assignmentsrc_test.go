@@ -187,9 +187,15 @@ func TestAnOpenAssignmentWhoseBranchLeftTheRemoteIsAStalePremise(t *testing.T) {
 				}
 				return c.present, c.known
 			}
-			src.Commits = func(_ context.Context, source, basePin, branch string) (int, bool) {
+			src.Commits = func(_ context.Context, source, base, branch string) (int, bool) {
 				if source != repo || branch != a.Branch {
 					t.Fatalf("asked about %s %s", source, branch)
+				}
+				// The commit, not the prose that explains how it was chosen:
+				// BasePin reads "origin/dev fetched ...", which git cannot
+				// resolve, and the count then silently reports nothing known.
+				if base != a.Base {
+					t.Fatalf("counted from %q, want the record's base %q", base, a.Base)
 				}
 				return c.commits, c.commitsKnown
 			}

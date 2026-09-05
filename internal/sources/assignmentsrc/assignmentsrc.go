@@ -34,7 +34,7 @@ type Source struct {
 	// Commits reports how many commits a branch carries beyond the base it was
 	// cut from. known is false when the checkout could not be asked, which is a
 	// different answer from none. Replaced in tests.
-	Commits func(ctx context.Context, source, basePin, branch string) (n int, known bool)
+	Commits func(ctx context.Context, source, base, branch string) (n int, known bool)
 }
 
 // New returns a source over an assignment store.
@@ -61,17 +61,18 @@ func remoteBranch(ctx context.Context, source, branch string) (present, known bo
 }
 
 // branchCommits counts what a lane actually produced, against the commit its
-// record says it was cut from. A lane that reviews rather than writes never
+// record says it was cut from — Base, the commit; BasePin is the prose that
+// says how that commit was chosen. A lane that reviews rather than writes never
 // commits, so its branch stands where it was cut and its absence from the
 // remote is nothing to act on; a lane holding commits is the case a missing
 // remote branch is worth reporting for.
-func branchCommits(ctx context.Context, source, basePin, branch string) (int, bool) {
-	if source == "" || basePin == "" || branch == "" {
+func branchCommits(ctx context.Context, source, base, branch string) (int, bool) {
+	if source == "" || base == "" || branch == "" {
 		return 0, false
 	}
 	c, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(c, "git", "rev-list", "--count", basePin+".."+branch)
+	cmd := exec.CommandContext(c, "git", "rev-list", "--count", base+".."+branch)
 	cmd.Dir = source
 	out, err := cmd.Output()
 	if err != nil {
@@ -159,7 +160,7 @@ func (s *Source) Collect(ctx context.Context, scope signal.Scope) ([]signal.Sign
 			// signal reported was that. Not knowing keeps the signal: a
 			// checkout that cannot be asked is not evidence that no work exists.
 			if gone && s.Commits != nil {
-				if n, known := s.Commits(ctx, a.Source, a.BasePin, a.Branch); known && n == 0 {
+				if n, known := s.Commits(ctx, a.Source, a.Base, a.Branch); known && n == 0 {
 					gone = false
 					attrs["remote_branch"] = "gone (nothing was ever committed on it)"
 				}
