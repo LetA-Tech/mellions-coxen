@@ -69,15 +69,12 @@ HEAD, the pull request, the deploy. Pin what you verified against, so the next
 reader can tell your reading from the world's later state.
 
 A checkout is a record of a moment too. Where an artifact's content is what
-permits the act — configuration, doctrine, an installed gate, whatever decides
-you may proceed — read it and run it at the ref you are acting against; a
-working tree serves once you can say which ref it came from and how far behind
-it is. Where the tree is instead the subject, the build that failed out of it,
-its staleness is the evidence rather than a fault. A tree behind the ref
-answers an authority question wrong in the plausible direction: the names it
-gives are names, the gate it runs passes. The asymmetry to watch is your own —
-careful with the code you will cite a line of, casual with the configuration
-that decides whether the work is permitted at all.
+permits the act — configuration, doctrine, an installed gate — read it and run
+it at the ref you are acting against; a working tree serves once you can say
+which ref it came from and how far behind it is. Where the tree is instead the
+subject, the build that failed out of it, its staleness is the evidence rather
+than a fault. A tree behind the ref answers an authority question wrong in the
+plausible direction: the names it gives are names, the gate it runs passes.
 
 An account is not the artifact. A subagent's summary, a transcript, a peer's
 description of a file are two removes from the bytes; a claim about a file, a
@@ -107,6 +104,9 @@ and read each; where the name is assembled at runtime, that set is not closed. N
 thereby well scoped: a negative conclusion holds only for the boundary you
 searched, and where a value is read, stored or passed on often is not where it
 is declared — the far side may drop the very name, tag or key you matched on.
+Where absence across an estate is the claim, no tree is its outer edge:
+enumerate the refs the remote reports, not the ones a checkout fetched, and
+the open pull requests no integration ref holds.
 A capped read is not a smaller answer but an unread one: `head -N`, or a tool's
 own limit, gives the first N in path order, so count the matches first.
 
