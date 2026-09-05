@@ -280,3 +280,71 @@ func TestTheRefusalNamesRepairAsADecisionRatherThanACommand(t *testing.T) {
 		}
 	}
 }
+
+// The load path is a shared checkout like any other, and `git pull --ff-only`
+// there is the one command that lands a Mellions fix. Refusing it left the
+// guard blocking the only sanctioned way to install anything, including a fix
+// to the guard.
+//
+// Safe because git itself refuses a fast-forward that would overwrite local
+// modifications, which is the loss this package exists to prevent.
+func TestFastForwardPullOfTheLoadPathIsTheOneAllowedWrite(t *testing.T) {
+	e := sharedtree.Estate{
+		Shared: []sharedtree.Checkout{
+			{Repo: "mellions-coxen", Dir: "/home/you/leta/mellions-coxen"},
+			{Repo: "data-service", Dir: "/home/you/workspace/data-service"},
+		},
+		Home:     "/home/you",
+		LoadPath: "/home/you/leta/mellions-coxen",
+	}
+
+	for _, tc := range []struct {
+		name    string
+		command string
+		cwd     string
+		refused bool
+	}{
+		{"ff-only pull of the load path lands a fix",
+			"git pull --ff-only", "/home/you/leta/mellions-coxen", false},
+		{"ff-only via -C also lands it",
+			"git -C /home/you/leta/mellions-coxen pull --ff-only", "/tmp", false},
+		// A pull that could merge is not a deployment; it resolves conflicts
+		// against a tree nobody looked at.
+		{"a pull that could merge is still refused",
+			"git pull", "/home/you/leta/mellions-coxen", true},
+		{"a rebasing pull is still refused",
+			"git pull --rebase origin main", "/home/you/leta/mellions-coxen", true},
+		// Scoped to the load path. Another shared checkout gains nothing: the
+		// exemption is for the deployment step, not for pulling in general.
+		{"ff-only pull of another shared checkout is refused",
+			"git pull --ff-only", "/home/you/workspace/data-service", true},
+		// Every other verb is unchanged, or the exemption widened past a pull.
+		{"the load path is not otherwise writable",
+			"git checkout main", "/home/you/leta/mellions-coxen", true},
+		{"reset in the load path is still refused",
+			"git reset --hard origin/main", "/home/you/leta/mellions-coxen", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := sharedtree.Find(tc.command, tc.cwd, e)
+			if tc.refused && got == nil {
+				t.Fatalf("%q at %s was allowed; want refused", tc.command, tc.cwd)
+			}
+			if !tc.refused && got != nil {
+				t.Fatalf("%q at %s was refused (%s); it is how a Mellions fix is landed",
+					tc.command, tc.cwd, got.Verb)
+			}
+		})
+	}
+}
+
+// With no load path known, nothing is exempt. An installation that cannot say
+// where it loads from must not have the exemption applied to an arbitrary tree.
+func TestNoLoadPathExemptsNothing(t *testing.T) {
+	e := sharedtree.Estate{
+		Shared: []sharedtree.Checkout{{Repo: "mellions-coxen", Dir: "/home/you/leta/mellions-coxen"}},
+		Home:   "/home/you",
+	}
+	if sharedtree.Find("git pull --ff-only", "/home/you/leta/mellions-coxen", e) == nil {
+		t.Fatal("an empty LoadPath exempted a shared checkout")
+	}
+}
