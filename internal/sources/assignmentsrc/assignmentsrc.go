@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"os/exec"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -30,10 +31,16 @@ type Source struct {
 	// remote. known is false when the remote could not be asked, which is a
 	// different answer from absent. Replaced in tests.
 	Remote func(ctx context.Context, source, branch string) (present, known bool)
+	// Commits reports how many commits a branch carries beyond the base it was
+	// cut from. known is false when the checkout could not be asked, which is a
+	// different answer from none. Replaced in tests.
+	Commits func(ctx context.Context, source, basePin, branch string) (n int, known bool)
 }
 
 // New returns a source over an assignment store.
-func New(s *assignment.Store) *Source { return &Source{store: s, Remote: remoteBranch} }
+func New(s *assignment.Store) *Source {
+	return &Source{store: s, Remote: remoteBranch, Commits: branchCommits}
+}
 
 // remoteBranch asks the remote itself rather than the local refs: a checkout
 // with a restricted fetch refspec reports branches absent that the remote still
@@ -51,6 +58,30 @@ func remoteBranch(ctx context.Context, source, branch string) (present, known bo
 		return false, false
 	}
 	return strings.TrimSpace(string(out)) != "", true
+}
+
+// branchCommits counts what a lane actually produced, against the commit its
+// record says it was cut from. A lane that reviews rather than writes never
+// commits, so its branch stands where it was cut and its absence from the
+// remote is nothing to act on; a lane holding commits is the case a missing
+// remote branch is worth reporting for.
+func branchCommits(ctx context.Context, source, basePin, branch string) (int, bool) {
+	if source == "" || basePin == "" || branch == "" {
+		return 0, false
+	}
+	c, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(c, "git", "rev-list", "--count", basePin+".."+branch)
+	cmd.Dir = source
+	out, err := cmd.Output()
+	if err != nil {
+		return 0, false
+	}
+	n, err := strconv.Atoi(strings.TrimSpace(string(out)))
+	if err != nil {
+		return 0, false
+	}
+	return n, true
 }
 
 // Name implements signal.Source.
@@ -120,6 +151,18 @@ func (s *Source) Collect(ctx context.Context, scope signal.Scope) ([]signal.Sign
 			default:
 				attrs["remote_branch"] = "gone"
 				gone = true
+			}
+			// A lane that never committed has nothing that could have been
+			// pushed and nothing that could have merged, so its branch missing
+			// from the remote is not the record falling behind the world — it
+			// is a review lane looking exactly as it should. Half of what this
+			// signal reported was that. Not knowing keeps the signal: a
+			// checkout that cannot be asked is not evidence that no work exists.
+			if gone && s.Commits != nil {
+				if n, known := s.Commits(ctx, a.Source, a.BasePin, a.Branch); known && n == 0 {
+					gone = false
+					attrs["remote_branch"] = "gone (nothing was ever committed on it)"
+				}
 			}
 		}
 

@@ -164,12 +164,20 @@ func TestAnOpenAssignmentWhoseBranchLeftTheRemoteIsAStalePremise(t *testing.T) {
 	for _, c := range []struct {
 		name           string
 		present, known bool
+		commits        int
+		commitsKnown   bool
 		wantStale      bool
 		wantAttr       string
 	}{
-		{"gone", false, true, true, "gone"},
-		{"present", true, true, false, "present"},
-		{"unreachable", false, false, false, "unknown"},
+		{"gone, and the lane committed", false, true, 2, true, true, "gone"},
+		{"present", true, true, 2, true, false, "present"},
+		{"unreachable", false, false, 2, true, false, "unknown"},
+		// A review lane writes nothing, so its branch stands where it was cut.
+		// Missing from the remote, that is the lane looking as it should.
+		{"gone, and nothing was ever committed on it", false, true, 0, true, false,
+			"gone (nothing was ever committed on it)"},
+		// Not knowing is not evidence of no work: the signal stays.
+		{"gone, and the checkout could not be asked", false, true, 0, false, true, "gone"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			src := New(store)
@@ -178,6 +186,12 @@ func TestAnOpenAssignmentWhoseBranchLeftTheRemoteIsAStalePremise(t *testing.T) {
 					t.Fatalf("asked about %s %s", source, branch)
 				}
 				return c.present, c.known
+			}
+			src.Commits = func(_ context.Context, source, basePin, branch string) (int, bool) {
+				if source != repo || branch != a.Branch {
+					t.Fatalf("asked about %s %s", source, branch)
+				}
+				return c.commits, c.commitsKnown
 			}
 			got, err := src.Collect(context.Background(), signal.Scope{})
 			if err != nil {
