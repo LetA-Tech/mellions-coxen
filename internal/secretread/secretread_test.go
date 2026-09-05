@@ -238,3 +238,84 @@ func TestScanBash_TimeoutBlamesTheRealReader(t *testing.T) {
 		t.Errorf("Reader = %q, want cat — the refusal must name what prints", got[0].Reader)
 	}
 }
+
+// A searcher's pattern is the operand it never opens, and a glob is a name to
+// match rather than a file to read. Denying either is a category error with a
+// cost worse than the noise: the only way past is to spell the token
+// indirectly, and a command assembled from shell fragments is harder to audit
+// than one written plainly — which is the property this guard protects.
+//
+// Every case below is a command a session actually ran, or the read it must
+// keep refusing. The deny cases are what keep the exoneration positional
+// rather than a hole: the pattern is exonerated by where it sits, so a file
+// operand behind it is scanned exactly as before.
+func TestScanBash_PatternsAndGlobsAreNotPaths(t *testing.T) {
+	for _, tt := range []struct {
+		name string
+		cmd  string
+		deny bool
+	}{
+		{"git grep pattern over a manifest", `git grep -in 'viper|aws-sdk|secretsmanager' go.mod`, false},
+		{"grep pattern in a script", `grep -n 'SECRET_PREFIX' migrations/migrate.sh`, false},
+		{"find by glob prints names", `find . -name '.env*'`, false},
+		{"find by iname", `find . -iname '.db_connection'`, false},
+		{"ripgrep pattern over a directory", `rg .db_connection docs/`, false},
+		{"git grep pattern with a pathspec", `git grep -n .env -- internal/`, false},
+
+		{"a file operand behind the pattern", `grep -rn foo deploy/.env`, true},
+		{"a pathspec behind the pattern", `git grep -n pattern -- deploy/.env`, true},
+		{"a pattern file is read", `grep -f .db_connection corpus.txt`, true},
+		{"find hands each match to a reader", `find . -name '.env' -exec cat {} \;`, true},
+		{"find -delete is not a search", `find . -name x -delete -o -name .env -exec cat {} \;`, true},
+		{"the searcher itself still prints", `cat deploy/.env`, true},
+		// `--` ends the options, so the pattern is the word after it and the
+		// file is the word after that. Without that rule a pattern beginning
+		// with a dash is skipped as a flag and the FILE becomes the first
+		// non-flag operand -- exonerated as though it were the pattern. Found
+		// by an arm that removed the rule and reded nothing: the table was
+		// short, not the rule dead.
+		{"a dash-leading pattern after --", `grep -- -foo deploy/.env`, true},
+		{"the same through git grep", `git grep -- -foo deploy/.env`, true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			got := ScanBash(tt.cmd)
+			if tt.deny && len(got) == 0 {
+				t.Errorf("ScanBash(%q) allowed a read", tt.cmd)
+			}
+			if !tt.deny && len(got) != 0 {
+				t.Errorf("ScanBash(%q) denied a command that opens nothing: %+v", tt.cmd, got)
+			}
+		})
+	}
+}
+
+// Bytes after an unquoted `#` are not executed, so a note naming a credential
+// is prose. Held to a `#` that begins a word, which is what leaves
+// ${VAR#pattern} and a quoted "#" alone — and a comment must not exonerate the
+// command it trails.
+func TestScanBash_CommentsAreNotCommands(t *testing.T) {
+	for _, tt := range []struct {
+		name string
+		cmd  string
+		deny bool
+	}{
+		{"a note about the file", `echo hello # the operator credential file is .db_connection`, false},
+		{"a whole-line comment", `# copy .env.example to .env and fill it`, false},
+		{"a comment after a safe command", `wc -c .env # just the size`, false},
+
+		{"a comment does not exonerate what precedes it", `cat .db_connection # inspect`, true},
+		{"a hash inside quotes is not a comment", `echo 'not # a comment' && cat .db_connection`, true},
+		{"parameter expansion is not a comment", `X=${PATH#/usr}; cat .env`, true},
+		{"a later line still runs", "# a note\ncat .db_connection", true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			got := ScanBash(tt.cmd)
+			if tt.deny && len(got) == 0 {
+				t.Errorf("ScanBash(%q) allowed a read", tt.cmd)
+			}
+			if !tt.deny && len(got) != 0 {
+				t.Errorf("ScanBash(%q) denied prose: %+v", tt.cmd, got)
+			}
+		})
+	}
+}

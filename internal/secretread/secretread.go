@@ -119,6 +119,115 @@ func prefixOperands(base string, rest []string) (int, bool) {
 // durationWord is timeout's DURATION operand: a number with an optional unit.
 var durationWord = regexp.MustCompile(`^[0-9]+(\.[0-9]+)?[smhd]?$`)
 
+// patternOperands returns the argument positions that a command takes as a
+// pattern or a glob rather than as a file to open.
+//
+// A searcher's pattern is the one operand it never reads. `grep .env file` is
+// refused on `file` and must not also be refused on the pattern, and
+// `find . -name .env` names a glob to match against directory entries -- find
+// prints names and opens nothing. Refusing these is a category error, and it
+// has a cost worse than the noise: the only way past it is to spell the
+// offending token indirectly, and a transcript in which the command was
+// assembled from shell fragments is harder to audit than one in which it is
+// written plainly. That is the property this guard exists to protect.
+//
+// Everything else stays a path. The pattern is exonerated by position, not the
+// word by its content, so a file operand behind it is scanned exactly as before.
+func patternOperands(reader string, args []string) map[int]bool {
+	out := map[int]bool{}
+	switch reader {
+	case "grep", "egrep", "fgrep", "rg", "ag", "ack":
+	case "git":
+		// `git grep` is the same searcher one word further along.
+		if len(args) == 0 || args[0] != "grep" {
+			return out
+		}
+		for i := range patternOperands("grep", args[1:]) {
+			out[i+1] = true
+		}
+		return out
+	case "find":
+		// -exec and its relatives hand each match to another command, which
+		// may well open it. The glob is then a path this command reaches
+		// through a reader nothing here can classify, so nothing is exonerated.
+		for _, a := range args {
+			switch a {
+			case "-exec", "-execdir", "-ok", "-okdir", "-delete", "-fprint", "-fprintf":
+				return out
+			}
+		}
+		for i := 0; i+1 < len(args); i++ {
+			switch args[i] {
+			case "-name", "-iname", "-path", "-ipath", "-wholename", "-iwholename",
+				"-lname", "-ilname", "-regex", "-iregex":
+				out[i+1] = true
+			}
+		}
+		return out
+	default:
+		return out
+	}
+	// A searcher. Its pattern is the first operand that is not a flag -- unless
+	// the patterns came from -e or -f, in which case every operand is a path.
+	for _, a := range args {
+		switch {
+		case a == "-e", a == "-f", a == "--regexp", a == "--file",
+			strings.HasPrefix(a, "--regexp="), strings.HasPrefix(a, "--file="):
+			return out
+		}
+	}
+	for i, a := range args {
+		if a == "--" {
+			return out
+		}
+		if strings.HasPrefix(a, "-") && a != "-" {
+			continue
+		}
+		out[i] = true
+		return out
+	}
+	return out
+}
+
+// stripComments removes each word from an unquoted `#` to the end of the line.
+//
+// Those bytes are not executed, so a note that names a credential file is prose
+// and not a read. Held to a `#` that begins a word, which is what leaves
+// `${VAR#pattern}` and a quoted `"#"` alone.
+func stripComments(command string) string {
+	var b strings.Builder
+	for i, line := range strings.Split(command, "\n") {
+		if i > 0 {
+			b.WriteByte('\n')
+		}
+		var quote rune
+		cut := -1
+		prevSpace := true
+		for j, r := range line {
+			switch {
+			case quote != 0:
+				if r == quote {
+					quote = 0
+				}
+			case r == '\'' || r == '"':
+				quote = r
+			case r == '#' && prevSpace:
+				cut = j
+			}
+			if cut >= 0 {
+				break
+			}
+			prevSpace = r == ' ' || r == '\t'
+		}
+		if cut >= 0 {
+			b.WriteString(line[:cut])
+			continue
+		}
+		b.WriteString(line)
+	}
+	return b.String()
+}
+
 var assignment = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*=`)
 
 // exactSecretNames are basenames that are a credential by their name alone.
@@ -265,6 +374,7 @@ func ScanPath(p string) []Finding {
 // them from the words — so writing a document that discusses a credential file
 // by name is silent, which is what makes the guard survivable.
 func ScanBash(command string) []Finding {
+	command = stripComments(command)
 	var out []Finding
 	// A variable that holds a credential's VALUE, read by a substitution. Using
 	// it is the idiom; printing it is the leak.
@@ -320,10 +430,14 @@ func ScanBash(command string) []Finding {
 		if consumers[reader] {
 			continue
 		}
+		patterns := patternOperands(reader, args)
 
 		// A variable holding a credential, printed back out. The capture was
 		// safe; handing it to a printer is the same leak one step later.
-		for _, a := range args {
+		for index, a := range args {
+			if patterns[index] {
+				continue
+			}
 			for name := range holdsValue {
 				if printers[reader] && names(a, name) {
 					out = append(out, Finding{Path: "$" + name, Reader: reader})
