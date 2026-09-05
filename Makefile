@@ -105,6 +105,11 @@ check: fmt-check vet test check-hooks
 # exactly there; PREFIX= is the first-install root when no mellions is on PATH.
 PREFIX ?= /usr/local
 BIN ?=
+# A PREFIX named on the command line is a destination the operator chose, so it
+# outranks the installation already on PATH; the default one does not.
+ifeq ($(origin PREFIX),command line)
+BIN := $(PREFIX)/bin/mellions
+endif
 .PHONY: install
 install: build
 	@target=$$(SRC=bin/mellions PREFIX='$(PREFIX)' BIN='$(BIN)' scripts/install-binary.sh) && \

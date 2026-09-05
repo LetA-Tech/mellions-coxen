@@ -22,13 +22,20 @@ BIN="${BIN:-}"
 
 say() { printf '%s\n' "$*" >&2; }
 
-# The plugin half registers into the invoking user's home, so sudo installs it
-# for root and leaves the operator's runtimes as they were.
-if [ -n "${SUDO_USER:-}" ]; then
-	say "mellions: run this as yourself, not under sudo."
+# The plugin half registers into the invoking user's home, so an escalated
+# install registers it for root and leaves the operator's runtimes as they
+# were. Refused only where the target was also left to be guessed: an operator
+# who names the destination has said what they want, and a guard that fires on
+# a legitimate install costs more than the shadow it prevents. A genuine root
+# machine sets neither variable and is not refused.
+if [ -n "${SUDO_USER:-}${DOAS_USER:-}" ] && [ -z "$BIN" ]; then
+	say "mellions: run this as yourself, not escalated — or say where it goes."
 	say "  The second half of the install registers the plugin into the invoking"
-	say "  user's home, and under sudo that is root's rather than ${SUDO_USER}'s."
-	say "  Install somewhere you own instead:  make install PREFIX=\$HOME/.local"
+	say "  user's home, and escalated that is root's rather than"
+	say "  ${SUDO_USER:-${DOAS_USER:-yours}}'s. With no destination named this would"
+	say "  also guess one, and the guess is what leaves a copy nothing runs."
+	say "  Install somewhere you own:       make install PREFIX=\$HOME/.local"
+	say "  Or name the destination:         make install PREFIX=/usr/local"
 	exit 1
 fi
 
@@ -51,8 +58,15 @@ mkdir -p "$dir"
 dir="$(cd "$dir" && pwd)"
 BIN="$dir/$(basename "$BIN")"
 
+if [ ! -w "$dir" ]; then
+	say "mellions: $dir is not writable by $(id -un)."
+	say "  Install somewhere you own:  make install PREFIX=\$HOME/.local"
+	say "  Or name the destination:    make install BIN=<path>"
+	exit 1
+fi
+
 # Rename rather than write in place: the file may be the binary a session is
-# running, and an in-place write to that is ETXTBSY.
+# running, and cp to the name then mv keeps a running process on its own inode.
 cp "$SRC" "$BIN.new"
 chmod 0755 "$BIN.new"
 mv -f "$BIN.new" "$BIN"

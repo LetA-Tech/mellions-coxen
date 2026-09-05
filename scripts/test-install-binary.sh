@@ -108,18 +108,50 @@ else
 	note "a relative BIN is printed absolute"
 fi
 
-# 5. sudo: the plugin half would register into root's home rather than the
-#    operator's, so the whole thing refuses before writing anything.
-mkdir -p "$tmp/case5/bin"
-run "$tmp/case5/bin:/usr/bin:/bin" PREFIX="$tmp/case5" SUDO_USER=someone
-if [ "$rc" -eq 0 ]; then
-	bad "sudo install was accepted"
-elif [ -e "$tmp/case5/bin/mellions" ]; then
-	bad "sudo install wrote a binary before refusing"
-elif ! printf '%s' "$err" | grep -qi sudo; then
-	bad "the refusal does not say why sudo is wrong: $err"
+# 5. Escalated with no destination named: the plugin half would register into
+#    root's home rather than the operator's, and the target would be guessed.
+#    Refused before anything is written. doas is the same hazard as sudo.
+for esc in SUDO_USER DOAS_USER; do
+	mkdir -p "$tmp/case5-$esc/bin"
+	run "$tmp/case5-$esc/bin:/usr/bin:/bin" PREFIX="$tmp/case5-$esc" "$esc=someone"
+	if [ "$rc" -eq 0 ]; then
+		bad "an escalated install with no destination was accepted ($esc)"
+	elif [ -e "$tmp/case5-$esc/bin/mellions" ]; then
+		bad "an escalated install wrote a binary before refusing ($esc)"
+	elif ! printf '%s' "$err" | grep -q "not escalated"; then
+		bad "the refusal does not say why escalation is wrong ($esc): $err"
+	else
+		note "an escalated install with no destination is refused ($esc)"
+	fi
+done
+
+# 5b. Escalated WITH the destination named: an operator who says where it goes
+#     has not left it to be guessed, and a guard that refuses a legitimate
+#     install costs more than the shadow it prevents.
+mkdir -p "$tmp/case5b/bin"
+run "$tmp/case5b/bin:/usr/bin:/bin" BIN="$tmp/case5b/bin/mellions" SUDO_USER=someone
+if [ "$rc" -ne 0 ]; then
+	bad "an escalated install naming its destination was refused: $err"
+elif ! grep -q NEW "$tmp/case5b/bin/mellions" 2>/dev/null; then
+	bad "an escalated install naming its destination wrote nothing"
 else
-	note "sudo is refused, and nothing is written"
+	note "an escalated install that names its destination proceeds"
+fi
+
+# 6. A destination directory this user cannot write: say so and how, rather
+#    than leaving the operator a bare cp error.
+mkdir -p "$tmp/case6/bin"
+chmod 555 "$tmp/case6/bin"
+run "$tmp/case6/bin:/usr/bin:/bin" BIN="$tmp/case6/bin/mellions"
+chmod 755 "$tmp/case6/bin"
+if [ "$rc" -eq 0 ]; then
+	bad "an unwritable destination was accepted"
+elif ! printf '%s' "$err" | grep -q "not writable by"; then
+	bad "the refusal does not name the unwritable directory: $err"
+elif ! printf '%s' "$err" | grep -q "PREFIX="; then
+	bad "the refusal offers no way out: $err"
+else
+	note "an unwritable destination is refused with a way out"
 fi
 
 [ "$fail" -eq 0 ] && printf 'ok install-binary\n'
