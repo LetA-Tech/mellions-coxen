@@ -11,6 +11,7 @@ import (
 	"go/token"
 	"io/fs"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -58,10 +59,10 @@ func TestADocCommentBelongsToTheDeclarationBelowIt(t *testing.T) {
 				continue
 			}
 			first := firstWord(doc.Text())
-			if first == "" || declared[first] == 0 {
+			if first == "" || !declared[first] {
 				continue
 			}
-			if contains(names, first) {
+			if slices.Contains(names, first) {
 				continue
 			}
 			rel, _ := filepath.Rel(root, path)
@@ -104,28 +105,28 @@ func docAndNames(decl ast.Decl) (*ast.CommentGroup, []string) {
 
 // declaredNames is every top-level name the file declares, which is the set a
 // stranded doc comment can be pointing at.
-func declaredNames(file *ast.File) map[string]int {
-	names := map[string]int{}
+func declaredNames(file *ast.File) map[string]bool {
+	names := map[string]bool{}
 	for _, decl := range file.Decls {
 		_, declares := docAndNames(decl)
 		for _, n := range declares {
-			names[n]++
+			names[n] = true
 		}
 	}
 	return names
 }
 
+// firstWord splits on any whitespace, not on a space. The house style here
+// opens plenty of doc comments with the name alone on its own line —
+// "// Name.\n//\n// prose" — and a space-only split reads that whole first
+// line as one word, which no declaration is ever named. That blindness covered
+// roughly one doc comment in twenty.
 func firstWord(text string) string {
-	return strings.TrimFunc(strings.SplitN(strings.TrimSpace(text), " ", 2)[0], func(r rune) bool {
+	fields := strings.Fields(text)
+	if len(fields) == 0 {
+		return ""
+	}
+	return strings.TrimFunc(fields[0], func(r rune) bool {
 		return !('a' <= r && r <= 'z') && !('A' <= r && r <= 'Z') && !('0' <= r && r <= '9') && r != '_'
 	})
-}
-
-func contains(names []string, want string) bool {
-	for _, n := range names {
-		if n == want {
-			return true
-		}
-	}
-	return false
 }
