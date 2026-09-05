@@ -46,6 +46,10 @@ fi
 
 dir="$(dirname "$BIN")"
 mkdir -p "$dir"
+# Absolute from here on: the caller runs what this prints, and a relative path
+# printed as a command is a PATH lookup that can land on a different mellions.
+dir="$(cd "$dir" && pwd)"
+BIN="$dir/$(basename "$BIN")"
 
 # Rename rather than write in place: the file may be the binary a session is
 # running, and an in-place write to that is ETXTBSY.

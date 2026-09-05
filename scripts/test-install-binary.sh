@@ -95,6 +95,19 @@ else
 	note "a target on no PATH directory is refused"
 fi
 
+# 4b. A relative BIN. What this prints is run as a command by the caller, and
+#     a relative path there is a PATH lookup that can land on another mellions.
+mkdir -p "$tmp/case4b/bin"
+out=$(cd "$tmp/case4b/bin" && env -i HOME="$tmp/home" PATH="$tmp/case4b/bin:/usr/bin:/bin" \
+	SRC="$src" BIN=mellions bash "$installer" 2>"$tmp/stderr"); rc=$?
+if [ "$rc" -ne 0 ]; then
+	bad "relative BIN exited $rc: $(cat "$tmp/stderr")"
+elif [ "$out" != "$tmp/case4b/bin/mellions" ]; then
+	bad "relative BIN printed '$out', wanted an absolute path"
+else
+	note "a relative BIN is printed absolute"
+fi
+
 # 5. sudo: the plugin half would register into root's home rather than the
 #    operator's, so the whole thing refuses before writing anything.
 mkdir -p "$tmp/case5/bin"
