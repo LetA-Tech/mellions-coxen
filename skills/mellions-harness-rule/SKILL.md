@@ -79,8 +79,12 @@ Properties the rule must have:
 
 ## Then close the class
 
-A rule in one repository leaves the siblings carrying the defect. Check them —
-`gh search code` across the org finds the shape in minutes — and either fix them
-or file, with the rule cited so the fix and its guard travel together.
+Run the rule across the whole repository before the pull request is opened, not
+only the package that motivated it: a rule whose first red lands on a merge
+that is otherwise ready gets its matcher narrowed far more often than its sites
+fixed. Then the siblings, which a rule in one repository leaves carrying the
+defect — `gh search code` across the org finds the shape in minutes. Either
+way, fix them or file, with the rule cited so the fix and its guard travel
+together.
 
 That is the whole point: the lesson stops depending on anyone remembering it.
