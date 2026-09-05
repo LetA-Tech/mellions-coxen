@@ -215,7 +215,6 @@ func Check(body, working string, known map[string]string) []Finding {
 	return findings
 }
 
-// resolve turns a citation into an absolute path.
 // Locate reports where a citation's file actually is, and whether it was found
 // at all.
 //
@@ -251,6 +250,7 @@ func Checkable(c Citation, working string, known map[string]string) bool {
 	}
 }
 
+// resolve turns a citation into an absolute path.
 func resolve(c Citation, working string, known map[string]string) (string, error) {
 	repo := c.Repo
 	if repo == "" {
