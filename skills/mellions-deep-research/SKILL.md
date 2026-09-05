@@ -107,15 +107,12 @@ and read each; where the name is assembled at runtime, that set is not closed. N
 thereby well scoped: a negative conclusion holds only for the boundary you
 searched, and where a value is read, stored or passed on often is not where it
 is declared — the far side may drop the very name, tag or key you matched on.
+A capped read is not a smaller answer but an unread one: `head -N`, or a tool's
+own limit, gives the first N in path order, so count the matches first.
 
 An instrument that reports proves its reporting path, never that anything
 writes what it carries. Where a reading is an absence's whole support, find
 its writer, not its registration: one with no callers measures nothing.
-
-Proving that a fix holds — the copy you falsify in, the oracle, the revert
-arms, what a red or a green can still hide — is `mellions-falsification`,
-which reached you whole beside this: read it before a test, a mutation or a
-green run is cited as proof.
 
 ## Keep it small, and write it down as you go
 
