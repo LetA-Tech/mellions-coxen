@@ -238,3 +238,86 @@ func TestScanBash_TimeoutBlamesTheRealReader(t *testing.T) {
 		t.Errorf("Reader = %q, want cat — the refusal must name what prints", got[0].Reader)
 	}
 }
+
+// TestScanBash_FalseDenials collects commands that read no credential and were
+// denied anyway. Each was measured in one session's real work; the last one is
+// the command that opened the lane for this fix, refused because the assignment
+// id named the package.
+//
+// A denial is not free. It costs the whole tool call — a heredoc paired with the
+// publish that consumes it never runs — and a guard that has to be worked around
+// is one that gets turned off, which this package already says of the go/make
+// case.
+func TestScanBash_FalseDenials(t *testing.T) {
+	for _, tt := range []struct {
+		name string
+		cmd  string
+	}{
+		// ssh consumes the identity file. It is handed to the crypto and
+		// written nowhere.
+		{"ssh identity file", `ssh -fN -i ~/.ssh/obsdebug_ed25519 -L 9428:127.0.0.1:9428 obsdebug@159.203.55.241`},
+		{"scp identity file", `scp -i ~/.ssh/id_ed25519 build.tar deploy@host:/srv`},
+
+		// `.*` is a regex, not a glob. Split out of a larger word its stem is
+		// ".", which prefixes every dotted name in exactSecretNames.
+		{"sed script with a wildcard", `git blame -L 110,122 -- goal_pace.go | sed 's/(\(.\{1,22\}\).*[0-9]\{4\})/(\1)/'`},
+		{"a series matcher", `curl -sf http://127.0.0.1:8428/api/v1/series --data-urlencode 'match[]={__name__=~".*ratio_not_representable.*"}'`},
+
+		// The two words appear inside an identifier, not a filename.
+		{"the words inside a match pattern", `grep -ln -i 'credential\|secret' hooks/*.sh`},
+		{"an assignment id naming the package", `mellions assign open cx-secretread-false-denials -repo mellions-coxen`},
+		// `git` is deliberately not a safe reader — `git show` prints file
+		// content — so this one turns on the name, not on the command word.
+		{"git add on the package directory", `git add internal/secretread/`},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := ScanBash(tt.cmd); len(got) != 0 {
+				t.Errorf("ScanBash(%q) denied a command that reads no credential: %+v", tt.cmd, got)
+			}
+		})
+	}
+}
+
+// TestScanBash_NarrowingDidNotWiden is the other direction, and the one that
+// decides whether the change above is safe. A revert arm shows what the fix now
+// admits; only these show what it must still catch. Each is a shape adjacent to
+// something newly allowed.
+func TestScanBash_NarrowingDidNotWiden(t *testing.T) {
+	for _, tt := range []struct {
+		name string
+		cmd  string
+	}{
+		// The operand is exonerated, never the reader.
+		{"ssh runs a printer on the far side", `ssh host cat .env`},
+		{"ssh with an identity AND a remote read", `ssh -i ~/.ssh/id_ed25519 host cat /opt/app/.env`},
+
+		// A glob is still a glob when the SHELL is the one expanding it. `.*`
+		// as a whole word reads every dotfile, .env among them.
+		{"a bare dot-star word", `cat .*`},
+		{"the stem that started this", `cat .db_conn*`},
+		{"a glob inside a substitution", `echo "$(cat .db_conn*)"`},
+
+		// The subject word as a whole SEGMENT of the name, with or without an
+		// extension. A reviewer who never saw the diff predicted the dotless
+		// half of this family as the place a narrowing would go wrong, and the
+		// first attempt did: `app-secret` was caught before and was not after.
+		{"a file named secret", `cat secret`},
+		{"a file named secrets", `tail -5 secrets`},
+		{"a dotless hyphenated name", `cat app-secret`},
+		{"the singular, dotless", `head -1 prod-credential`},
+		{"an underscore separator", `cat app_secrets`},
+		{"still caught with an extension", `cat my-secrets.yaml`},
+		{"and in a directory", `head -1 deploy/app-credentials.json`},
+
+		// A flag letter means what the READER says it means. `-i` is an
+		// identity file to ssh and an in-place edit to sed, so the exoneration
+		// is keyed by reader and does not travel with the letter.
+		{"the same flag on a printer", `sed -i 's/x/y/' .env`},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := ScanBash(tt.cmd); len(got) == 0 {
+				t.Errorf("ScanBash(%q) allowed a credential read", tt.cmd)
+			}
+		})
+	}
+}
