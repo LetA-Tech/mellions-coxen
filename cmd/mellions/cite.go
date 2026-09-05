@@ -97,9 +97,14 @@ func cmdCiteCheck(ctx context.Context, args []string) error {
 	if cwd == "" {
 		cwd = "."
 	}
-	read := resolver(ctx, cwd, "")
 	var reasons []string
 	for _, call := range calls {
+		// Per call, and from the directory the call itself runs in. One
+		// resolver built from the session directory is #27: a lane publishes
+		// with `cd <worktree> && gh pr create`, so the body describes the
+		// worktree while the checker read the session's checkout — and one
+		// command line can publish from two different trees.
+		read := resolver(ctx, citeDir(call.Dir, cwd), "")
 		for _, body := range call.Bodies {
 			for _, f := range cite.Check(body, read) {
 				reasons = append(reasons, "  "+f.Reason())
@@ -136,6 +141,21 @@ func cmdCiteCheck(ctx context.Context, args []string) error {
 	enc := json.NewEncoder(os.Stdout)
 	enc.SetEscapeHTML(false)
 	return enc.Encode(d)
+}
+
+// citeDir is the checkout one call's citations resolve in: the directory the
+// command moved to, or the session's where it named none. A path this host does
+// not hold is not a checkout to read — the `cd` would have failed and the `gh`
+// never run — so it degrades to the session directory rather than to a root
+// that resolves nothing, which would silently pass every citation.
+func citeDir(dir, cwd string) string {
+	if dir == "" {
+		return cwd
+	}
+	if info, err := os.Stat(dir); err != nil || !info.IsDir() {
+		return cwd
+	}
+	return dir
 }
 
 func dedupe(in []string) []string {
