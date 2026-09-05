@@ -96,8 +96,14 @@ judgment — `mellions-reasoning`. Take that reading from a subagent that has no
 seen the diff where being wrong is expensive, and wherever the case rests on a
 count of what it drops, a claimed zero included: a reviewer handed a count
 checks it; one who has not seen it counts for themselves. Give it a base tree
-you will not mutate — an extraction or a second worktree, never the lane tree,
-since you are what contaminates it by checking the diff out to run it. The base
+you will not mutate — an extraction or a second worktree, never the lane tree.
+Then name what it may not run, as operations rather than as *do not write*:
+`git checkout` and `git reset` mutate the tree you handed it, `git worktree
+remove` and `git worktree prune` reach trees you did not, and a removed
+worktree leaves no reflog and nothing that reports what was in it. A subagent
+reads a prohibition on writing as being about files. The form carries past git
+— a shared database, a broker, a queue — and it is always the operation you
+name, never the intent. The base
 commit is the merge base — `git merge-base <target> <head>` — not the tip the
 metadata reports: a branch behind its target diffs as though it *removes*
 everything landed since it was cut, and the phantom deletion reads exactly like
