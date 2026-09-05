@@ -6,7 +6,7 @@ description: Turn a lesson into a check the repository enforces itself. Use when
 
 # Turning a lesson into a harness rule
 
-A fix repairs one occurrence. A harness rule stops the class.
+A fix repairs one occurrence. A harness rule stops the next one.
 
 The difference matters most for defects that are invisible locally. `AcquireDuration()`
 returns a `time.Duration`; comparing it to a threshold reads correctly at the call
@@ -78,6 +78,13 @@ Properties the rule must have:
   the next engineer looking for the answer.
 
 ## Then close the class
+
+A rule stops the next crossing; it does not repair the ones already made. Where
+it fires on the crossing — a formatter's rewrite, a coercion, a truncation, a
+normalisation — everything already across is green to it: past the transition
+the artefact is valid, and the tool that would have objected has nothing left to
+see. Count that population out of the corpus rather than out of the rule. A rule
+that instead tests every artefact on every run has already counted it.
 
 A rule in one repository leaves the siblings carrying the defect. Check them —
 `gh search code` across the org finds the shape in minutes — and either fix them
