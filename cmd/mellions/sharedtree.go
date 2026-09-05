@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/LetA-Tech/mellions-coxen/internal/assignment"
+	"github.com/LetA-Tech/mellions-coxen/internal/pluginreg"
 	"github.com/LetA-Tech/mellions-coxen/internal/sharedtree"
 )
 
@@ -62,6 +63,10 @@ func sharedEstate(cfg *Config) sharedtree.Estate {
 		Lanes: []string{cfg.assignmentsRoot()},
 		Home:  home(),
 		Lane:  laneFinder(cfg),
+		// Landing a Mellions fix is `git pull --ff-only` here. Read from the
+		// registry rather than assumed, so an installation that loads from
+		// somewhere else exempts that tree and not this one.
+		LoadPath: pluginRoot(pluginreg.Read(home(), pluginreg.ID)),
 	}
 	for _, name := range set.Names() {
 		dir, _ := set.Dir(name)

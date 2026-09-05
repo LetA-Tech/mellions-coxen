@@ -48,6 +48,18 @@ type Estate struct {
 	// leaves a tilde unexpanded, which reaches no shared checkout and so
 	// refuses nothing.
 	Home string
+	// LoadPath is the checkout the runtime reads this installation's hooks,
+	// Skills, commands and agent from, or "" where it is not known.
+	//
+	// It is exempt from ONE verb and one form of it: `git pull --ff-only`.
+	// That is the deployment step for Mellions itself — merged is not landed,
+	// and nothing reaches a session until this tree moves — so refusing it
+	// leaves the guard blocking the only sanctioned way to install a fix,
+	// including a fix to this guard. The exemption is safe because git itself
+	// refuses a fast-forward that would overwrite local modifications, which
+	// is the loss this package exists to prevent; a pull that would merge, or
+	// a dirty tree, still fails, and fails in git rather than silently.
+	LoadPath string
 	// Lane answers where THIS session's own worktree for a repository is, or
 	// "" where it has none. Nil is the same as none.
 	//
@@ -131,6 +143,9 @@ func Find(command, cwd string, e Estate) *Write {
 		}
 		repo, checkout, ok := shared(at, e)
 		if !ok {
+			continue
+		}
+		if deploysMellions(verb, rest, at, e) {
 			continue
 		}
 		return &Write{Verb: verb, Dir: at, Repo: repo, Checkout: checkout, Instead: instead}
@@ -430,4 +445,23 @@ func Reach(command, cwd string, e Estate) *Checkout {
 		}
 	}
 	return nil
+}
+
+// deploysMellions reports the one write this package allows into a shared
+// checkout: a fast-forward-only pull of the load path.
+//
+// Scoped to that tree and that flag deliberately. Any other shared checkout,
+// and any pull that could merge, is refused as before — the exemption is for
+// the deployment step, not for pulling in general, and a session that wants a
+// different tree updated still has to say so.
+func deploysMellions(verb string, args []string, at string, e Estate) bool {
+	if verb != "pull" || e.LoadPath == "" || at != e.LoadPath {
+		return false
+	}
+	for _, a := range args {
+		if a == "--ff-only" {
+			return true
+		}
+	}
+	return false
 }
