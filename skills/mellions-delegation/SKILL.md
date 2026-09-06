@@ -143,7 +143,7 @@ Sessions run on the host, in a real checkout. They are hands, not threats.
 Send work to the disposable sandbox when it is **risky, not merely uncertain**:
 a destructive command, untrusted code, a dependency you would not install on the
 host, or a hypothesis worth separating from everything else. Name
-`mellions-sandbox` and the session reads what `leta-sbx` is from there.
+`mellions-sandbox`; the session selects this host's mechanism there.
 
 ## Closing
 

@@ -14,6 +14,11 @@ bad() { printf 'FAIL %s\n' "$*"; fail=1; }
 
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT INT TERM HUP
+# The installer prints a physical path, and on a host whose temporary
+# directory is reached through a symlink -- /var -> /private/var on macOS --
+# an expectation built from the logical one never matches it. Compare
+# physical against physical, so the case tests the installer and not $TMPDIR.
+tmp=$(cd "$tmp" && pwd -P)
 
 # The freshly built binary this install is carrying. Its content is the oracle:
 # a target that does not hold this string afterwards was not installed over.

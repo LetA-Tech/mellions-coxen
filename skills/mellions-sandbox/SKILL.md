@@ -1,158 +1,127 @@
 ---
 name: mellions-sandbox
-description: Load this when uncertainty can be settled by running something — reproducing behaviour, an integration test, a hypothesis, unfamiliar code, a clean build, a bounded test dependency — in a disposable gVisor sandbox rather than on the host. Triggers — "use the sandbox", "leta-sbx", "gVisor", "run it isolated", "try it in a container", "reproduce this safely".
+description: Load this when uncertainty can be settled by running something — reproducing behaviour, an integration test, a hypothesis, unfamiliar code, a clean build, a bounded test dependency — in a disposable isolated environment rather than on the host. Triggers — "use the sandbox", "leta-mac-sbx", "leta-linux-sbx", "run it isolated", "reproduce this safely".
 ---
 <!-- Mellions Engineer | LetA Tech Ltd. | leta@letatech.ca -->
 
 # mellions-sandbox
 
-A sandbox is an engineering reasoning tool, not merely an isolation feature. Use it when an experiment can turn uncertainty into evidence.
+## The invariant
 
-Typical flow:
+**Use a disposable, isolated, reproducible execution environment to reproduce
+defects, test implementations and run adversarial or falsification
+experiments, without contaminating the host.**
 
-```text
-read code / architecture / history
-        ↓
-form hypothesis
-        ↓
-run a bounded sandbox experiment
-        ↓
-inspect evidence
-        ↓
-refine or reject hypothesis
-```
+That is the requirement, and no isolation technology is. A method that demands
+one mechanism everywhere refuses to run experiments on a host whose isolation
+exists under another name, and the refusal then gets reported as a blocker.
 
-Do not ask the owner a technical question merely because the answer is not immediately visible. When a disposable experiment can answer it safely, investigate first.
+A sandbox is evidence machinery, not merely a security wrapper. What a
+disposable experiment can answer is not settled by speculation and not asked
+of the owner: run it.
 
-## Select one sandbox implementation
-
-Prefer a compatible sandbox already supplied by the host:
+## Which one
 
 ```bash
-if command -v leta-sbx >/dev/null 2>&1; then
-    SANDBOX="$(command -v leta-sbx)"
-else
-    # the bundled fallback sits beside this file: <this skill's directory>/scripts/leta-sbx
-    SANDBOX="<this skill's directory>/scripts/leta-sbx"
-fi
-
-test -x "$SANDBOX" || {
-    echo "No compatible host sandbox and the bundled fallback is unavailable" >&2
-    exit 1
-}
+case "$(uname -s)" in
+    Darwin) SBX=leta-mac-sbx   ;;   # Colima VM
+    Linux)  SBX=leta-linux-sbx ;;   # Docker + gVisor
+esac
+command -v "$SBX" >/dev/null || SBX="<this skill's directory>/scripts/$SBX"
 ```
 
-Use exactly the selected implementation for the task. Do not start a second sandbox layer when the host already provides the compatible capability.
-
-The bundled wrapper ships in this installation and intentionally has the same CLI as the host implementation, so selecting between them changes nothing about how the sandbox is driven. Where it came from is recorded with the repository rather than in the corpus, which is provenance and not something this skill reads.
-
-## Host prerequisite
-
-Both paths require Docker with the `runsc` gVisor runtime registered:
+They take the same options, so nothing after this point is platform-specific:
 
 ```bash
-docker info --format '{{json .Runtimes}}' | grep '"runsc"'
+"$SBX" [-i IMAGE] [-m MEM] [-c CPUS] [-n none|bridge] [-r PATH] [-w] [-p PORT] [-C] [-N NAME] [--] [cmd ...]
+"$SBX" status     # what is up
+"$SBX" down       # destroy it, and say what survived
 ```
 
-If `runsc` is absent, stop. Never silently degrade to `runc`; that changes the security boundary while pretending the experiment is still sandboxed.
-
-On a supported Linux host where `runsc` is already installed but not registered, the worker implementation reports the repair explicitly:
+Defaults: `ubuntu:24.04`, 2g memory with swap pinned to it, 2 CPUs, 512 pids,
+`--rm`, network **none**, every capability dropped, `-r` mounted read-only at
+`/work`, `-p` published on loopback only. `-w` makes the mount writable and
+runs as your uid so host files keep their ownership.
 
 ```bash
-sudo runsc install
-sudo systemctl restart docker
+"$SBX" -r "$PWD" -- go test ./...
+"$SBX" -i postgres:17-alpine -n bridge -p 5432 -- postgres
+"$SBX" -m 4g -c 4 -r "$PWD" -w -- make test
 ```
 
-Installing Docker or gVisor on an unmanaged host is an operator/environment action, not something to improvise during an engineering experiment.
+The two boundaries are not the same strength, and the evidence says which one
+produced it: on Linux the kernel is reimplemented in userspace; on macOS
+containers run under `runc` inside a VM the host does not share. Never weaken
+a boundary while claiming the one you did not get — where `runsc` is
+registered, dropping to `runc` is a silent downgrade.
 
-## CLI
+## Where neither helper exists
+
+Run it under plain Docker with the same properties set explicitly, and record
+that the evidence came from the generic path:
 
 ```bash
-"$SANDBOX" [options] [--] [command ...]
+docker run --rm --network none --memory 2g --memory-swap 2g --cpus 2 \
+  --pids-limit 512 --cap-drop ALL --security-opt no-new-privileges \
+  --label leta.sandbox=1 --mount type=bind,src="$PWD",dst=/work,readonly=true \
+  -w /work -i ubuntu:24.04 <command>
 ```
 
-| Option | Effect |
-|---|---|
-| `-i IMAGE` | image, default `ubuntu:24.04` |
-| `-m MEM` | memory cap, default `2g`; swap pinned to the same value |
-| `-c CPUS` | CPU cap, default `2` |
-| `-n MODE` | network `none` by default, or `bridge` |
-| `-r PATH` | bind `PATH` at `/work`, read-only |
-| `-w` | make the mount writable |
-| `-p PORT` | publish on `127.0.0.1` only; implies bridge networking |
-| `-C` | keep default capabilities; otherwise all capabilities are dropped |
-| `-N NAME` | container name |
+Windows carries no helper here: Docker Desktop over WSL2 runs that command
+unchanged, and the WSL2 VM is its boundary. Anything genuinely disposable and
+isolated is acceptable; naming which it was is not optional.
 
-Examples:
+## The properties, whatever the mechanism
 
-```bash
-"$SANDBOX" -r "$PWD" -- go test ./...
-"$SANDBOX" -i postgres:17-alpine -n bridge -p 5432 -- postgres
-"$SANDBOX" -m 4g -c 4 -r "$PWD" -w -- make test
-```
+- **disposable** — destroyed after the experiment, nothing depending on it surviving;
+- **bounded** — memory, CPU and pid caps set before it starts, not discovered under load;
+- **minimally mounted** — the one worktree the experiment needs, read-only unless it must write;
+- **minimally networked** — off unless the experiment requires it, published ports on loopback;
+- **uncredentialed** — no real secret unless the experiment is about one and the partnership permits it;
+- **non-contaminating** — nothing it does reaches host state a later run reads;
+- **deterministically torn down** — in the turn that provisioned it, proved by an inventory.
 
-No command opens an interactive shell.
+A mechanism that cannot give one of these gives less than "run it in a
+sandbox" implies. Name which one, rather than let the phrase stand for it.
 
-## Safety defaults
+## The run
 
-The proven wrapper applies:
+Establish the host and its isolation → select the helper → mount only the
+worktree the experiment needs → provision only its dependencies → run the
+reproduction, the test, or the falsification arm → capture the command, the
+inputs, the output and the boundary they came from → tear it down and verify.
 
-- `--rm`;
-- `--runtime=runsc`;
-- memory and CPU caps;
-- swap pinned to the memory cap;
-- `--pids-limit 512`;
-- `--network none` unless explicitly enabled;
-- `--security-opt no-new-privileges`;
-- `--cap-drop ALL` unless explicitly overridden;
-- label `leta.sandbox=1`;
-- read-only bind mounts by default;
-- loopback-only published ports;
-- git usable inside the mount: `safe.directory` is passed through git's
-  environment configuration, since a read-only mount is read by container-root
-  while the host path is the invoking user's. And where the repository's git
-  directory lies outside the mounted path — a linked worktree, or any
-  subdirectory of a repository — that whole directory is mounted read-only at
-  its own absolute path so the `.git` pointer resolves. That carries every
-  branch, every other worktree's state and every reflog of the parent
-  repository, which is wider than the path named with `-r`, so it is announced
-  on stderr rather than added silently. Mount a standalone clone instead where
-  the sandboxed code should not see them.
-
-A writable mount runs as the invoking uid/gid so writes work without restoring broad container capabilities and host files keep the correct ownership.
-
-## When to use it
-
-Use sandbox experimentation when it materially helps establish evidence, including:
-
-- reproducing a defect without contaminating the host;
-- verifying an integration assumption against a real dependency;
-- comparing competing implementation hypotheses;
-- mutation-testing an invariant;
-- inspecting failure/recovery behavior;
-- running unfamiliar or generated code;
-- testing a dependency or provider behavior that static inspection cannot settle;
-- validating an implementation before governing verification.
-
-A sandbox result is evidence, not automatic authority. Record the command, inputs, relevant output, and what conclusion the experiment supports.
-
-## Network discipline
-
-Networking is off by default. Enable it only when the experiment requires it. Do not place credentials in a sandbox unless the experiment specifically requires them and the governing security rules permit it.
+Reach for it wherever it materially establishes evidence: reproducing a defect
+off the host, verifying an integration assumption against a real dependency,
+separating competing hypotheses, mutation-testing an invariant, exercising
+failure and recovery, running unfamiliar or generated code, validating an
+implementation before the governing gate. A sandbox result is evidence, never
+authority on its own.
 
 ## Teardown
 
-Ordinary runs use `--rm`. Inspect leftovers when a run is interrupted:
+`--rm` covers an ordinary run, anonymous volumes included. `"$SBX" down`
+destroys nothing: on macOS it gives the VM back, and only once no container is
+left holding it.
 
-```bash
-docker ps --filter label=leta.sandbox=1
-```
-
-For a test harness that genuinely needs service containers to outlive one command, label every container `leta.sandbox=1` and install teardown in the same script using an `EXIT INT TERM` trap. A start command without bounded cleanup is incomplete test infrastructure.
+**`leta.sandbox=1` says findable for teardown, never whose.** Repository
+harnesses apply it to their own test databases, so reaping by it removes
+another lane's running database — and a suite whose container vanishes
+mid-run can report a false pass as easily as a false failure. Ownership is
+the second label, `leta.sandbox.owner`, which `LETA_SBX_OWNER` sets: filter
+on that, or remove by name what you started. Any removal takes `docker rm
+-v`, since without it the image's declared volume is orphaned and the next
+container silently attaches stale contents; `docker volume ls -qf
+dangling=true` is what proves a teardown, not `docker ps` alone. A harness needing a service to outlive one command labels it
+and installs teardown in the same script on an `EXIT INT TERM` trap. A start
+command without bounded cleanup is incomplete test infrastructure, and an
+experiment whose environment is still up is unfinished, not finished.
 
 ## Files
 
-- `SKILL.md` — discovery and operating method.
-- `scripts/leta-sbx` — the portable fallback this bundle carries.
+- `SKILL.md` — the method.
+- `scripts/leta-linux-sbx` — Docker + gVisor.
+- `scripts/leta-mac-sbx` — Colima, the same CLI, the VM as the boundary.
 
-The bundled script is intentionally small. This installation does not own a sandbox daemon, container scheduler, or second orchestration system.
+Both are small on purpose. This installation does not own a sandbox daemon, a
+container scheduler, or a second orchestration system.

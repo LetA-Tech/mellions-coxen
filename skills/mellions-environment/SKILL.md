@@ -95,9 +95,9 @@ mellions who                                     # and whether that lane is live
 `leta.sandbox=1` does **not** establish that a Mellions turn started it: any
 repository harness that must provision on a host refusing an unlabelled
 `docker run -d` applies it too, so the label marks "findable for teardown",
-not "mine". A container the wrapper started also carries `--rm` and
-`--runtime=runsc`; one labelled but under `runc` with `AutoRemove=false` came
-from somewhere else, and the script that names it says where.
+not "mine". Under gVisor a container the wrapper started also carries `--rm`
+and `--runtime=runsc`; that tells nothing where `runc` is the only runtime,
+and there the script that names it says where.
 
 A labelled container is a question, not a verdict: a repository's test
 database belongs to whoever is running that suite, and tearing it down mid-run
