@@ -37,8 +37,8 @@ func emitDeny(payload []byte, reason string) error {
 // writes a file and then consumes it loses the write too. The failure then
 // surfaces one call later as `no such file or directory`, in a command no
 // guard touched, which reads as a mistake in the publish rather than as the
-// refusal it is — measured twice in one session on one guard, and once by a
-// second session on another.
+// refusal it is. Naming it here costs one paragraph and no change to how any
+// guard decides.
 //
 // It says only what the command line itself shows. A write performed inside a
 // program the line invokes is not visible to a lexer, so where a heredoc is
