@@ -53,6 +53,12 @@ func TestDiscardedSaysNothingWhereNothingWasDiscarded(t *testing.T) {
 		`{"tool_name":"Bash","tool_input":{"command":"git checkout dev"}}`,
 		`{"tool_name":"Bash","tool_input":{"command":"go test ./... > /dev/null"}}`,
 		`{"tool_name":"Bash","tool_input":{"command":"gh pr merge 12 --squash"}}`,
+		// A `>` that is data, not a redirection. Naming a file the call was
+		// never going to write is the one failure that costs more than the
+		// silence this change exists to end: it sends a session looking for
+		// something that was never coming.
+		`{"tool_name":"Bash","tool_input":{"command":"echo \"a > b\"; gh pr create"}}`,
+		`{"tool_name":"Bash","tool_input":{"command":"grep -n '>' README.md"}}`,
 		`{"tool_name":"Read","tool_input":{"file_path":"/etc/payments/.env"}}`,
 		`{"tool_name":"Bash","tool_input":{"command":""}}`,
 		`not json`,
