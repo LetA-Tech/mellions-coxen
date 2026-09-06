@@ -121,26 +121,20 @@ func cmdCiteCheck(ctx context.Context, args []string) error {
 	if n := len(reasons); n > 8 {
 		reasons = append(reasons[:8], "  … and "+strconv.Itoa(n-8)+" more.")
 	}
-	var d decision
-	d.Output.Event = "PreToolUse"
-	d.Output.Decide = "deny"
-	d.Output.Reason = "This body publishes a citation the checkout does not back:\n\n" +
-		strings.Join(reasons, "\n") + "\n\n" +
-		"A reader cannot tell a citation that landed one line off from one that landed " +
-		"on the code it claims, so both read as evidence and one is not. Quote the line " +
-		"under the citation — the form mellions-deep-research already asks for, and what " +
-		"makes the claim checkable at all.\n\n" +
-		"Two things produce this and the remedies differ. The number may be wrong, and " +
-		"opening the line fixes it. Or this checkout is the wrong subject: a body about a " +
-		"branch, a pull request or an older commit is right about that ref and wrong here, " +
-		"and re-deriving the numbers against this tree would make it wrong there instead. " +
-		"Check which before editing:\n\n" +
-		"  mellions cite check -file body.md -dir <checkout> [-commit <ref>]\n\n" +
-		"`-commit` resolves every citation at that ref — the branch under review, not the " +
-		"one checked out — and reports the same thing without publishing anything."
-	enc := json.NewEncoder(os.Stdout)
-	enc.SetEscapeHTML(false)
-	return enc.Encode(d)
+	return emitDeny(payload, "This body publishes a citation the checkout does not back:\n\n"+
+		strings.Join(reasons, "\n")+"\n\n"+
+		"A reader cannot tell a citation that landed one line off from one that landed "+
+		"on the code it claims, so both read as evidence and one is not. Quote the line "+
+		"under the citation — the form mellions-deep-research already asks for, and what "+
+		"makes the claim checkable at all.\n\n"+
+		"Two things produce this and the remedies differ. The number may be wrong, and "+
+		"opening the line fixes it. Or this checkout is the wrong subject: a body about a "+
+		"branch, a pull request or an older commit is right about that ref and wrong here, "+
+		"and re-deriving the numbers against this tree would make it wrong there instead. "+
+		"Check which before editing:\n\n"+
+		"  mellions cite check -file body.md -dir <checkout> [-commit <ref>]\n\n"+
+		"`-commit` resolves every citation at that ref — the branch under review, not the "+
+		"one checked out — and reports the same thing without publishing anything.")
 }
 
 // citeDir is the checkout one call's citations resolve in: the directory the

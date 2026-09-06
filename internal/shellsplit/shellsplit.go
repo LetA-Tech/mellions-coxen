@@ -301,3 +301,41 @@ func readHeredocs(s string, i int, queue []pending) int {
 	}
 	return i
 }
+
+// Writes names the files a command line would create or truncate by
+// redirecting stdout, in the order they appear and once each.
+//
+// A PreToolUse denial rejects the whole tool call, so a command line that both
+// writes a file and consumes it loses the write as well — and the loss surfaces
+// one call later, as a missing file, in a command no guard touched. A refusal
+// that names these is the difference between a session answering the guard and
+// a session debugging the guard's blast radius.
+//
+// It is what the command line itself says, not what a shell would do with it:
+// an unexpanded word is named as written, because a target a caller cannot
+// resolve must still be reported rather than silently dropped. Sinks that
+// discard are not writes, and a heredoc handed to an interpreter that writes
+// files of its own is invisible here — the redirection is the part the lexer
+// can see.
+func Writes(command string) []string {
+	var out []string
+	seen := map[string]bool{}
+	for _, c := range Split(command) {
+		if c.Out == "" || discardSink[c.Out] || seen[c.Out] {
+			continue
+		}
+		seen[c.Out] = true
+		out = append(out, c.Out)
+	}
+	return out
+}
+
+// discardSink is the set of redirect targets that hold nothing afterwards, so
+// naming one in a refusal would send a session looking for a file that never
+// exists.
+var discardSink = map[string]bool{
+	"/dev/null":   true,
+	"/dev/stdout": true,
+	"/dev/stderr": true,
+	"/dev/tty":    true,
+}

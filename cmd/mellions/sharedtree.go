@@ -5,7 +5,6 @@
 package main
 
 import (
-	"encoding/json"
 	"flag"
 	"os"
 	"path/filepath"
@@ -41,13 +40,7 @@ func cmdSharedTreeCheck(args []string) error {
 	if reason == "" {
 		return nil
 	}
-	var d decision
-	d.Output.Event = "PreToolUse"
-	d.Output.Decide = "deny"
-	d.Output.Reason = reason
-	enc := json.NewEncoder(os.Stdout)
-	enc.SetEscapeHTML(false)
-	return enc.Encode(d)
+	return emitDeny(payload, reason)
 }
 
 // sharedEstate is where this installation's work lives, as the guard needs it.

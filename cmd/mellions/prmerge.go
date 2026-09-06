@@ -52,13 +52,7 @@ func cmdPRMergeCheck(ctx context.Context, args []string) error {
 	if reason == "" {
 		return nil
 	}
-	var d decision
-	d.Output.Event = "PreToolUse"
-	d.Output.Decide = "deny"
-	d.Output.Reason = reason
-	enc := json.NewEncoder(os.Stdout)
-	enc.SetEscapeHTML(false)
-	return enc.Encode(d)
+	return emitDeny(payload, reason)
 }
 
 // mergeState asks the tracker what it says about the pull request a call names.

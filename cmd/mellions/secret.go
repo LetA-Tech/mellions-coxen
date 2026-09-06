@@ -101,23 +101,17 @@ func cmdSecretCheck(args []string) error {
 		reasons = append(reasons[:6], "  … and "+strconv.Itoa(n-6)+" more.")
 	}
 
-	var d decision
-	d.Output.Event = "PreToolUse"
-	d.Output.Decide = "deny"
-	d.Output.Reason = "This would read a credential into the transcript:\n\n" +
-		strings.Join(reasons, "\n") + "\n\n" +
-		"A transcript is sent as it is written, so a credential printed here is " +
-		"disclosed before it can be unprinted, and the fix afterwards is a rotation " +
-		"rather than an edit. A redaction parse can disclose the value when its " +
-		"assumption about the file format is wrong, so do not print credential files " +
-		"in order to inspect or transform them.\n\n" +
-		"Use the value without seeing it — `URL=\"$(tail -1 <file>)\"` then `\"$URL\"`, " +
-		"or `source <file>`. Confirm a file's shape with `wc -c` / `stat`, never by " +
-		"printing part of it. If you genuinely need a key's value, you need the program " +
-		"that consumes it to read the file, not the transcript to carry it."
-	enc := json.NewEncoder(os.Stdout)
-	enc.SetEscapeHTML(false)
-	return enc.Encode(d)
+	return emitDeny(payload, "This would read a credential into the transcript:\n\n"+
+		strings.Join(reasons, "\n")+"\n\n"+
+		"A transcript is sent as it is written, so a credential printed here is "+
+		"disclosed before it can be unprinted, and the fix afterwards is a rotation "+
+		"rather than an edit. A redaction parse can disclose the value when its "+
+		"assumption about the file format is wrong, so do not print credential files "+
+		"in order to inspect or transform them.\n\n"+
+		"Use the value without seeing it — `URL=\"$(tail -1 <file>)\"` then `\"$URL\"`, "+
+		"or `source <file>`. Confirm a file's shape with `wc -c` / `stat`, never by "+
+		"printing part of it. If you genuinely need a key's value, you need the program "+
+		"that consumes it to read the file, not the transcript to carry it.")
 }
 
 func reason(f secretread.Finding) string {

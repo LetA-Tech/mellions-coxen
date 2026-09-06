@@ -67,6 +67,21 @@ out=$(MELLIONS_SECRET_CHECK=off run '{"tool_name":"Bash","tool_input":{"command"
 out=$(MELLIONS_BIN="$tmp/absent" run '{"tool_name":"Bash","tool_input":{"command":"cat .db_connection"}}')
 [[ -n "$out" ]] && bad "the hook spoke with no binary: $out"
 
+# A denial rejects the whole call, so a command line that writes a file and
+# then consumes it loses the write too — and the session meets that one call
+# later as a missing file, in a command no guard touched. The refusal says so.
+# This is the wiring: one JSON line carrying the deny and the discarded write
+# together, through the hook the runtime actually runs.
+out=$(run '{"tool_name":"Bash","cwd":"/tmp","tool_input":{"command":"cat > body.md <<EOF\n# title\nEOF\nawk -F= \"{print \\$1}\" .db_connection"}}')
+case "$out" in
+  *'"permissionDecision":"deny"'*) ;;
+  *) bad "the credential read beside the heredoc was not denied: ${out:-<silence>}" ;;
+esac
+case "$out" in
+  *'body.md'*) ;;
+  *) bad "the refusal did not name the write it discarded: ${out:-<silence>}" ;;
+esac
+
 # A descriptor the runtime closed must not hang the tool call.
 if ! timeout 10 bash -c "bash '$hook' <&-" >/dev/null 2>&1; then
   bad "the hook did not return on a closed stdin"

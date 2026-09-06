@@ -6,7 +6,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
@@ -49,13 +48,7 @@ func cmdPRBodyCheck(ctx context.Context, args []string) error {
 	if reason == "" {
 		return nil
 	}
-	var d decision
-	d.Output.Event = "PreToolUse"
-	d.Output.Decide = "deny"
-	d.Output.Reason = reason
-	enc := json.NewEncoder(os.Stdout)
-	enc.SetEscapeHTML(false)
-	return enc.Encode(d)
+	return emitDeny(payload, reason)
 }
 
 // readPayload reads the runtime's payload, bounded, and only where a hook says
