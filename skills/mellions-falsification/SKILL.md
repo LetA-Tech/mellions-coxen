@@ -12,13 +12,13 @@ been red.
 ## The copy you falsify in
 
 One copy per arm: a neutralisation left from the previous arm can mask the
-next, which then passes while testing nothing. A copy taken from
-`git archive` carries tracked state as it stands, and no untracked test.
-Never falsify by restoring a working tree: the restore discards uncommitted
-work — yours, or another session's in a shared tree. Where nothing uncommitted
-is at stake and there
-is one arm, toggling the edit in place and watching the test go red, then
-green, is the arm.
+next, which then passes while testing nothing. `git archive <rev>` carries that
+commit, not the index: a test staged but not committed is as absent as an
+untracked one.
+Never falsify by restoring a working tree: it discards uncommitted work —
+yours, or another session's in a shared tree. With one arm and nothing
+uncommitted at stake, toggling the edit in place — red, then green — is the
+arm.
 
 ## The oracle
 
