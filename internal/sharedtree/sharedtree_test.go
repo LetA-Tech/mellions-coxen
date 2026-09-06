@@ -292,6 +292,8 @@ func TestFastForwardPullOfTheLoadPathIsTheOneAllowedWrite(t *testing.T) {
 	e := sharedtree.Estate{
 		Shared: []sharedtree.Checkout{
 			{Repo: "mellions-coxen", Dir: "/home/you/leta/mellions-coxen"},
+			{Repo: "coxen-fork", Dir: "/home/you/leta/mellions-coxen-fork"},
+			{Repo: "vendored", Dir: "/home/you/leta/mellions-coxen/vendor/data-service"},
 			{Repo: "data-service", Dir: "/home/you/workspace/data-service"},
 		},
 		Home:     "/home/you",
@@ -308,6 +310,13 @@ func TestFastForwardPullOfTheLoadPathIsTheOneAllowedWrite(t *testing.T) {
 			"git pull --ff-only", "/home/you/leta/mellions-coxen", false},
 		{"ff-only via -C also lands it",
 			"git -C /home/you/leta/mellions-coxen pull --ff-only", "/tmp", false},
+		// `git pull` operates on the repository, not on the directory it is
+		// typed in, so a session standing one directory inside the load path is
+		// running the same deployment step.
+		{"ff-only pull from inside the load path lands a fix",
+			"git pull --ff-only", "/home/you/leta/mellions-coxen/internal/sharedtree", false},
+		{"ff-only via -C into a subdirectory also lands it",
+			"git -C /home/you/leta/mellions-coxen/hooks pull --ff-only", "/tmp", false},
 		// A pull that could merge is not a deployment; it resolves conflicts
 		// against a tree nobody looked at.
 		{"a pull that could merge is still refused",
@@ -323,6 +332,31 @@ func TestFastForwardPullOfTheLoadPathIsTheOneAllowedWrite(t *testing.T) {
 			"git checkout main", "/home/you/leta/mellions-coxen", true},
 		{"reset in the load path is still refused",
 			"git reset --hard origin/main", "/home/you/leta/mellions-coxen", true},
+		// The widening is to which paths name the load path, not to which
+		// verbs it admits: one directory in, everything else is as before.
+		{"a merging pull inside the load path is still refused",
+			"git pull", "/home/you/leta/mellions-coxen/hooks", true},
+		{"checkout inside the load path is still refused",
+			"git checkout main", "/home/you/leta/mellions-coxen/hooks", true},
+		// A path that only shares the load path's prefix is a different tree.
+		{"a checkout beside the load path gains nothing",
+			"git pull --ff-only", "/home/you/leta/mellions-coxen-fork", true},
+		// And so is one that lives inside it. Being under the load path is not
+		// the question — which repository the pull writes is, and a nested
+		// checkout answers with its own.
+		{"a checkout nested inside the load path gains nothing",
+			"git pull --ff-only", "/home/you/leta/mellions-coxen/vendor/data-service", true},
+		// git reads --ff, --no-ff and --ff-only as one setting, so the last of
+		// them is the one in force. `--ff-only --no-ff` creates a merge commit,
+		// and merging into a tree nobody looked at is what this must not admit.
+		{"--no-ff after --ff-only is a merging pull",
+			"git pull --ff-only --no-ff", "/home/you/leta/mellions-coxen", true},
+		{"--ff after --ff-only is a merging pull",
+			"git pull --ff-only --ff origin dev", "/home/you/leta/mellions-coxen", true},
+		{"--ff-only last is still the deployment step",
+			"git pull --no-ff --ff-only", "/home/you/leta/mellions-coxen", false},
+		{"past -- it is a refspec, not an option",
+			"git pull origin -- --ff-only", "/home/you/leta/mellions-coxen", true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			got := sharedtree.Find(tc.command, tc.cwd, e)
@@ -337,6 +371,30 @@ func TestFastForwardPullOfTheLoadPathIsTheOneAllowedWrite(t *testing.T) {
 	}
 }
 
+// A load path that sits INSIDE some other repository's checkout resolves, by
+// longest match, to that repository — and an exemption keyed on the name alone
+// would then cover that whole foreign tree. Found by a session that reviewed
+// this change without having written it, against a version that admitted both
+// rows below.
+func TestALoadPathNestedInAnotherCheckoutExemptsNothing(t *testing.T) {
+	e := sharedtree.Estate{
+		Shared: []sharedtree.Checkout{
+			{Repo: "mcfo-finsys", Dir: "/home/you/workspace/mcfo-finsys"},
+		},
+		Home:     "/home/you",
+		LoadPath: "/home/you/workspace/mcfo-finsys/tools/mellions-coxen",
+	}
+	for _, cwd := range []string{
+		"/home/you/workspace/mcfo-finsys",
+		"/home/you/workspace/mcfo-finsys/internal/ledger",
+		"/home/you/workspace/mcfo-finsys/tools/mellions-coxen",
+	} {
+		if sharedtree.Find("git pull --ff-only", cwd, e) == nil {
+			t.Errorf("a load path nested in mcfo-finsys exempted %s, which is mcfo-finsys' tree", cwd)
+		}
+	}
+}
+
 // With no load path known, nothing is exempt. An installation that cannot say
 // where it loads from must not have the exemption applied to an arbitrary tree.
 func TestNoLoadPathExemptsNothing(t *testing.T) {
@@ -346,5 +404,57 @@ func TestNoLoadPathExemptsNothing(t *testing.T) {
 	}
 	if sharedtree.Find("git pull --ff-only", "/home/you/leta/mellions-coxen", e) == nil {
 		t.Fatal("an empty LoadPath exempted a shared checkout")
+	}
+}
+
+// A checkout reachable by two names is listed under both, because a session
+// that walked in by the link would otherwise be refused nothing. The exemption
+// has to hold across the same two names, or the guard refuses the deployment
+// step on every host whose work root is a symlink — the deny is decided by
+// containment over both entries, and only one of them can equal a single
+// LoadPath string.
+func TestTheLoadPathReachedByItsOtherNameIsStillTheLoadPath(t *testing.T) {
+	e := sharedtree.Estate{
+		Shared: []sharedtree.Checkout{
+			{Repo: "mellions-coxen", Dir: "/home/you/leta/mellions-coxen"},
+			{Repo: "mellions-coxen", Dir: "/mnt/data/leta/mellions-coxen"},
+			{Repo: "data-service", Dir: "/home/you/workspace/data-service"},
+		},
+		Home: "/home/you",
+		// What the plugin registry recorded: the resolved path, while the
+		// session stands at the one it walked in by.
+		LoadPath: "/mnt/data/leta/mellions-coxen",
+	}
+
+	for _, tc := range []struct {
+		name    string
+		command string
+		cwd     string
+		refused bool
+	}{
+		{"the recorded name lands a fix",
+			"git pull --ff-only", "/mnt/data/leta/mellions-coxen", false},
+		{"the other name is the same tree",
+			"git pull --ff-only", "/home/you/leta/mellions-coxen", false},
+		{"and one directory inside it",
+			"git pull --ff-only", "/home/you/leta/mellions-coxen/hooks", false},
+		// The other name gains no verb the recorded one does not have.
+		{"a merging pull by the other name is still refused",
+			"git pull", "/home/you/leta/mellions-coxen", true},
+		{"reset by the other name is still refused",
+			"git reset --hard origin/dev", "/home/you/leta/mellions-coxen", true},
+		{"another repository is untouched by any of it",
+			"git pull --ff-only", "/home/you/workspace/data-service", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := sharedtree.Find(tc.command, tc.cwd, e)
+			if tc.refused && got == nil {
+				t.Fatalf("%q at %s was allowed; want refused", tc.command, tc.cwd)
+			}
+			if !tc.refused && got != nil {
+				t.Fatalf("%q at %s was refused (%s); it is how a Mellions fix is landed",
+					tc.command, tc.cwd, got.Verb)
+			}
+		})
 	}
 }

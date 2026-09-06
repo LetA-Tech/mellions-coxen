@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Mellions Engineer | LetA Tech Ltd. | leta@letatech.ca
-# Disposable Docker + gVisor sandbox for agent work.
+# Disposable Docker + gVisor sandbox for agent work. The Linux implementation
+# of the sandbox CLI; leta-mac-sbx implements the same CLI over Colima.
 set -euo pipefail
 
 IMAGE="ubuntu:24.04"; MEM="2g"; CPUS="2"; NET="none"
@@ -8,7 +9,8 @@ MOUNT_REPO=""; MOUNT_MODE="ro"; PUBLISH=""; NAME="sbx-$$"; KEEP_CAPS=0
 
 usage() {
     cat >&2 <<'USAGE'
-Usage: leta-sbx [options] [--] [command ...]
+Usage: leta-linux-sbx [options] [--] [command ...]
+       leta-linux-sbx status | down          (the sole argument)
   -i IMAGE   image (default ubuntu:24.04)   -m MEM   memory cap (2g)
   -c CPUS    cpu cap (2)                    -n MODE  network none|bridge
   -r PATH    mount PATH at /work (ro)       -w       make mount writable
@@ -18,6 +20,33 @@ Always --rm, --runtime=runsc, label leta.sandbox=1.
 USAGE
     exit 1
 }
+
+# status and down are recognised only as the sole argument, so a command of
+# that name still runs: leta-linux-sbx -- status.
+if [ $# -eq 1 ]; then
+    case "$1" in
+        status)
+            docker ps -a --filter label=leta.sandbox=1 \
+                --format 'table {{.Names}}\t{{.Image}}\t{{.Status}}'
+            exit 0 ;;
+        down)
+            # The label marks a container findable for teardown, not one this
+            # wrapper started: a repository harness that must provision on a
+            # host refusing an unlabelled `docker run -d` applies it too, so a
+            # lane's test database answers to it and is not ours to remove.
+            # Ordinary runs are --rm, so down reports what survives and
+            # destroys nothing; remove by name what you started yourself.
+            left="$(docker ps -aq --filter label=leta.sandbox=1 || true)"
+            if [ -n "$left" ]; then
+                echo "leta-linux-sbx: labelled containers survive; remove by name the ones you started:" >&2
+                docker ps -a --filter label=leta.sandbox=1 \
+                    --format '  {{.Names}}\t{{.Image}}\t{{.Status}}' >&2
+                exit 1
+            fi
+            echo "leta-linux-sbx: no labelled container remains" >&2
+            exit 0 ;;
+    esac
+fi
 
 while getopts ":i:m:c:n:r:wp:N:Ch" opt; do
     case "$opt" in
@@ -39,7 +68,15 @@ if ! docker info --format '{{json .Runtimes}}' 2>/dev/null | grep -q '"runsc"'; 
     exit 1
 fi
 
-ARGS=( run --rm --runtime=runsc --label leta.sandbox=1 --name "$NAME"
+# `leta.sandbox=1` says a container is findable for teardown, not whose it is:
+# this wrapper applies it and so does any repository harness provisioning on a
+# host that refuses an unlabelled `docker run -d`. Ownership was therefore not
+# expressible, and a reaper filtering on the shared label removes another
+# lane's running database. This second label is what "mine" means; set
+# LETA_SBX_OWNER to the lane when a harness should reap its own.
+OWNER="${LETA_SBX_OWNER:-$(id -un)@$(hostname -s)}"
+
+ARGS=( run --rm --runtime=runsc --label leta.sandbox=1 --label "leta.sandbox.owner=$OWNER" --name "$NAME"
        --memory "$MEM" --memory-swap "$MEM" --cpus "$CPUS" --pids-limit 512
        --network "$NET" --security-opt no-new-privileges )
 

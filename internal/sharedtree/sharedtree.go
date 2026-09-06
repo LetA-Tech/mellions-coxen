@@ -51,14 +51,20 @@ type Estate struct {
 	// LoadPath is the checkout the runtime reads this installation's hooks,
 	// Skills, commands and agent from, or "" where it is not known.
 	//
-	// It is exempt from ONE verb and one form of it: `git pull --ff-only`.
+	// It is exempt from ONE verb and one form of it: `git pull --ff-only`,
+	// aimed at this tree by any of its names or from anywhere inside it.
 	// That is the deployment step for Mellions itself — merged is not landed,
 	// and nothing reaches a session until this tree moves — so refusing it
 	// leaves the guard blocking the only sanctioned way to install a fix,
-	// including a fix to this guard. The exemption is safe because git itself
-	// refuses a fast-forward that would overwrite local modifications, which
-	// is the loss this package exists to prevent; a pull that would merge, or
-	// a dirty tree, still fails, and fails in git rather than silently.
+	// including a fix to this guard. What makes it safe is git rather than
+	// anything here: a fast-forward that would overwrite local modifications
+	// is refused, and a pull that would merge fails, in git and loudly.
+	//
+	// Not absolute. Under `rebase.autoStash` or `merge.autoStash` git stashes
+	// first and fast-forwards, so a dirty tree can come back with conflict
+	// markers in it. That is recoverable — the stash entry is there — rather
+	// than the silent loss this package exists to prevent, and it is the reason
+	// this comment says what git does instead of promising the tree is safe.
 	LoadPath string
 	// Lane answers where THIS session's own worktree for a repository is, or
 	// "" where it has none. Nil is the same as none.
@@ -455,13 +461,72 @@ func Reach(command, cwd string, e Estate) *Checkout {
 // the deployment step, not for pulling in general, and a session that wants a
 // different tree updated still has to say so.
 func deploysMellions(verb string, args []string, at string, e Estate) bool {
-	if verb != "pull" || e.LoadPath == "" || at != e.LoadPath {
-		return false
-	}
+	return verb == "pull" && e.LoadPath != "" && isLoadPath(at, e) && fastForwardOnly(args)
+}
+
+// fastForwardOnly reports that this pull can only fast-forward.
+//
+// Not a search for the literal, because git's own parser does not read it that
+// way: `--ff`, `--no-ff` and `--ff-only` write one setting, so the last of them
+// on the line is the one in force. `git pull --ff-only --no-ff` creates a merge
+// commit — measured, exit 0, two parents, tree written — and merging into a
+// tree nobody looked at is the one thing this exemption must never admit.
+// Everything after `--` is a refspec rather than an option.
+//
+// Fail-closed elsewhere: a form this reads as not fast-forward-only is refused
+// rather than exempted, and a form it reads as fast-forward-only that git then
+// rejects — `--ff-only` swallowed as another option's value — writes no tree,
+// because git errors before it touches one.
+func fastForwardOnly(args []string) bool {
+	ff := false
 	for _, a := range args {
-		if a == "--ff-only" {
-			return true
+		switch a {
+		case "--":
+			return ff
+		case "--ff-only":
+			ff = true
+		case "--ff", "--no-ff":
+			ff = false
 		}
 	}
-	return false
+	return ff
+}
+
+// isLoadPath reports that a pull aimed at this directory pulls the checkout the
+// runtime loads from.
+//
+// It has to answer with the same reach as the refusal it cancels, and that
+// refusal is decided twice over by containment: `shared` matches any directory
+// under a checkout, and `sharedEstate` lists a checkout under every path that
+// reaches it, so one tree can hold two roots. An exemption decided by string
+// equality is narrower than both. It misses the pull run one directory in —
+// `git pull` operates on the repository, not on the directory it is typed in,
+// so that is the same deployment step — and it misses the tree's other name,
+// which is the one a session that walked in through a symlinked work root is
+// standing at. Either miss refuses the only sanctioned way to install a fix,
+// which is the defect the exemption exists to close.
+//
+// So the question is which repository the pull writes, and `shared` already
+// answers it for both sides: two names for one tree is what a repeated Repo in
+// Shared means, and the longest match is what a nested checkout answers with.
+// That reads the equivalence off the estate rather than the filesystem, so this
+// package still decides from the command line and the configuration alone.
+//
+// Deliberately not `under(at, e.LoadPath)`, which looks like the same test and
+// is wider: a shared checkout that merely lives inside the load-path directory
+// would be pulled under the exemption, and that is another repository's tree.
+// The exemption is only ever needed where a deny would otherwise fire, and a
+// deny only fires where `at` is inside a shared checkout.
+// The load path has to BE a checkout root, not merely sit inside one. A
+// plugin loaded from a directory nested in some other repository resolves, by
+// longest match, to that repository's name — and the exemption would then
+// cover that whole foreign tree, which is the widening this function exists to
+// avoid, arriving from the other side.
+func isLoadPath(at string, e Estate) bool {
+	repo, root, ok := shared(e.LoadPath, e)
+	if !ok || repo == "" || filepath.Clean(e.LoadPath) != filepath.Clean(root) {
+		return false
+	}
+	other, _, ok := shared(at, e)
+	return ok && other == repo
 }

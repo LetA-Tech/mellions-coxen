@@ -81,6 +81,20 @@ var printers = map[string]bool{
 	"diff": true, "yq": true, "hexdump": true,
 }
 
+// consumedFlags names, per reader, the option whose operand the command uses
+// as a key rather than printing. `ssh -i <key> host` hands the file to the
+// crypto and writes it nowhere, so the denial it drew could only be got past by
+// rewriting a correct command.
+//
+// This narrows to the operand and deliberately does NOT exonerate the reader:
+// `ssh host cat .env` still prints one, and putting `ssh` in safeReaders would
+// miss it.
+var consumedFlags = map[string]map[string]bool{
+	"ssh":  {"-i": true},
+	"scp":  {"-i": true},
+	"sftp": {"-i": true},
+}
+
 // wrappers stand in front of the real command word without changing what it
 // does with its arguments.
 var wrappers = map[string]bool{"sudo": true, "command": true, "builtin": true, "nohup": true, "time": true}
@@ -147,19 +161,61 @@ var codeSuffixes = []string{
 	".rst", ".proto", ".sql", ".sh", ".bash", ".tf", ".html",
 }
 
+// subjectWords are the words that name a credential when one of them IS a
+// segment of the basename. `app-secret` and `secrets.yaml` are files; the same
+// letters inside a longer identifier are not, and `secretread`, an assignment id
+// and a match pattern were all denied for carrying them as a substring.
+//
+// Equality per segment, not a prefix: `secretread` starts with one of these and
+// is a package. The cost of that line is a file named `secret1`, which no rule
+// here catches and no rule here caught before.
+var subjectWords = map[string]bool{
+	"secret": true, "secrets": true, "credential": true, "credentials": true,
+}
+
+// namesTheSubject reports whether a basename carries a subject word as a whole
+// segment, splitting on the punctuation that separates words inside a filename.
+func namesTheSubject(base string) bool {
+	for _, seg := range strings.FieldsFunc(base, func(r rune) bool {
+		return r == '-' || r == '_' || r == '.'
+	}) {
+		if subjectWords[seg] {
+			return true
+		}
+	}
+	return false
+}
+
 // IsSecretPath reports whether a word names a file whose content is a
 // credential. It is a judgement about the name, which is all a PreToolUse hook
 // has: the file need not exist, because a command that is about to read one
 // that does not exist yet is the same command.
 func IsSecretPath(word string) bool {
+	return secretByName(word) || secretByGlob(word)
+}
+
+// basename returns the lowered basename to classify, or "" when the word is not
+// a candidate at all.
+func basename(word string) string {
 	if word == "" || strings.ContainsAny(word, " \t\n") {
-		return false
+		return ""
 	}
 	if strings.HasPrefix(word, "-") {
-		return false
+		return ""
 	}
 	base := strings.ToLower(path.Base(strings.TrimSuffix(word, "/")))
-	if base == "" || base == "." || base == ".." {
+	if base == "." || base == ".." {
+		return ""
+	}
+	return base
+}
+
+// secretByName classifies a word by the name it spells out, with no shell
+// expansion in between. This is the half that is as true of a fragment carved
+// out of another language as it is of a shell word.
+func secretByName(word string) bool {
+	base := basename(word)
+	if base == "" {
 		return false
 	}
 	for _, s := range notSecretSuffixes {
@@ -180,7 +236,7 @@ func IsSecretPath(word string) bool {
 			return true
 		}
 	}
-	if strings.Contains(base, "secret") || strings.Contains(base, "credential") {
+	if namesTheSubject(base) {
 		for _, s := range codeSuffixes {
 			if strings.HasSuffix(base, s) {
 				return false
@@ -188,26 +244,40 @@ func IsSecretPath(word string) bool {
 		}
 		return true
 	}
-	// A glob standing in for the name. `cat .db_conn*` reads the same bytes as
-	// naming the file, so the stem before the wildcard is tested as a prefix of
-	// the names above.
-	if i := strings.IndexAny(base, "*?"); i > 0 {
-		stem := base[:i]
-		for name := range exactSecretNames {
-			if strings.HasPrefix(name, stem) {
-				return true
-			}
-		}
-		for _, p := range secretPrefixes {
-			if strings.HasPrefix(p, stem) || strings.HasPrefix(stem, p) {
-				return true
-			}
-		}
-	}
-
 	// A path that names the file by its directory rather than its basename.
 	lower := strings.ToLower(word)
 	return strings.HasSuffix(lower, ".docker/config.json") || strings.HasSuffix(lower, ".aws/config")
+}
+
+// secretByGlob reports whether a word is a pattern the SHELL will expand onto a
+// credential's name. `cat .db_conn*` reads the same bytes as naming the file,
+// so the stem before the wildcard is tested as a prefix of the names above.
+//
+// It applies to shell words only. A fragment carved out of another language is
+// not something the shell expands, and taking its stem is how `.*` — in a sed
+// script, a regex, a series matcher — came to match every dotted name in
+// exactSecretNames and deny commands that open no file at all.
+func secretByGlob(word string) bool {
+	base := basename(word)
+	if base == "" {
+		return false
+	}
+	i := strings.IndexAny(base, "*?")
+	if i <= 0 {
+		return false
+	}
+	stem := base[:i]
+	for name := range exactSecretNames {
+		if strings.HasPrefix(name, stem) {
+			return true
+		}
+	}
+	for _, p := range secretPrefixes {
+		if strings.HasPrefix(p, stem) || strings.HasPrefix(stem, p) {
+			return true
+		}
+	}
+	return false
 }
 
 // secretsInWord returns the credential paths a single word names.
@@ -232,12 +302,16 @@ func secretsInWord(word string) []string {
 	var out []string
 	for _, f := range strings.FieldsFunc(word, func(r rune) bool {
 		switch r {
-		case '(', ')', '\'', '"', '`', ',', '=', ';', '{', '}', '[', ']', '<', '>', '|', '$':
+		// `|` is deliberately absent. shellsplit has already cut the command at
+		// every unquoted pipe, so one that survives into a word is quoted — it is
+		// regex alternation, and splitting on it turns `credential\|secret` into
+		// the word `secret`, which exactSecretNames closes on purpose.
+		case '(', ')', '\'', '"', '`', ',', '=', ';', '{', '}', '[', ']', '<', '>', '$':
 			return true
 		}
 		return false
 	}) {
-		if IsSecretPath(f) {
+		if secretByName(f) {
 			out = append(out, f)
 		}
 	}
@@ -323,7 +397,8 @@ func ScanBash(command string) []Finding {
 
 		// A variable holding a credential, printed back out. The capture was
 		// safe; handing it to a printer is the same leak one step later.
-		for _, a := range args {
+		consumed := consumedFlags[reader]
+		for ai, a := range args {
 			for name := range holdsValue {
 				if printers[reader] && names(a, name) {
 					out = append(out, Finding{Path: "$" + name, Reader: reader})
@@ -333,6 +408,10 @@ func ScanBash(command string) []Finding {
 				if !safeReaders[reader] && names(a, name) {
 					out = append(out, Finding{Path: "$" + name, Reader: reader})
 				}
+			}
+			// An option operand the reader consumes rather than prints.
+			if ai > 0 && consumed[args[ai-1]] {
+				continue
 			}
 			if found := secretsInWord(a); len(found) > 0 {
 				// A path, however it is spelled: the command opens the file
