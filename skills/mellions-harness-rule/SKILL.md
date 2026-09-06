@@ -88,6 +88,9 @@ that instead tests every artefact on every run has already counted it.
 
 A rule in one repository leaves the siblings carrying the defect. Check them —
 `gh search code` across the org finds the shape in minutes — and either fix them
-or file, with the rule cited so the fix and its guard travel together.
+or file, with the rule cited so the fix and its guard travel together. A ported
+rule carries the origin's conventions, not the destination's: read what the
+receiving harness requires of a check — from its own documentation, or from the
+checks already there — and satisfy it, or record why it is wrong.
 
 That is the whole point: the lesson stops depending on anyone remembering it.
