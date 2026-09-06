@@ -16,6 +16,7 @@ EMAIL = re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b")
 SYNTHETIC_USERS = {"you"}
 PUBLIC_EMAILS = {"leta@letatech.ca"}
 SYNTHETIC_EMAIL_DOMAINS = {"example.com", "example.net", "example.org", "example.invalid"}
+SSH_REMOTE_LOCAL_PART = "git"
 PRIVATE_NETWORKS = tuple(
     ipaddress.ip_network(f"{first}.{second}.0.0/{prefix}")
     for first, second, prefix in ((10, 0, 8), (172, 16, 12), (192, 168, 16))
@@ -56,6 +57,18 @@ def text_files(root: pathlib.Path):
         yield path, raw.decode(errors="replace")
 
 
+def is_ssh_remote(line: str, match: re.Match[str]) -> bool:
+    """Report whether an EMAIL match is the authority of an SSH clone URL.
+
+    `git@github.com:Org/repo.git` and `ssh://git@github.com/Org/repo.git` both
+    contain a token shaped like an address and addressed to nobody. The path
+    separator that follows is what distinguishes them from a real address.
+    """
+    if match.group().split("@", 1)[0].casefold() != SSH_REMOTE_LOCAL_PART:
+        return False
+    return line[match.end() : match.end() + 1] in {":", "/"}
+
+
 def findings(root: pathlib.Path, terms: list[str]) -> list[str]:
     found = []
     for path, body in text_files(root):
@@ -73,6 +86,8 @@ def findings(root: pathlib.Path, terms: list[str]) -> list[str]:
                 if any(address in network for network in PRIVATE_NETWORKS):
                     found.append(f"{relative}:{number}: private IP address")
             for match in EMAIL.finditer(line):
+                if is_ssh_remote(line, match):
+                    continue
                 email = match.group().casefold()
                 domain = email.rsplit("@", 1)[1]
                 if email not in PUBLIC_EMAILS and domain not in SYNTHETIC_EMAIL_DOMAINS:
