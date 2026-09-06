@@ -456,15 +456,35 @@ func Reach(command, cwd string, e Estate) *Checkout {
 // the deployment step, not for pulling in general, and a session that wants a
 // different tree updated still has to say so.
 func deploysMellions(verb string, args []string, at string, e Estate) bool {
-	if verb != "pull" || e.LoadPath == "" || !isLoadPath(at, e) {
-		return false
-	}
+	return verb == "pull" && e.LoadPath != "" && isLoadPath(at, e) && fastForwardOnly(args)
+}
+
+// fastForwardOnly reports that this pull can only fast-forward.
+//
+// Not a search for the literal, because git's own parser does not read it that
+// way: `--ff`, `--no-ff` and `--ff-only` write one setting, so the last of them
+// on the line is the one in force. `git pull --ff-only --no-ff` creates a merge
+// commit — measured, exit 0, two parents, tree written — and merging into a
+// tree nobody looked at is the one thing this exemption must never admit.
+// Everything after `--` is a refspec rather than an option.
+//
+// Fail-closed elsewhere: a form this reads as not fast-forward-only is refused
+// rather than exempted, and a form it reads as fast-forward-only that git then
+// rejects — `--ff-only` swallowed as another option's value — writes no tree,
+// because git errors before it touches one.
+func fastForwardOnly(args []string) bool {
+	ff := false
 	for _, a := range args {
-		if a == "--ff-only" {
-			return true
+		switch a {
+		case "--":
+			return ff
+		case "--ff-only":
+			ff = true
+		case "--ff", "--no-ff":
+			ff = false
 		}
 	}
-	return false
+	return ff
 }
 
 // isLoadPath reports that a pull aimed at this directory pulls the checkout the
@@ -492,9 +512,14 @@ func deploysMellions(verb string, args []string, at string, e Estate) bool {
 // would be pulled under the exemption, and that is another repository's tree.
 // The exemption is only ever needed where a deny would otherwise fire, and a
 // deny only fires where `at` is inside a shared checkout.
+// The load path has to BE a checkout root, not merely sit inside one. A
+// plugin loaded from a directory nested in some other repository resolves, by
+// longest match, to that repository's name — and the exemption would then
+// cover that whole foreign tree, which is the widening this function exists to
+// avoid, arriving from the other side.
 func isLoadPath(at string, e Estate) bool {
-	repo, _, ok := shared(e.LoadPath, e)
-	if !ok || repo == "" {
+	repo, root, ok := shared(e.LoadPath, e)
+	if !ok || repo == "" || filepath.Clean(e.LoadPath) != filepath.Clean(root) {
 		return false
 	}
 	other, _, ok := shared(at, e)

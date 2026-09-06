@@ -346,6 +346,17 @@ func TestFastForwardPullOfTheLoadPathIsTheOneAllowedWrite(t *testing.T) {
 		// checkout answers with its own.
 		{"a checkout nested inside the load path gains nothing",
 			"git pull --ff-only", "/home/you/leta/mellions-coxen/vendor/data-service", true},
+		// git reads --ff, --no-ff and --ff-only as one setting, so the last of
+		// them is the one in force. `--ff-only --no-ff` creates a merge commit,
+		// and merging into a tree nobody looked at is what this must not admit.
+		{"--no-ff after --ff-only is a merging pull",
+			"git pull --ff-only --no-ff", "/home/you/leta/mellions-coxen", true},
+		{"--ff after --ff-only is a merging pull",
+			"git pull --ff-only --ff origin dev", "/home/you/leta/mellions-coxen", true},
+		{"--ff-only last is still the deployment step",
+			"git pull --no-ff --ff-only", "/home/you/leta/mellions-coxen", false},
+		{"past -- it is a refspec, not an option",
+			"git pull origin -- --ff-only", "/home/you/leta/mellions-coxen", true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			got := sharedtree.Find(tc.command, tc.cwd, e)
@@ -357,6 +368,30 @@ func TestFastForwardPullOfTheLoadPathIsTheOneAllowedWrite(t *testing.T) {
 					tc.command, tc.cwd, got.Verb)
 			}
 		})
+	}
+}
+
+// A load path that sits INSIDE some other repository's checkout resolves, by
+// longest match, to that repository — and an exemption keyed on the name alone
+// would then cover that whole foreign tree. Found by a session that reviewed
+// this change without having written it, against a version that admitted both
+// rows below.
+func TestALoadPathNestedInAnotherCheckoutExemptsNothing(t *testing.T) {
+	e := sharedtree.Estate{
+		Shared: []sharedtree.Checkout{
+			{Repo: "mcfo-finsys", Dir: "/home/you/workspace/mcfo-finsys"},
+		},
+		Home:     "/home/you",
+		LoadPath: "/home/you/workspace/mcfo-finsys/tools/mellions-coxen",
+	}
+	for _, cwd := range []string{
+		"/home/you/workspace/mcfo-finsys",
+		"/home/you/workspace/mcfo-finsys/internal/ledger",
+		"/home/you/workspace/mcfo-finsys/tools/mellions-coxen",
+	} {
+		if sharedtree.Find("git pull --ff-only", cwd, e) == nil {
+			t.Errorf("a load path nested in mcfo-finsys exempted %s, which is mcfo-finsys' tree", cwd)
+		}
 	}
 }
 
