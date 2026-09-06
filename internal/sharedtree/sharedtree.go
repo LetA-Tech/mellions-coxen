@@ -51,7 +51,8 @@ type Estate struct {
 	// LoadPath is the checkout the runtime reads this installation's hooks,
 	// Skills, commands and agent from, or "" where it is not known.
 	//
-	// It is exempt from ONE verb and one form of it: `git pull --ff-only`.
+	// It is exempt from ONE verb and one form of it: `git pull --ff-only`,
+	// aimed at this tree by any of its names or from anywhere inside it.
 	// That is the deployment step for Mellions itself — merged is not landed,
 	// and nothing reaches a session until this tree moves — so refusing it
 	// leaves the guard blocking the only sanctioned way to install a fix,
@@ -455,7 +456,7 @@ func Reach(command, cwd string, e Estate) *Checkout {
 // the deployment step, not for pulling in general, and a session that wants a
 // different tree updated still has to say so.
 func deploysMellions(verb string, args []string, at string, e Estate) bool {
-	if verb != "pull" || e.LoadPath == "" || at != e.LoadPath {
+	if verb != "pull" || e.LoadPath == "" || !isLoadPath(at, e) {
 		return false
 	}
 	for _, a := range args {
@@ -464,4 +465,38 @@ func deploysMellions(verb string, args []string, at string, e Estate) bool {
 		}
 	}
 	return false
+}
+
+// isLoadPath reports that a pull aimed at this directory pulls the checkout the
+// runtime loads from.
+//
+// It has to answer with the same reach as the refusal it cancels, and that
+// refusal is decided twice over by containment: `shared` matches any directory
+// under a checkout, and `sharedEstate` lists a checkout under every path that
+// reaches it, so one tree can hold two roots. An exemption decided by string
+// equality is narrower than both. It misses the pull run one directory in —
+// `git pull` operates on the repository, not on the directory it is typed in,
+// so that is the same deployment step — and it misses the tree's other name,
+// which is the one a session that walked in through a symlinked work root is
+// standing at. Either miss refuses the only sanctioned way to install a fix,
+// which is the defect the exemption exists to close.
+//
+// So the question is which repository the pull writes, and `shared` already
+// answers it for both sides: two names for one tree is what a repeated Repo in
+// Shared means, and the longest match is what a nested checkout answers with.
+// That reads the equivalence off the estate rather than the filesystem, so this
+// package still decides from the command line and the configuration alone.
+//
+// Deliberately not `under(at, e.LoadPath)`, which looks like the same test and
+// is wider: a shared checkout that merely lives inside the load-path directory
+// would be pulled under the exemption, and that is another repository's tree.
+// The exemption is only ever needed where a deny would otherwise fire, and a
+// deny only fires where `at` is inside a shared checkout.
+func isLoadPath(at string, e Estate) bool {
+	repo, _, ok := shared(e.LoadPath, e)
+	if !ok || repo == "" {
+		return false
+	}
+	other, _, ok := shared(at, e)
+	return ok && other == repo
 }
