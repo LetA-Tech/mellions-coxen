@@ -64,6 +64,13 @@ re-reading of your own reasoning is the weakest of these — you locate your
 errors badly and correct them well once something else has located them. Three
 cases are a sample, not a trend.
 
+An invariant was derived under the set of operations that existed when it was
+written, so adding one — a delete where there were only inserts, a nullable
+column, a retry, a second writer — unproves it wherever the new operation is
+reachable from the reader holding it. Re-derive it from the new set: the reason
+written beside it usually still reads true after it has stopped being
+sufficient.
+
 ## A finding you establish is a claim you now hold
 
 Work uncovers defects the work item never named. One that is real and inside
