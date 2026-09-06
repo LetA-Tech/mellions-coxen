@@ -56,10 +56,15 @@ type Estate struct {
 	// That is the deployment step for Mellions itself — merged is not landed,
 	// and nothing reaches a session until this tree moves — so refusing it
 	// leaves the guard blocking the only sanctioned way to install a fix,
-	// including a fix to this guard. The exemption is safe because git itself
-	// refuses a fast-forward that would overwrite local modifications, which
-	// is the loss this package exists to prevent; a pull that would merge, or
-	// a dirty tree, still fails, and fails in git rather than silently.
+	// including a fix to this guard. What makes it safe is git rather than
+	// anything here: a fast-forward that would overwrite local modifications
+	// is refused, and a pull that would merge fails, in git and loudly.
+	//
+	// Not absolute. Under `rebase.autoStash` or `merge.autoStash` git stashes
+	// first and fast-forwards, so a dirty tree can come back with conflict
+	// markers in it. That is recoverable — the stash entry is there — rather
+	// than the silent loss this package exists to prevent, and it is the reason
+	// this comment says what git does instead of promising the tree is safe.
 	LoadPath string
 	// Lane answers where THIS session's own worktree for a repository is, or
 	// "" where it has none. Nil is the same as none.
