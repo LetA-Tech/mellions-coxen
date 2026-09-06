@@ -49,11 +49,20 @@ runs as your uid so host files keep their ownership.
 "$SBX" -m 4g -c 4 -r "$PWD" -w -- make test
 ```
 
-The two boundaries are not the same strength, and the evidence says which one
-produced it: on Linux the kernel is reimplemented in userspace; on macOS
-containers run under `runc` inside a VM the host does not share. Never weaken
-a boundary while claiming the one you did not get — where `runsc` is
+The two boundaries differ, and the evidence says which one produced it.
+gVisor interposes a syscall boundary where containers share the **host**
+kernel — a Linux-host problem. On macOS Docker already runs inside the Colima
+VM, so the VM is that boundary and `runsc` would be a second one inside an
+existing one: **its absence there is the design, not a broken host.** Read it
+as breakage and you stop on a blocker that is not there. Never weaken a
+boundary while claiming the one you did not get: where `runsc` *is*
 registered, dropping to `runc` is a silent downgrade.
+
+On macOS, mount only what Colima shares — `$HOME`, `/tmp/colima`. A bind
+outside them does not fail, it mounts **empty**, so the run fails for missing
+sources and reads as a broken tree. Stage under `$HOME`, never in a session
+scratchpad under `/private/tmp`; `leta-mac-sbx` refuses an unshared path
+rather than let the experiment lie.
 
 ## Where neither helper exists
 
