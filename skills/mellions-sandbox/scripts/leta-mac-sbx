@@ -1,0 +1,184 @@
+#!/usr/bin/env bash
+# Mellions Engineer | LetA Tech Ltd. | leta@letatech.ca
+# Disposable Colima sandbox for agent work. The macOS implementation of the
+# sandbox CLI; leta-linux-sbx implements the same CLI over Docker + gVisor.
+#
+# The isolation boundary here is the Colima VM, not gVisor: containers run
+# under runc inside a Linux VM the host does not share. Every other property
+# the CLI promises -- disposable, capped, minimally mounted, network off,
+# capabilities dropped -- is applied identically on both platforms.
+set -euo pipefail
+
+PROFILE=default
+VM_CPUS=5
+VM_MEM_GIB=6
+# The VM's memory less the ~2 GiB dockerd, buildkit and page cache hold.
+BUDGET_MIB=4096
+
+IMAGE="ubuntu:24.04"; MEM="2g"; CPUS="2"; NET="none"
+MOUNT_REPO=""; MOUNT_MODE="ro"; PUBLISH=""; NAME="sbx-$$"; KEEP_CAPS=0
+
+usage() {
+    cat >&2 <<'USAGE'
+Usage: leta-mac-sbx [options] [--] [command ...]
+       leta-mac-sbx status | down            (the sole argument)
+  -i IMAGE   image (default ubuntu:24.04)   -m MEM   memory cap (2g)
+  -c CPUS    cpu cap (2)                    -n MODE  network none|bridge
+  -r PATH    mount PATH at /work (ro)       -w       make mount writable
+  -p PORT    publish on 127.0.0.1 only      -C       keep default capabilities
+  -N NAME    container name
+Always --rm, label leta.sandbox=1, inside the Colima VM.
+USAGE
+    exit 1
+}
+
+die() { echo "leta-mac-sbx: $*" >&2; exit 1; }
+
+command -v colima >/dev/null 2>&1 || die "colima is not installed; it is the isolation boundary on macOS"
+command -v docker >/dev/null 2>&1 || die "docker CLI is not installed"
+
+colima_running() {
+    colima list 2>/dev/null | awk -v p="$PROFILE" 'NR>1 && $1==p {print $2}' | grep -q Running
+}
+
+vm_up() {
+    colima_running && return 0
+    echo "leta-mac-sbx: starting colima (${VM_CPUS} CPU / ${VM_MEM_GIB} GiB)" >&2
+    colima start --profile "$PROFILE" --cpu "$VM_CPUS" --memory "$VM_MEM_GIB" >/dev/null
+}
+
+sbx_ps() { docker ps -aq --filter label=leta.sandbox=1 2>/dev/null || true; }
+
+# Memory (MiB) already committed inside the VM. A container started outside
+# this wrapper carries no limit and is reported rather than silently counted
+# as zero, which is what makes an accounting-only budget approve an
+# allocation the VM cannot hold.
+committed_mib() {
+    local total=0 unlimited=0 bytes
+    while read -r bytes; do
+        [ -n "$bytes" ] || continue
+        if [ "$bytes" = "0" ]; then unlimited=$(( unlimited + 1 ))
+        else total=$(( total + bytes / 1048576 )); fi
+    done < <(for c in $(docker ps -q 2>/dev/null || true); do
+                 docker inspect -f '{{.HostConfig.Memory}}' "$c" 2>/dev/null || true
+             done)
+    [ "$unlimited" -eq 0 ] || echo "leta-mac-sbx: $unlimited running container(s) carry no memory limit; the budget below undercounts by their real usage" >&2
+    echo "$total"
+}
+
+mem_to_mib() {
+    local v="$1" n="${1%%[gGmM]}" u="${1##*[0-9]}"
+    case "$u" in
+        g|G) echo $(( n * 1024 )) ;;
+        m|M) echo "$n" ;;
+        "")  echo $(( v / 1048576 )) ;;
+        *)   die "unparseable memory value: $v" ;;
+    esac
+}
+
+# status and down are recognised only as the sole argument, so a command of
+# that name still runs: leta-mac-sbx -- status.
+if [ $# -eq 1 ]; then
+    case "$1" in
+        status)
+            if ! colima_running; then echo "colima Stopped — the sandbox holds no host CPU or memory"; exit 0; fi
+            printf 'colima Running — %s CPU / %s MiB committed of %s\n' \
+                "$(docker info --format '{{.NCPU}}')" "$(committed_mib)" "$BUDGET_MIB"
+            docker ps -a --filter label=leta.sandbox=1 \
+                --format 'table {{.Names}}\t{{.Image}}\t{{.Status}}'
+            exit 0 ;;
+        down)
+            colima_running || { echo "leta-mac-sbx: colima already stopped" >&2; exit 0; }
+            # The label marks a container findable for teardown, not one this
+            # wrapper started: a repository harness that must provision on a
+            # host refusing an unlabelled `docker run -d` applies it too, so a
+            # lane's test database answers to it and is not ours to remove.
+            # Nothing here is destroyed. Ordinary runs are --rm; what down
+            # gives back is the VM, and only once nothing is left holding it.
+            running="$(docker ps -q 2>/dev/null || true)"
+            if [ -n "$running" ]; then
+                echo "leta-mac-sbx: colima left Running, $(printf '%s\n' "$running" | wc -l | tr -d ' ') container(s) still in it:" >&2
+                docker ps --format '  {{.Names}}\t{{.Image}}\t{{.Status}}' >&2
+                exit 1
+            fi
+            colima stop --profile "$PROFILE" >/dev/null 2>&1 || true
+            if colima_running; then die "colima did not stop; the VM still holds ${VM_MEM_GIB} GiB"; fi
+            echo "leta-mac-sbx: colima Stopped, 0 host CPU and 0 host memory held" >&2
+            exit 0 ;;
+    esac
+fi
+
+while getopts ":i:m:c:n:r:wp:N:Ch" opt; do
+    case "$opt" in
+        i) IMAGE="$OPTARG" ;; m) MEM="$OPTARG" ;; c) CPUS="$OPTARG" ;;
+        n) NET="$OPTARG" ;; r) MOUNT_REPO="$OPTARG" ;; w) MOUNT_MODE="rw" ;;
+        p) PUBLISH="$OPTARG" ;; N) NAME="$OPTARG" ;; C) KEEP_CAPS=1 ;;
+        h) usage ;; *) usage ;;
+    esac
+done
+shift $((OPTIND - 1))
+
+if [ -n "$PUBLISH" ] && [ "$NET" = "none" ]; then
+    NET="bridge"; echo "leta-mac-sbx: -p given, switching network to bridge" >&2
+fi
+
+vm_up
+
+want=$(mem_to_mib "$MEM")
+used=$(committed_mib)
+if [ $(( used + want )) -gt "$BUDGET_MIB" ]; then
+    die "refusing: ${used} MiB committed + ${want} MiB requested exceeds the ${BUDGET_MIB} MiB budget; 'leta-mac-sbx status' says what holds it"
+fi
+
+# `leta.sandbox=1` says a container is findable for teardown, not whose it is:
+# this wrapper applies it and so does any repository harness provisioning on a
+# host that refuses an unlabelled `docker run -d`. Ownership was therefore not
+# expressible, and a reaper filtering on the shared label removes another
+# lane's running database. This second label is what "mine" means; set
+# LETA_SBX_OWNER to the lane when a harness should reap its own.
+OWNER="${LETA_SBX_OWNER:-$(id -un)@$(hostname -s)}"
+
+ARGS=( run --rm --label leta.sandbox=1 --label "leta.sandbox.owner=$OWNER" --name "$NAME"
+       --memory "$MEM" --memory-swap "$MEM" --cpus "$CPUS" --pids-limit 512
+       --network "$NET" --security-opt no-new-privileges )
+
+[ "$KEEP_CAPS" -eq 0 ] && ARGS+=( --cap-drop ALL )
+
+# A writable bind mount is owned by the host user, and --cap-drop ALL removes
+# CAP_DAC_OVERRIDE, so container-root cannot write to it. Run as the invoking
+# user instead: writes succeed and files keep correct host ownership.
+if [ "$MOUNT_MODE" = "rw" ] && [ "$KEEP_CAPS" -eq 0 ]; then
+    ARGS+=( --user "$(id -u):$(id -g)" )
+fi
+
+if [ -n "$MOUNT_REPO" ]; then
+    MOUNT_REPO="$(cd "$MOUNT_REPO" && pwd)"
+    ARGS+=( --mount "type=bind,src=$MOUNT_REPO,dst=/work,readonly=$([ "$MOUNT_MODE" = ro ] && echo true || echo false)" -w /work )
+
+    # git refuses a repository whose directory is owned by another user, and a
+    # read-only mount is read by container-root while the host path is the
+    # invoking user's. The refusal is a bare exit 128 that reads like a broken
+    # repository. The container mounts one path the operator named and is
+    # discarded, so the ownership check defends nothing here.
+    ARGS+=( -e GIT_CONFIG_COUNT=1 -e GIT_CONFIG_KEY_0=safe.directory -e GIT_CONFIG_VALUE_0='*' )
+
+    # A linked worktree's .git is a file pointing at the parent repository's
+    # git directory, and a mounted subdirectory's git directory sits above the
+    # mount; either way the target is outside it and git says "not a git
+    # repository". Carry the whole common directory at its own absolute path
+    # so the pointer resolves -- which is wider than the path named with -r,
+    # hence the announcement. Mount a standalone clone where the sandboxed
+    # code should not see every branch and reflog of the parent.
+    GIT_COMMON_DIR="$(git -C "$MOUNT_REPO" rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)"
+    if [ -n "$GIT_COMMON_DIR" ] && [ -d "$GIT_COMMON_DIR" ] && \
+       [ "${GIT_COMMON_DIR##"$MOUNT_REPO"/}" = "$GIT_COMMON_DIR" ]; then
+        ARGS+=( --mount "type=bind,src=$GIT_COMMON_DIR,dst=$GIT_COMMON_DIR,readonly=true" )
+        echo "leta-mac-sbx: carrying the repository's whole git directory $GIT_COMMON_DIR (read-only): every branch, every other worktree, every reflog" >&2
+    fi
+fi
+[ -n "$PUBLISH" ] && ARGS+=( -p "127.0.0.1:${PUBLISH}:${PUBLISH}" )
+
+if [ $# -eq 0 ]; then ARGS+=( -it "$IMAGE" bash ); else ARGS+=( -i "$IMAGE" "$@" ); fi
+
+echo "leta-mac-sbx: $IMAGE mem=$MEM cpus=$CPUS net=$NET mount=${MOUNT_REPO:-none}/$MOUNT_MODE (colima VM boundary)" >&2
+exec docker "${ARGS[@]}"
