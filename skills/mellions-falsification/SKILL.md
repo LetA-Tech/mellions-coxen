@@ -70,6 +70,14 @@ a backgrounded command's can be the launcher's, so "completed, exit 0" may
 attest only that the spawn succeeded. Read the check's own output: a non-zero
 exit falsifies a green claim on its own, a zero exit never establishes one.
 
+An arm's scope decides what it can prove. Neutralise a gate and everything it
+guards refuses alike, so a case asserting a refusal goes green on the arm
+exactly as it did on the fix — the arm reads inert when it was the run that
+was. What carries a gate's property is the cases that must stay *accepted*, and
+a `-run` filter naming only the refusals removes precisely those. Run each arm
+over the whole package, or over a set holding both directions; a green arm is a
+claim about the filter until the positive cases are in it.
+
 Mutation proves the tests see the change; it does not prove the change reaches
 the outcome. Where the effect is mediated by a caller the tests never execute
 — a pure function and its call site, a resolver and the script that reads it —
