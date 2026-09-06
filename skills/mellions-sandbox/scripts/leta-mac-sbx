@@ -152,7 +152,22 @@ if [ "$MOUNT_MODE" = "rw" ] && [ "$KEEP_CAPS" -eq 0 ]; then
 fi
 
 if [ -n "$MOUNT_REPO" ]; then
-    MOUNT_REPO="$(cd "$MOUNT_REPO" && pwd)"
+    MOUNT_REPO="$(cd "$MOUNT_REPO" && pwd -P)"
+
+    # Colima shares a fixed set of host directories with the VM, and a bind of
+    # a path outside them does not fail: it mounts EMPTY. The build then fails
+    # for missing sources, which reads as a broken tree rather than a broken
+    # mount, and the session stops on a blocker that is not there. $HOME is
+    # shared; /private/tmp is not, so a tree staged in a session scratchpad
+    # mounts as nothing. Refuse it here rather than let the experiment lie.
+    # LETA_SBX_SHARED names extra roots on a host configured with more.
+    shared=0
+    for root in "$HOME" /tmp/colima ${LETA_SBX_SHARED:-}; do
+        case "$MOUNT_REPO/" in "$root"/*) shared=1; break ;; esac
+    done
+    [ "$shared" -eq 1 ] || die "colima does not share $MOUNT_REPO, so it would mount empty and the run would fail as a broken tree.
+  Stage the tree under \$HOME (e.g. \$HOME/.cache/…) and mount that,
+  or name the extra shared root in LETA_SBX_SHARED if this host is configured with one."
     ARGS+=( --mount "type=bind,src=$MOUNT_REPO,dst=/work,readonly=$([ "$MOUNT_MODE" = ro ] && echo true || echo false)" -w /work )
 
     # git refuses a repository whose directory is owned by another user, and a
