@@ -6,35 +6,34 @@ description: Load this when work on an issue is finished and the question is whe
 
 # Closing an issue
 
-The dangerous failure here is closing on somebody's word — the implementer's,
+One dangerous failure here is closing on somebody's word — the implementer's,
 a comment's, a green merge — with the proof local, the acceptance rule unread,
 or the authority assumed.
 
 ## Four events, never conflated
 
 ```
-feature branch → base branch        implementation merged
-base branch → release branch        promoted
-release → running system            deployed
-issue closed                        accepted
+feature branch → base branch  implementation merged
+base branch → release branch  promoted
+release → running system      deployed
+issue closed                  accepted
 ```
 
 None of the first three implies the fourth. **Merging a pull request does not
 close its issue.** The issue is the audit trail and the pull request is one
-artifact on it, so the durable record is the proof comment — which is exactly
-what an auto-closing `Closes #NN` skips, and why the body says `Refs`
+artifact on it, so the durable record is the proof comment — exactly what an
+auto-closing `Closes #NN` skips, and why a pull request body says `Refs`
 (`mellions-issue-remediation`). Arriving here to find the issue already closed
 by a merge means the proof was lost, not that the work is done: post it anyway
-and say what closed it — unless the body says the diff was the whole proof,
-which is the one case a `Closes` was right.
+and say what closed it, unless that body says the diff was the whole proof.
 
 ## The acceptance rule decides
 
 Read the issue's acceptance section — the whole sentence, not the first token —
 and honour the strictest rule it states. Rules compose: `merge` + `deployment`
-closes on the deploy, and a scan that stops at the first backticked word reads
-every compound rule as its weakest half, which closes the issue on an event
-that has not happened yet.
+closes on the deploy, and a scan stopping at the first backticked word reads
+every compound rule as its weakest half, closing on an event that has not
+happened.
 
 | Rule | Closes when |
 |---|---|
@@ -46,25 +45,31 @@ that has not happened yet.
 | `runtime-proof` | a named metric or query is observed correct in production |
 
 Where the issue states nothing: post the proof comment, then close under
-explicit authorization — which a standing delegation to close is, and which a
-one-off approval of another action is not. Silence never escalates to closure
-on its own,
-and never blocks a documentation fix behind a deployment gate either. Where the
+explicit authorization. Silence never escalates to closure on its own, and
+never blocks a documentation fix behind a deployment gate either. Where the
 repository declares its own closure policy (`issue-defined`, for instance),
-that policy is the rule, and an open issue whose fix has merged is not the
-tracker overstating its work — it is waiting on the event it names.
+that policy is the rule.
 
 For Mellions' own repository the running system is the checkout `mellions
-doctor` names as the load path: a fix there closes when that checkout stands
-at the merge and, for a binary change, the installed binary matches — quote
-the doctor line, never the merge alone.
+doctor` names as the load path: it closes when that checkout stands at the
+merge and, for a binary change, the installed binary matches — quote the
+doctor line, never the merge alone.
+
+## A blocker is not an endpoint
+
+An exact account of a blocker you could remove is not a resolution. Where
+engineering on the fix removes what holds the acceptance event off, that is
+this issue's next task, not its resting state; the event itself — a deploy, a
+migration, an occurrence — is waited for or asked for with what you tried, and
+never run to make an issue closeable. Never close on an unmet acceptance,
+never leave one open on an untried path.
 
 ## Identity
 
 The issue number is the identifier; a finding id is a discovery key. Resolve
 it to exactly one issue (`gh issue list --state all --search`) and carry the
 number; zero or several matches is a stop. An issue with no finding id is
-normal — invent nothing to fill the slot.
+normal; invent nothing to fill the slot.
 
 ## Whose decision it is
 
@@ -78,13 +83,12 @@ it; merging follows the partnership the same way. Read it rather than assume.
 - **Reserved:** leave the close package where they read — on the issue: what
   was established, the proof, the acceptance rule and how it is met, the
   exact command (`gh issue close NN --repo <owner/repo> --comment ...`) — and
-  stop until they say the word; then run it. Their judgment is what is scarce,
-  not their typing. A written package is a successful outcome. A one-off
-  approval names an action: one given for the merge is not one for the close.
+  stop until they say the word; then run it. A written package is a successful
+  outcome. A one-off approval names an action: one given for the merge is not
+  one for the close.
 
-Where the repository's own process requires an approval record, a marker or
-an independent review before closure, that process governs; this method is
-what has to be true underneath it.
+A repository process requiring an approval record, a marker or an independent
+review before closure governs; this method is what has to be true underneath.
 
 ## Proof on the record before the close
 
@@ -95,23 +99,20 @@ for `deployment`, the query result for `migration`, the observed series for
 `runtime-proof`. Quote raw output; never write a SHA, a PR number or a test
 result you have not seen at the remote.
 
-The proof comment carries, only where it applies: the issue and the branch;
+The proof comment carries, only where it applies: the issue, the branch,
 the commit SHA and the pull request; what changed — files and diff stat; raw
 build and test output with the falsification runs; each acceptance criterion
 mapped to met or unmet with its evidence; the acceptance rule and the event
 that satisfied it; residual risks and follow-ups, named, and filed where they
-are their own work, since a residual defect never survives only as a sentence
-here; and, where closure was the owner's, who authorized it.
-Post it, then close — never the other order. By default the reading that
-accepts the proof is not the session that wrote the plan and the code: a fresh
-session or subagent is cheap, and where none read it, the comment says so
-rather than leaving the reader to assume one did.
-
-That latitude ends where the change touched money, persisted state, a schema,
-a service or repository boundary, deployment or credentials. There an
-independent reading — a fresh session or subagent that read the requirement
-before it saw the diff — comes before the proof comment, its verdict is in the
-comment, and self-acceptance is not available at all.
+are their own work, since one never survives as a sentence here; and, where
+closure was the owner's, who authorized it.
+Post it, then close — never the other order. By default the session that wrote
+the plan and code does not accept its own proof: a fresh session or subagent is
+cheap, and where none read it the comment says so. Where the change
+touched money, persisted state, a schema, a service or repository boundary,
+deployment or credentials that latitude ends — the independent reading comes
+first, on the requirement before the diff, its verdict in the comment, and
+self-acceptance is not available at all.
 
 ## Resolved by the world
 
@@ -121,15 +122,16 @@ proof. Verify to the depth a close requires — the cited defect absent in the
 code at the pin, the tests exercising the path non-vacuously, the acceptance
 rule's event confirmed — and then close or package exactly as above. The
 issue's premise being stale is a reason to read the current code, never proof
-the work is done, and three issues found resolved are three issues, not a
-tracker that overstates its open work.
+the work is done; three found resolved are three issues, not a tracker
+overstating its open work.
 
 ## Stop points
 
 - The proof exists only locally, or the SHA, PR or CI state cannot be seen at
   the remote.
 - The acceptance rule is not satisfied: merged but deployment-gated, applied
-  but not verified by query, observed nowhere.
+  but not verified by query, observed nowhere — a stop on closing, not on the
+  work.
 - The proof contradicts the issue body, or the issue, branch or pull request
   do not match each other.
 - Raw output or the acceptance mapping is missing; a criterion is unmet.
