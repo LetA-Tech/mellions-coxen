@@ -321,13 +321,39 @@ func Writes(command string) []string {
 	var out []string
 	seen := map[string]bool{}
 	for _, c := range Split(command) {
-		if c.Out == "" || discardSink[c.Out] || seen[c.Out] {
+		if c.Out == "" || discardSink[c.Out] || seen[c.Out] || !vouched(c) {
 			continue
 		}
 		seen[c.Out] = true
 		out = append(out, c.Out)
 	}
 	return out
+}
+
+// vouched reports that a command's Out is a filename and not the residue of a
+// `>` this lexer read as a redirection when the shell would not have.
+//
+// The lexer sets Out for any unquoted `>`, which is right in command and
+// argument position and wrong in three others. Inside `[[ ]]` and `(( ))` the
+// `>` compares, so `[[ "$f" > "$best" ]]` yields `$best` and `(( n > 100 ))`
+// yields `100`. `> >(tee log)` is a process substitution, whose target opens a
+// parenthesis. `> ${OUT:->x}` puts a `>` inside a parameter expansion, whose
+// residue carries a brace.
+//
+// A caller naming one of those states as fact that a file it invented was not
+// written, which costs more than saying nothing: a session sent after a file
+// that was never coming stops believing the ones that are real. So the
+// question here is not "is this a redirection" but "can this be vouched for",
+// and everything else is left unsaid. Teaching the lexer these three contexts
+// would answer more of them, and it would also change what `Out` means for
+// the other callers that read it.
+func vouched(c *Command) bool {
+	for _, w := range c.Words {
+		if w == "[[" || w == "((" {
+			return false
+		}
+	}
+	return !strings.ContainsAny(c.Out, "({}")
 }
 
 // discardSink is the set of redirect targets that hold nothing afterwards, so

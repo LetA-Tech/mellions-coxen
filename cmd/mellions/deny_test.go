@@ -5,6 +5,10 @@
 package main
 
 import (
+	"bytes"
+	"encoding/json"
+	"io"
+	"os"
 	"strings"
 	"testing"
 )
@@ -17,8 +21,8 @@ func TestDiscardedNamesTheWriteTheRefusalThrewAway(t *testing.T) {
 	if !strings.Contains(got, "`body.md`") {
 		t.Errorf("the refusal does not name body.md, the file the denial discarded:\n%s", got)
 	}
-	if !strings.Contains(got, "was not created") {
-		t.Errorf("the refusal does not say the file is absent:\n%s", got)
+	if !strings.Contains(got, "did not happen") {
+		t.Errorf("the refusal does not say the write is absent:\n%s", got)
 	}
 }
 
@@ -59,6 +63,15 @@ func TestDiscardedSaysNothingWhereNothingWasDiscarded(t *testing.T) {
 		// something that was never coming.
 		`{"tool_name":"Bash","tool_input":{"command":"echo \"a > b\"; gh pr create"}}`,
 		`{"tool_name":"Bash","tool_input":{"command":"grep -n '>' README.md"}}`,
+		// A `>` the shell does not read as a redirection either. Inside `[[ ]]`
+		// and `(( ))` it compares; `>(` opens a process substitution; a `>`
+		// inside `${…}` is part of the expansion. The lexer sets Out for all
+		// four, and a refusal naming `100`, `$best`, `(tee` or `fallback}`
+		// states as fact that a file it invented was not written.
+		`{"tool_name":"Bash","tool_input":{"command":"if (( $(git rev-list --count HEAD) > 100 )); then echo hi; fi"}}`,
+		`{"tool_name":"Bash","tool_input":{"command":"[[ \"$f\" > \"$best\" ]] && best=$f"}}`,
+		`{"tool_name":"Bash","tool_input":{"command":"make build > >(tee build.log)"}}`,
+		`{"tool_name":"Bash","tool_input":{"command":"echo x > ${OUT:->fallback}"}}`,
 		`{"tool_name":"Read","tool_input":{"file_path":"/etc/payments/.env"}}`,
 		`{"tool_name":"Bash","tool_input":{"command":""}}`,
 		`not json`,
@@ -96,5 +109,65 @@ func TestEmitDenyKeepsTheGuardsOwnReasonFirst(t *testing.T) {
 	}
 	if !strings.Contains(out, "`body.md`") {
 		t.Fatalf("the discarded write is not on the refusal:\n%s", out)
+	}
+}
+
+// An append that was refused leaves the file exactly as it was, which is not
+// the same as absent — a session told a file "was not created" acts on that.
+func TestDiscardedDoesNotClaimAnExistingFileIsAbsent(t *testing.T) {
+	got := discarded([]byte(`{"tool_name":"Bash","tool_input":{"command":"echo x >> already.md; gh pr create"}}`))
+	if strings.Contains(got, "not created") {
+		t.Errorf("an append is reported as a file that does not exist:\n%s", got)
+	}
+	if !strings.Contains(got, "`already.md`") {
+		t.Errorf("the append target is not named:\n%s", got)
+	}
+}
+
+// emitDeny is one line reached by five guards, and what it puts on stdout is
+// the whole contract with the runtime. Nothing else here executes it.
+func TestEmitDenyWritesTheDecisionTheRuntimeReads(t *testing.T) {
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	saved := os.Stdout
+	os.Stdout = w
+	emitErr := emitDeny(
+		[]byte(`{"tool_name":"Bash","tool_input":{"command":"cat > body.md <<'EOF'\nx\nEOF\ngh issue create --body-file body.md"}}`),
+		"Use the value without seeing it — `URL=\"$(tail -1 <file>)\"`.")
+	os.Stdout = saved
+	w.Close()
+	out, _ := io.ReadAll(r)
+	if emitErr != nil {
+		t.Fatalf("emitDeny returned %v", emitErr)
+	}
+	var got struct {
+		Output struct {
+			Event  string `json:"hookEventName"`
+			Decide string `json:"permissionDecision"`
+			Reason string `json:"permissionDecisionReason"`
+		} `json:"hookSpecificOutput"`
+	}
+	if err := json.Unmarshal(out, &got); err != nil {
+		t.Fatalf("stdout is not the decision the runtime parses: %v\n%s", err, out)
+	}
+	if got.Output.Event != "PreToolUse" || got.Output.Decide != "deny" {
+		t.Errorf("wrong decision: %+v", got.Output)
+	}
+	// SetEscapeHTML(false). With it on, the `<file>` these reasons carry
+	// ships as \u003cfile\u003e and the refusal reads as machine noise at
+	// the point it has to persuade.
+	if bytes.Contains(out, []byte(`\u003c`)) {
+		t.Errorf("the refusal is HTML-escaped:\n%s", out)
+	}
+	if !bytes.Contains(out, []byte("<file>")) {
+		t.Errorf("the reason lost its literal angle brackets:\n%s", out)
+	}
+	if !strings.HasPrefix(got.Output.Reason, "Use the value without seeing it") {
+		t.Errorf("the guard's own reason no longer leads:\n%s", got.Output.Reason)
+	}
+	if !strings.Contains(got.Output.Reason, "`body.md`") {
+		t.Errorf("the discarded write is not on the refusal:\n%s", got.Output.Reason)
 	}
 }

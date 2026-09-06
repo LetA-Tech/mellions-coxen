@@ -59,15 +59,15 @@ func discarded(payload []byte) string {
 	}
 	if files := shellsplit.Writes(ev.Input.Command); len(files) > 0 {
 		return "\n\nThe refusal rejects the whole call, not the part that tripped it, so " +
-			writesLost(files) + " Write the file in one call and publish in the next, " +
-			"so a refusal of the publish costs the publish only."
+			writesLost(files) + " Write the file in one call and run what consumes it in " +
+			"the next, so a refusal of the second costs only the second."
 	}
 	for _, c := range shellsplit.Split(ev.Input.Command) {
 		if len(c.Heredocs) > 0 {
 			return "\n\nThe refusal rejects the whole call, not the part that tripped it, so " +
 				"the heredoc on this command line was handed to nothing: anything the program " +
 				"reading it would have written does not exist. Write the file in one call and " +
-				"publish in the next, so a refusal of the publish costs the publish only."
+				"run what consumes it in the next, so a refusal of the second costs only the second."
 		}
 	}
 	return ""
@@ -79,13 +79,13 @@ func discarded(payload []byte) string {
 func writesLost(files []string) string {
 	const limit = 6
 	if len(files) == 1 {
-		return "the file it would have written, `" + files[0] + "`, was not created."
+		return "the write to `" + files[0] + "` did not happen."
 	}
 	more := ""
 	if len(files) > limit {
 		more = " and " + strconv.Itoa(len(files)-limit) + " more"
 		files = files[:limit]
 	}
-	return "the files it would have written — `" + strings.Join(files, "`, `") + "`" + more +
-		" — were not created."
+	return "the writes to `" + strings.Join(files, "`, `") + "`" + more +
+		" did not happen."
 }
