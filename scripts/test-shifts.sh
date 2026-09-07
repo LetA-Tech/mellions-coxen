@@ -278,13 +278,13 @@ wait_count 20 2 'ended rc=0' "$log" || bad "E: two shifts did not run through th
 grep -q "update: $sha is what runs already" "$log" || bad "E: an unchanged checkout was built again"
 touch "$home/stop"; wait_gone 10 "$e" || bad "E: the runner did not stop"
 
-# ---- E2. an update refuses a checkout that has tracked changes in it -------------
-# `git pull --ff-only` reports the pull, not the tree it leaves. With autostash
-# configured, a tracked local change is stashed across the fast-forward and can
-# conflict on the way back: exit 0, HEAD moved, `<<<<<<<` in the checkout, and
-# the binary every session loads that night built from it. Untracked dirt is
-# not that — autostash never stashes it — so a stray artefact must not stop a
-# shift.
+# ---- E2. autostash does not get to make a bad pull look like a good one ----------
+# With autostash configured, a tracked local change is stashed across the
+# fast-forward and can conflict on the way back: exit 0, HEAD moved, `<<<<<<<`
+# in the checkout, and the binary every session loads that night built from it.
+# The pull switches autostash off, so git aborts before anything moves and the
+# checkout is left exactly as it was. Untracked dirt is not that — autostash
+# never stashes it — so a stray artefact must not stop a shift.
 home="$tmp/e2"; mkdir -p "$home"; log="$home/shifts/runner.log"
 origin="$tmp/origin2.git"; git init -q --bare "$origin"
 co="$tmp/co2"; git clone -q "$origin" "$co" 2>/dev/null
@@ -305,7 +305,7 @@ git -C "$co" config merge.autoStash true; git -C "$co" config rebase.autoStash t
 printf 'local\n' > "$co/note.md"
 mkdir -p "$tmp/bin2"; cp "$STUB_DIR/mellions" "$tmp/bin2/mellions"; record "$co"
 start_runner "$home" "MELLIONS_AUTOUPDATE=1 MELLIONS_CHECKOUT=$co MELLIONS_BIN=$tmp/bin2/mellions MELLIONS_SHIFTS_PER_DAY=4"; e2=$pid
-wait_for 10 'update refused: tracked changes' "$log" || bad "E2: a checkout carrying a tracked change was pulled into: $(tail -3 "$log")"
+wait_for 10 'update failed at git pull --ff-only' "$log" || bad "E2: a checkout carrying a tracked change was pulled into under autostash: $(tail -3 "$log")"
 [ "$(git -C "$co" rev-parse --short HEAD)" = "$sha1" ] || bad "E2: the refused update moved HEAD to $(git -C "$co" rev-parse --short HEAD)"
 grep -q '<<<<<<<' "$co/note.md" && bad "E2: the refused update left conflict markers in the checkout"
 [ -e "$co/bin/mellions" ] && bad "E2: the refused update built from the checkout"
