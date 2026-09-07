@@ -54,6 +54,12 @@ func cmdDoctor(ctx context.Context, args []string) error {
 		line("binary", "ABSENT", "not on PATH; this one is "+self+" — put it on PATH or set MELLIONS_BIN")
 	}
 
+	// Read before the first line that needs it: the runner line compares the
+	// script the live runner executes against the load path, and the load path
+	// rows are printed further down.
+	reg := pluginreg.Read(home(), pluginreg.ID)
+	hooksRoot := pluginRoot(reg)
+
 	cfg, err := loadConfig(*cfgPath)
 	if err != nil {
 		line("config", "ABSENT", err.Error())
@@ -92,7 +98,7 @@ func cmdDoctor(ctx context.Context, args []string) error {
 		// The runner keeps its lock and log where the shifts land, and both
 		// scripts ask the binary for that directory, so Config.home is the one
 		// answer rather than a second reading of the same environment.
-		state, detail := runnerState(cfg.home())
+		state, detail := runnerState(cfg.home(), hooksRoot)
 		line("runner", state, detail)
 		shifts := filepath.Join(cfg.home(), "shifts")
 		if _, err := os.Stat(shifts); err == nil {
@@ -131,8 +137,6 @@ func cmdDoctor(ctx context.Context, args []string) error {
 		line("runtime "+rt.name, state, detail)
 	}
 
-	reg := pluginreg.Read(home(), pluginreg.ID)
-	hooksRoot := pluginRoot(reg)
 	if reg.Installed {
 		state, detail := loadPathState(reg)
 		line("load path", state, detail)
