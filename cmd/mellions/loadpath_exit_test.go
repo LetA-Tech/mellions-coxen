@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -121,6 +122,70 @@ func TestALoadPathThatStoppedDeployingFailsDoctor(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "stopped deploying: load path commit") {
 		t.Errorf("error = %q, want it to name the load path commit as stopped deploying", err)
+	}
+}
+
+// The runner row compares the shift script a live pid executes against the load
+// path, and that comparison means something only where the load path is a
+// checkout read in place. Where the runtime fetched a copy instead, the plugin
+// and scripts/ deploy through two channels by design and the runner is out of a
+// checkout somewhere else on every such host — so comparing them condemns the
+// normal installation.
+//
+// The two cases differ in one field of the marketplace record and nothing else:
+// same runner, same script, same everything the row reads. One must fail doctor
+// and the other must not, or the row is measuring the wrong thing.
+func TestTheRunnerIsComparedOnlyAgainstACheckoutReadInPlace(t *testing.T) {
+	for _, c := range []struct {
+		name, source string
+		wantStopped  bool
+	}{
+		{"a directory marketplace is the checkout, so a runner outside it is a split", "directory", true},
+		{"a fetched copy is nobody's checkout, so there is nothing to be outside of", "github", false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			root := t.TempDir()
+			market := filepath.Join(root, "checkout")
+			copied := filepath.Join(root, "copy")
+			// Outside both, which is the only way the two cases differ in
+			// their answer rather than in their fixture.
+			script := filepath.Join(root, "elsewhere", "scripts", "shifts.sh")
+			if err := os.MkdirAll(filepath.Dir(script), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(script, []byte("sleep 30\n"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			live := exec.Command("sh", script)
+			if err := live.Start(); err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = live.Process.Kill(); _ = live.Wait() })
+
+			home := fakeRuntime(t, c.source, market, copied)
+			t.Setenv("HOME", home)
+			// The runner row is printed only where a config was found, so a
+			// home without one asserts nothing about it. The host's own config
+			// is kept out of reach at the same time.
+			t.Setenv("MELLIONS_CONFIG", "")
+			writeUnder(t, filepath.Join(home, ".mellions", "config.json"), "{}\n")
+			mhome := filepath.Join(home, "mellions")
+			t.Setenv("MELLIONS_HOME", mhome)
+			shifts := filepath.Join(mhome, "shifts")
+			if err := os.MkdirAll(shifts, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			writeUnder(t, filepath.Join(shifts, "runner.lock"), strconv.Itoa(live.Process.Pid)+"\n")
+			writeUnder(t, filepath.Join(shifts, "20260907-060000.log"), "06:00:00 shift starting\n")
+
+			err := cmdDoctor(context.Background(), nil)
+			stopped := err != nil && strings.Contains(err.Error(), "stopped deploying") &&
+				strings.Contains(err.Error(), "runner")
+			if stopped != c.wantStopped {
+				t.Fatalf("doctor error = %v; runner reported as stopped deploying = %v, want %v",
+					err, stopped, c.wantStopped)
+			}
+		})
 	}
 }
 

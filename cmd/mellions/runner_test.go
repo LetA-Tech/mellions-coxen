@@ -118,7 +118,7 @@ func TestScriptOrigin(t *testing.T) {
 		{"inside", script, load, "which is inside the load path", false},
 		{"load path missing", script, filepath.Join(root, "elsewhere"), "not compared", false},
 		{"relative", "shifts.sh", load, "is relative", false},
-		{"no load path", script, "", "no load path to compare", false},
+		{"no load path", script, "", "not compared: no checkout", false},
 		{"gone", filepath.Join(load, "scripts", "gone.sh"), load, "does not resolve", false},
 	} {
 		where, split := scriptOrigin(c.script, c.load)

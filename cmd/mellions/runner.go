@@ -60,7 +60,7 @@ func runnerState(root, loadPath string) (state, detail string) {
 func scriptOrigin(script, loadPath string) (where string, split bool) {
 	switch {
 	case loadPath == "":
-		return "no load path to compare it against", false
+		return "not compared: no checkout the runner and the runtime both read", false
 	case !filepath.IsAbs(script):
 		return "not compared: " + script + " is relative, so which checkout it came from is unestablished", false
 	}

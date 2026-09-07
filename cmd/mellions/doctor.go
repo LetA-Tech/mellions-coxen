@@ -98,7 +98,17 @@ func cmdDoctor(ctx context.Context, args []string) error {
 		// The runner keeps its lock and log where the shifts land, and both
 		// scripts ask the binary for that directory, so Config.home is the one
 		// answer rather than a second reading of the same environment.
-		state, detail := runnerState(cfg.home(), hooksRoot)
+		// Only a load path the runtime reads in place is a checkout the runner
+		// could be sharing. Where the runtime fetched a copy instead, the
+		// plugin and scripts/ deploy through two channels by design, and the
+		// runner running out of a checkout somewhere else is the arrangement
+		// rather than a split — so there is nothing to compare and the row
+		// says so.
+		shared := ""
+		if reg.Marketplace.InPlace() {
+			shared = hooksRoot
+		}
+		state, detail := runnerState(cfg.home(), shared)
 		line("runner", state, detail)
 		shifts := filepath.Join(cfg.home(), "shifts")
 		if _, err := os.Stat(shifts); err == nil {
