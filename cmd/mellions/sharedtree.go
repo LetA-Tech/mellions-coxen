@@ -90,21 +90,49 @@ func sharedEstate(cfg *Config) sharedtree.Estate {
 // lets the deployment exemption stand, because a guess in the other direction
 // blocks the only sanctioned way to install a fix.
 //
-// Untracked files count, which is why there is no `--untracked-files=no` here:
-// autostash stashes them under `--include-untracked` and, more to the point, an
-// untracked file in the load path is somebody's unfinished work in a tree
-// nobody owns.
+// Tracked changes only. Autostash does not pass `--include-untracked`, so an
+// untracked file is never stashed and never reapplied: measured, a tree whose
+// only dirt is untracked fast-forwards with no `Created autostash` line and an
+// empty stash list, and the file is left exactly as it was. The one untracked
+// case git does act on — a file the fast-forward would add — it refuses loudly,
+// exit 1, content preserved. So untracked files cannot produce the silent
+// corruption this probe exists to catch, and counting them would refuse the
+// deployment over a stray build artefact, which is the defect this whole
+// exemption was added to fix.
+//
+// The git environment is stripped rather than inherited. `GIT_DIR`,
+// `GIT_WORK_TREE` and `GIT_INDEX_FILE` outrank `-C`, so a hook process holding
+// them reports on some other repository — exit 0, empty output, no error to
+// notice — and a dirty load path reads clean.
 func treeIsDirty(dir string) bool {
 	if dir == "" {
 		return false
 	}
-	cmd := exec.Command("git", "-C", dir, "status", "--porcelain")
-	cmd.Env = append(os.Environ(), "GIT_OPTIONAL_LOCKS=0")
+	cmd := exec.Command("git", "-C", dir, "status", "--porcelain", "--untracked-files=no")
+	cmd.Env = append(withoutGitEnv(os.Environ()), "GIT_OPTIONAL_LOCKS=0")
 	out, err := cmd.Output()
 	if err != nil {
 		return false
 	}
 	return len(strings.TrimSpace(string(out))) > 0
+}
+
+// withoutGitEnv drops the variables that would make `git -C <dir>` answer for a
+// different repository than dir.
+func withoutGitEnv(env []string) []string {
+	out := make([]string, 0, len(env))
+	for _, kv := range env {
+		switch {
+		case strings.HasPrefix(kv, "GIT_DIR="),
+			strings.HasPrefix(kv, "GIT_WORK_TREE="),
+			strings.HasPrefix(kv, "GIT_INDEX_FILE="),
+			strings.HasPrefix(kv, "GIT_COMMON_DIR="),
+			strings.HasPrefix(kv, "GIT_OBJECT_DIRECTORY="):
+			continue
+		}
+		out = append(out, kv)
+	}
+	return out
 }
 
 // laneFinder answers where THIS session's own worktree for a repository is, so

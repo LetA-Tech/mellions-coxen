@@ -234,14 +234,17 @@ func (w *Write) Reason(e Estate, session, cwd string) string {
 func (w *Write) deployReason() string {
 	return "`git pull --ff-only` is the right command and " + w.Checkout +
 		" is the right tree, but that tree has uncommitted changes in it.\n\n" +
-		"Under `rebase.autoStash` or `merge.autoStash` this does not fail. It stashes, " +
+		"Under `rebase.autoStash` or `merge.autoStash` this would not fail. It stashes, " +
 		"fast-forwards, fails to reapply the stash, and exits 0 — leaving conflict markers " +
 		"in the working tree of the checkout this host loads Mellions from, while reporting " +
-		"success. A build out of that tree is the next thing that happens.\n\n" +
+		"success.\n\n" +
 		"See what is there, and whose it is:\n" +
-		indent("git -C "+w.Checkout+" status --porcelain\ngit -C "+w.Checkout+" diff") + "\n\n" +
-		"If it is yours, commit or stash it and pull again. If it is not — the owner's, or " +
-		"another session's — it is not yours to clear: say what is there and leave it.\n\n" +
+		indent("git -C "+w.Checkout+" status --porcelain\ngit -C "+w.Checkout+" diff\n"+
+			"git -C "+w.Checkout+" stash create   # holds it in an object, writes no tree") + "\n\n" +
+		"Clearing it is not the next step, and this guard refuses `git commit` and `git stash` " +
+		"in this tree for the same reason it refused the pull: the tree is nobody's lane, so what " +
+		"is uncommitted in it may be the owner's or another session's. Say what is there and " +
+		"leave it — an unlanded deployment is a smaller problem than work nobody can get back.\n\n" +
 		"mellions-territory carries the rule this enforces: never delete, move or revert " +
 		"what another session may hold."
 }
@@ -523,9 +526,13 @@ func deploysMellions(verb string, args []string, at string, e Estate) bool {
 // git will not refuse.
 //
 // `at` rather than `e.LoadPath` because that is the directory the invocation
-// actually runs in, and `git status` reports the whole working tree whichever
-// directory inside it you ask from — so a pull typed one directory in is
-// answered for the tree it writes, not for the subdirectory it was typed in.
+// actually runs in, so a registry path that has gone stale probes a missing
+// directory and fails open rather than answering about the wrong tree.
+//
+// Not because `git status` always answers for the load path: where `at` is
+// inside a NESTED repository it answers for that one instead. The pairing still
+// holds — the write lands in the same tree the probe read — but it holds because
+// both sides follow `at`, not because the reading is tree-wide.
 //
 // No probe, or a probe that cannot tell, answers false and the exemption
 // stands. That is this package's rule everywhere else — anything it cannot
