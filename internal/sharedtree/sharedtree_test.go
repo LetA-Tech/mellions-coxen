@@ -544,7 +544,13 @@ func TestTheDirtyDeploymentRefusalSaysWhyRatherThanTheGenericReason(t *testing.T
 		"uncommitted changes",
 		"exits 0",
 		"git -C " + coxen + " status --porcelain",
-		"not yours to clear",
+		"Clearing it is not the next step",
+		// The advice must not walk the session into commands this same guard
+		// refuses: `commit` and `stash` are both in `mutating`, and the
+		// exemption covers `pull` alone, so "commit or stash it and pull again"
+		// is a closed loop. The message names them as REFUSED, not as steps.
+		"refuses `git commit` and `git stash` in this tree",
+		"Say what is there and leave it",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("the refusal does not say %q, so the session is not told what to do "+
@@ -554,6 +560,7 @@ func TestTheDirtyDeploymentRefusalSaysWhyRatherThanTheGenericReason(t *testing.T
 	for _, unwanted := range []string{
 		"no reflog entry, no stash",
 		"every lane on this host is cut from",
+		"commit or stash it and pull again",
 	} {
 		if strings.Contains(got, unwanted) {
 			t.Errorf("the refusal falls back on the generic reason (%q), which is wrong here "+
