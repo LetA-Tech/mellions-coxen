@@ -278,11 +278,34 @@ latest_shift() {
 # fast-forwarded: it is the base every lane is cut from, and a reset or a
 # branch switch there strands the next lane. The binary is replaced by rename
 # so a process executing it keeps the copy it has.
+#
+# The pull is the deployment: the runtime loads hooks, Skills, commands and the
+# agent from this checkout, so the moment the pull returns they are live and no
+# later `return 1` puts them back. Only the binary has a rollback. That is why
+# autostash is switched off on the invocation rather than its damage detected
+# afterwards. With merge.autoStash or rebase.autoStash set, a tracked local
+# change is stashed, the fast-forward succeeds, the stash is re-applied, and a
+# conflict in that re-apply exits 0 with the checkout left in conflict — which
+# the plain `if !` reads as a landed update. Switched off, git's own check
+# aborts before anything moves and that same `if !` is the whole guard.
+#
+# The -c flags are the fix; the assertion after the pull is a tripwire for
+# whatever else could leave the tree unusable. It reads `git status`, never a
+# search for conflict markers: a path with the `-merge` attribute conflicts on
+# re-apply with no markers written anywhere. Untracked files are excluded —
+# autostash does not pass --include-untracked, so they cannot cause this, and
+# stopping a shift over a stray artefact is its own outage.
+tracked_dirt() { git -C "$CHECKOUT" status --porcelain=v1 --untracked-files=no 2>/dev/null; }
 update() {
-  local head step
+  local head step dirt
   : > "$UPDATELOG"
-  if ! git -C "$CHECKOUT" pull --ff-only >> "$UPDATELOG" 2>&1; then
+  if ! git -C "$CHECKOUT" -c merge.autoStash=false -c rebase.autoStash=false pull --ff-only >> "$UPDATELOG" 2>&1; then
     log "update failed at git pull --ff-only in $CHECKOUT; the binary that runs stays — $UPDATELOG"
+    return 1
+  fi
+  if dirt=$(tracked_dirt) && [ -n "$dirt" ]; then
+    printf 'tracked changes in %s after a pull that exited 0:\n%s\n' "$CHECKOUT" "$dirt" >> "$UPDATELOG"
+    log "update failed: git pull --ff-only exited 0 but left tracked changes in $CHECKOUT; nothing is built from that tree — the binary that runs stays — $UPDATELOG"
     return 1
   fi
   head=$(git -C "$CHECKOUT" rev-parse --short HEAD 2>/dev/null)
