@@ -137,16 +137,16 @@ const skillReserveBytes = 500
 // only by a commit that says what was spent and why.
 var skillsInReserve = map[string]int{
 	"mellions-continuity":        7999,
-	"mellions-environment":       7995,
+	"mellions-environment":       7983,
 	"mellions-self-learning":     7987,
 	"mellions-territory":         7983,
-	"mellions-delegation":        7983,
-	"mellions-issue-remediation": 7977,
-	"mellions-reasoning":         7994,
+	"mellions-delegation":        7980,
+	"mellions-issue-remediation": 7976,
+	"mellions-reasoning":         7973,
 	"mellions-bug-audit":         7821,
-	"mellions-falsification":     7995,
-	"mellions-deep-research":     7888,
-	"mellions-issue-closure":     7651,
+	"mellions-falsification":     7982,
+	"mellions-deep-research":     7884,
+	"mellions-issue-closure":     7573,
 }
 
 // TestNoSkillSpendsItsLastBytesUnnoticed fires with room left to act on,
