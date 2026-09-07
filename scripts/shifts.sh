@@ -279,27 +279,27 @@ latest_shift() {
 # branch switch there strands the next lane. The binary is replaced by rename
 # so a process executing it keeps the copy it has.
 #
-# The pull's exit status reports the pull, never the tree it leaves. With
-# merge.autoStash or rebase.autoStash set, a tracked local change is stashed,
-# the fast-forward succeeds, the stash is re-applied, and a conflict in that
-# re-apply exits 0 with `<<<<<<<` written into the checkout. Build, check and
-# the binary every session then loads all come from that tree, and a conflicted
-# Skill or hook is not a build error. So the tree is asserted either side of
-# the pull instead of being read off the status.
+# The pull is the deployment: the runtime loads hooks, Skills, commands and the
+# agent from this checkout, so the moment the pull returns they are live and no
+# later `return 1` puts them back. Only the binary has a rollback. That is why
+# autostash is switched off on the invocation rather than its damage detected
+# afterwards. With merge.autoStash or rebase.autoStash set, a tracked local
+# change is stashed, the fast-forward succeeds, the stash is re-applied, and a
+# conflict in that re-apply exits 0 with the checkout left in conflict — which
+# the plain `if !` reads as a landed update. Switched off, git's own check
+# aborts before anything moves and that same `if !` is the whole guard.
 #
-# Tracked only. Autostash does not pass --include-untracked, so an untracked
-# file is never stashed and cannot produce this; refusing on untracked dirt
-# would stop every shift over a stray artefact.
+# The -c flags are the fix; the assertion after the pull is a tripwire for
+# whatever else could leave the tree unusable. It reads `git status`, never a
+# search for conflict markers: a path with the `-merge` attribute conflicts on
+# re-apply with no markers written anywhere. Untracked files are excluded —
+# autostash does not pass --include-untracked, so they cannot cause this, and
+# stopping a shift over a stray artefact is its own outage.
 tracked_dirt() { git -C "$CHECKOUT" status --porcelain=v1 --untracked-files=no 2>/dev/null; }
 update() {
   local head step dirt
   : > "$UPDATELOG"
-  if dirt=$(tracked_dirt) && [ -n "$dirt" ]; then
-    printf 'tracked changes in %s before the pull:\n%s\n' "$CHECKOUT" "$dirt" >> "$UPDATELOG"
-    log "update refused: tracked changes in $CHECKOUT, which autostash would stash across the pull and can conflict re-applying; the binary that runs stays — $UPDATELOG"
-    return 1
-  fi
-  if ! git -C "$CHECKOUT" pull --ff-only >> "$UPDATELOG" 2>&1; then
+  if ! git -C "$CHECKOUT" -c merge.autoStash=false -c rebase.autoStash=false pull --ff-only >> "$UPDATELOG" 2>&1; then
     log "update failed at git pull --ff-only in $CHECKOUT; the binary that runs stays — $UPDATELOG"
     return 1
   fi
