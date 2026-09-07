@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"flag"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -67,6 +68,7 @@ func sharedEstate(cfg *Config) sharedtree.Estate {
 		// registry rather than assumed, so an installation that loads from
 		// somewhere else exempts that tree and not this one.
 		LoadPath: pluginRoot(pluginreg.Read(home(), pluginreg.ID)),
+		Dirty:    treeIsDirty,
 	}
 	for _, name := range set.Names() {
 		dir, _ := set.Dir(name)
@@ -79,6 +81,30 @@ func sharedEstate(cfg *Config) sharedtree.Estate {
 		}
 	}
 	return e
+}
+
+// treeIsDirty reports that the working tree at dir has uncommitted changes.
+//
+// Only a clear yes counts. A git that will not run, a directory that is not a
+// repository, a non-zero exit — each is "cannot tell", which answers no and
+// lets the deployment exemption stand, because a guess in the other direction
+// blocks the only sanctioned way to install a fix.
+//
+// Untracked files count, which is why there is no `--untracked-files=no` here:
+// autostash stashes them under `--include-untracked` and, more to the point, an
+// untracked file in the load path is somebody's unfinished work in a tree
+// nobody owns.
+func treeIsDirty(dir string) bool {
+	if dir == "" {
+		return false
+	}
+	cmd := exec.Command("git", "-C", dir, "status", "--porcelain")
+	cmd.Env = append(os.Environ(), "GIT_OPTIONAL_LOCKS=0")
+	out, err := cmd.Output()
+	if err != nil {
+		return false
+	}
+	return len(strings.TrimSpace(string(out))) > 0
 }
 
 // laneFinder answers where THIS session's own worktree for a repository is, so
