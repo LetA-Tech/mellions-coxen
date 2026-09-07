@@ -93,12 +93,19 @@ func sharedEstate(cfg *Config) sharedtree.Estate {
 // Tracked changes only. Autostash does not pass `--include-untracked`, so an
 // untracked file is never stashed and never reapplied: measured, a tree whose
 // only dirt is untracked fast-forwards with no `Created autostash` line and an
-// empty stash list, and the file is left exactly as it was. The one untracked
-// case git does act on — a file the fast-forward would add — it refuses loudly,
-// exit 1, content preserved. So untracked files cannot produce the silent
-// corruption this probe exists to catch, and counting them would refuse the
-// deployment over a stray build artefact, which is the defect this whole
-// exemption was added to fix.
+// empty stash list, and the file is left exactly as it was. A file the
+// fast-forward would add, git refuses over loudly: exit 1, content preserved.
+// Counting untracked files would instead refuse the deployment over a stray
+// build artefact, which is the defect this whole exemption was added to fix.
+//
+// One untracked case IS destroyed silently and this probe does not see it: an
+// IGNORED file that the incoming commit adds with `git add -f`. Measured, that
+// fast-forwards at exit 0 and overwrites the local content with no stash and no
+// warning. `--porcelain` never lists ignored files — that takes `--ignored` —
+// so it is invisible with or without `--untracked-files=no`, and the flag is
+// not what leaves it open. Closing it means deciding whether an ignored file in
+// this tree is work at all, which is a wider question than this exemption.
+// Named here rather than left as a gap the comment implies is closed.
 //
 // The git environment is stripped rather than inherited. `GIT_DIR`,
 // `GIT_WORK_TREE` and `GIT_INDEX_FILE` outrank `-C`, so a hook process holding
