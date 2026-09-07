@@ -6,8 +6,10 @@
 # a good one, the previous reply in the next prompt, the method cadence, the
 # stop file, a stop signal that reaches the session, the daily cap, a stale
 # lock, an update that fails or succeeds without ever blocking the shift and
-# installs the binary and nothing else, and a refusal to run against a checkout
-# the runtime does not load the plugin from. No real session runs here.
+# installs the binary and nothing else, an update refused when the checkout
+# carries tracked changes and taken when it carries only an untracked file, and
+# a refusal to run against a checkout the runtime does not load the plugin
+# from. No real session runs here.
 set -uo pipefail
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 runner="$root/scripts/shifts.sh"
@@ -275,6 +277,46 @@ grep -q '^install' "$STUB_DIR/mellions.calls" && bad "E: the runner called melli
 wait_count 20 2 'ended rc=0' "$log" || bad "E: two shifts did not run through the update: $(tail -3 "$log")"
 grep -q "update: $sha is what runs already" "$log" || bad "E: an unchanged checkout was built again"
 touch "$home/stop"; wait_gone 10 "$e" || bad "E: the runner did not stop"
+
+# ---- E2. an update refuses a checkout that has tracked changes in it -------------
+# `git pull --ff-only` reports the pull, not the tree it leaves. With autostash
+# configured, a tracked local change is stashed across the fast-forward and can
+# conflict on the way back: exit 0, HEAD moved, `<<<<<<<` in the checkout, and
+# the binary every session loads that night built from it. Untracked dirt is
+# not that — autostash never stashes it — so a stray artefact must not stop a
+# shift.
+home="$tmp/e2"; mkdir -p "$home"; log="$home/shifts/runner.log"
+origin="$tmp/origin2.git"; git init -q --bare "$origin"
+co="$tmp/co2"; git clone -q "$origin" "$co" 2>/dev/null
+g2() { git -C "$co" -c user.name=t -c user.email=t@t "$@"; }
+printf 'build:\n\t@mkdir -p bin && cp "$$STUB_DIR/mellions" bin/mellions\ncheck:\n\t@echo checked\n' > "$co/Makefile"
+printf 'one\n' > "$co/note.md"
+g2 add Makefile note.md; g2 commit -q -m one; g2 push -q -u origin HEAD 2>/dev/null
+sha1=$(git -C "$co" rev-parse --short HEAD)
+# An upstream commit the checkout can fast-forward to, touching the same file
+# the local change touches, so the autostash re-apply conflicts rather than
+# merging cleanly.
+up="$tmp/up2"; git clone -q "$origin" "$up" 2>/dev/null
+printf 'two\n' > "$up/note.md"
+git -C "$up" -c user.name=t -c user.email=t@t commit -q -am two
+git -C "$up" push -q origin HEAD 2>/dev/null
+sha2=$(git -C "$up" rev-parse --short HEAD)
+git -C "$co" config merge.autoStash true; git -C "$co" config rebase.autoStash true
+printf 'local\n' > "$co/note.md"
+mkdir -p "$tmp/bin2"; cp "$STUB_DIR/mellions" "$tmp/bin2/mellions"; record "$co"
+start_runner "$home" "MELLIONS_AUTOUPDATE=1 MELLIONS_CHECKOUT=$co MELLIONS_BIN=$tmp/bin2/mellions MELLIONS_SHIFTS_PER_DAY=4"; e2=$pid
+wait_for 10 'update refused: tracked changes' "$log" || bad "E2: a checkout carrying a tracked change was pulled into: $(tail -3 "$log")"
+[ "$(git -C "$co" rev-parse --short HEAD)" = "$sha1" ] || bad "E2: the refused update moved HEAD to $(git -C "$co" rev-parse --short HEAD)"
+grep -q '<<<<<<<' "$co/note.md" && bad "E2: the refused update left conflict markers in the checkout"
+[ -e "$co/bin/mellions" ] && bad "E2: the refused update built from the checkout"
+[ -e "$home/shifts/runner.installed" ] && bad "E2: the refused update recorded an installed sha"
+wait_for 15 'ended rc=0' "$log" || bad "E2: the shift did not run after the refused update"
+# Untracked is not tracked: clean the tracked change, leave a stray file, and
+# the same checkout must update.
+g2 checkout -- note.md; : > "$co/stray.tmp"
+wait_for 30 "update ok: $sha2" "$log" || bad "E2: a clean checkout carrying only an untracked file was refused: $(tail -5 "$log")"
+[ -e "$co/stray.tmp" ] || bad "E2: the update removed an untracked file"
+touch "$home/stop"; wait_gone 10 "$e2" || bad "E2: the runner did not stop"
 
 # ---- F. a lock left by a dead runner is taken over -------------------------------
 home="$tmp/f"; mkdir -p "$home/shifts"; log="$home/shifts/runner.log"; record "$root"

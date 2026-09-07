@@ -278,11 +278,34 @@ latest_shift() {
 # fast-forwarded: it is the base every lane is cut from, and a reset or a
 # branch switch there strands the next lane. The binary is replaced by rename
 # so a process executing it keeps the copy it has.
+#
+# The pull's exit status reports the pull, never the tree it leaves. With
+# merge.autoStash or rebase.autoStash set, a tracked local change is stashed,
+# the fast-forward succeeds, the stash is re-applied, and a conflict in that
+# re-apply exits 0 with `<<<<<<<` written into the checkout. Build, check and
+# the binary every session then loads all come from that tree, and a conflicted
+# Skill or hook is not a build error. So the tree is asserted either side of
+# the pull instead of being read off the status.
+#
+# Tracked only. Autostash does not pass --include-untracked, so an untracked
+# file is never stashed and cannot produce this; refusing on untracked dirt
+# would stop every shift over a stray artefact.
+tracked_dirt() { git -C "$CHECKOUT" status --porcelain=v1 --untracked-files=no 2>/dev/null; }
 update() {
-  local head step
+  local head step dirt
   : > "$UPDATELOG"
+  if dirt=$(tracked_dirt) && [ -n "$dirt" ]; then
+    printf 'tracked changes in %s before the pull:\n%s\n' "$CHECKOUT" "$dirt" >> "$UPDATELOG"
+    log "update refused: tracked changes in $CHECKOUT, which autostash would stash across the pull and can conflict re-applying; the binary that runs stays — $UPDATELOG"
+    return 1
+  fi
   if ! git -C "$CHECKOUT" pull --ff-only >> "$UPDATELOG" 2>&1; then
     log "update failed at git pull --ff-only in $CHECKOUT; the binary that runs stays — $UPDATELOG"
+    return 1
+  fi
+  if dirt=$(tracked_dirt) && [ -n "$dirt" ]; then
+    printf 'tracked changes in %s after a pull that exited 0:\n%s\n' "$CHECKOUT" "$dirt" >> "$UPDATELOG"
+    log "update failed: git pull --ff-only exited 0 but left tracked changes in $CHECKOUT; nothing is built from that tree — the binary that runs stays — $UPDATELOG"
     return 1
   fi
   head=$(git -C "$CHECKOUT" rev-parse --short HEAD 2>/dev/null)
