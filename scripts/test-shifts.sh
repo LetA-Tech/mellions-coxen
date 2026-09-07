@@ -305,7 +305,13 @@ git -C "$co" config merge.autoStash true; git -C "$co" config rebase.autoStash t
 printf 'local\n' > "$co/note.md"
 mkdir -p "$tmp/bin2"; cp "$STUB_DIR/mellions" "$tmp/bin2/mellions"; record "$co"
 start_runner "$home" "MELLIONS_AUTOUPDATE=1 MELLIONS_CHECKOUT=$co MELLIONS_BIN=$tmp/bin2/mellions MELLIONS_SHIFTS_PER_DAY=4"; e2=$pid
-wait_for 10 'update failed at git pull --ff-only' "$log" || bad "E2: a checkout carrying a tracked change was pulled into under autostash: $(tail -3 "$log")"
+# A bare 'update failed at git pull' proves nothing on its own: once the tree
+# is conflicted every later pull fails too, with "unmerged files", so the
+# pattern is satisfied by the damage it is meant to prevent. The durable
+# evidence that autostash never ran is that it left no stash behind — read
+# from the repository, not from a log the next update truncates.
+wait_for 10 'update failed at git pull --ff-only' "$log" || bad "E2: no update was attempted: $(tail -3 "$log")"
+[ -z "$(git -C "$co" stash list)" ] || bad "E2: autostash ran across the pull — $(git -C "$co" stash list)"
 [ "$(git -C "$co" rev-parse --short HEAD)" = "$sha1" ] || bad "E2: the refused update moved HEAD to $(git -C "$co" rev-parse --short HEAD)"
 grep -q '<<<<<<<' "$co/note.md" && bad "E2: the refused update left conflict markers in the checkout"
 [ -e "$co/bin/mellions" ] && bad "E2: the refused update built from the checkout"
