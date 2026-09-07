@@ -35,19 +35,25 @@ func runnerState(root, loadPath string) (state, detail string) {
 	shifts := filepath.Join(root, "shifts")
 	last := lastShift(shifts)
 	pid, held := lockPID(filepath.Join(shifts, "runner.lock"))
+	if !held {
+		return "absent", "none on this host; " + last
+	}
 	script, alive := runnerScript(pid)
-	switch {
-	case held && alive:
-		where, split := scriptOrigin(script, loadPath)
-		if split {
-			return "STOPPED", fmt.Sprintf("alive, pid %d running %s, %s; merges to scripts/ and deploy/ there do not reach it; %s",
-				pid, script, where, last)
-		}
-		return "present", fmt.Sprintf("alive, pid %d running %s, %s; %s", pid, script, where, last)
-	case held:
+	if !alive {
 		return "absent", fmt.Sprintf("stale lock names pid %d, not a live runner; %s", pid, last)
 	}
-	return "absent", "none on this host; " + last
+	where, established, split := scriptOrigin(script, loadPath)
+	switch {
+	case split:
+		return "STOPPED", fmt.Sprintf("alive, pid %d running %s, %s; merges to scripts/ and deploy/ there do not reach it; %s",
+			pid, script, where, last)
+	case !established:
+		// A live runner whose script could not be placed is not the same claim
+		// as one placed inside the load path, and saying "present" for both is
+		// the fault this row exists to remove.
+		return "partial", fmt.Sprintf("alive, pid %d running %s, %s; %s", pid, script, where, last)
+	}
+	return "present", fmt.Sprintf("alive, pid %d running %s, %s; %s", pid, script, where, last)
 }
 
 // scriptOrigin says whether the script the runner executes comes out of the
@@ -57,16 +63,16 @@ func runnerState(root, loadPath string) (state, detail string) {
 // split: this line exists because a check that answers a narrower question than
 // its wording implies reads green through the state it was built to catch, and
 // one that reds on what it could not measure is the same fault mirrored.
-func scriptOrigin(script, loadPath string) (where string, split bool) {
+func scriptOrigin(script, loadPath string) (where string, established, split bool) {
 	switch {
 	case loadPath == "":
-		return "not compared: no checkout the runner and the runtime both read", false
+		return "not compared: no checkout the runner and the runtime both read", false, false
 	case !filepath.IsAbs(script):
-		return "not compared: " + script + " is relative, so which checkout it came from is unestablished", false
+		return "not compared: " + script + " is relative, so which checkout it came from is unestablished", false, false
 	}
 	s, err := filepath.EvalSymlinks(script)
 	if err != nil {
-		return "not compared: " + script + " does not resolve on disk", false
+		return "not compared: " + script + " does not resolve on disk", false, false
 	}
 	// Both sides are resolved before they are compared: a load path or a
 	// checkout reached through a symlink is the same repository under another
@@ -74,13 +80,13 @@ func scriptOrigin(script, loadPath string) (where string, split bool) {
 	// a split that is not there.
 	root, err := filepath.EvalSymlinks(loadPath)
 	if err != nil {
-		return "not compared: the load path " + loadPath + " does not resolve on disk", false
+		return "not compared: the load path " + loadPath + " does not resolve on disk", false, false
 	}
 	rel, err := filepath.Rel(root, s)
 	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-		return "which is outside the load path " + loadPath, true
+		return "which is outside the load path " + loadPath, true, true
 	}
-	return "which is inside the load path " + loadPath, false
+	return "which is inside the load path " + loadPath, true, false
 }
 
 func lockPID(path string) (int, bool) {
@@ -97,7 +103,9 @@ func lockPID(path string) (int, bool) {
 
 // runnerScript names the shifts.sh a live pid is executing, and is the whole
 // aliveness test: a pid that no longer exists, or that a reused number now
-// gives to something else, names no shifts.sh.
+// gives to something else, names no shifts.sh. The pid is the one lockPID
+// established, so it is positive — signal 0 to a group or to every process a
+// caller may signal is not a question this asks.
 //
 // The name is taken as a whole argument rather than as a substring of the
 // command line, so a process that merely mentions the script — a grep, an
@@ -106,9 +114,6 @@ func lockPID(path string) (int, bool) {
 // absolute one, and which checkout it came from is then a question ps cannot
 // answer, which scriptOrigin says out loud rather than guesses at.
 func runnerScript(pid int) (string, bool) {
-	if pid <= 0 {
-		return "", false
-	}
 	if err := syscall.Kill(pid, 0); err != nil && !errors.Is(err, syscall.EPERM) {
 		return "", false
 	}

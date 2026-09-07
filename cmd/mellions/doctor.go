@@ -104,9 +104,14 @@ func cmdDoctor(ctx context.Context, args []string) error {
 		// runner running out of a checkout somewhere else is the arrangement
 		// rather than a split — so there is nothing to compare and the row
 		// says so.
+		// reg.LoadPath, not hooksRoot: hooksRoot prefers $CLAUDE_PLUGIN_ROOT,
+		// which locates hook and Skill files for the process reading it and is
+		// not a claim about which checkout the runtime loads. Taking it here
+		// makes this row name a different directory than the load path row
+		// two lines below, and call the foreign one "the load path".
 		shared := ""
 		if reg.Marketplace.InPlace() {
-			shared = hooksRoot
+			shared = reg.LoadPath
 		}
 		state, detail := runnerState(cfg.home(), shared)
 		line("runner", state, detail)

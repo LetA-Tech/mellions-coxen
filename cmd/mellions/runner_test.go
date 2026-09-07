@@ -77,6 +77,12 @@ func TestRunnerState(t *testing.T) {
 	expect("present", "alive, pid "+strconv.Itoa(inside))
 	expect("present", filepath.Join(loadPath, "scripts", "shifts.sh")+", which is inside the load path")
 
+	// The same live runner with nothing to place it against is not the same
+	// claim, and "present" for both is the fault this row exists to remove.
+	if state, detail := runnerState(root, ""); state != "partial" {
+		t.Fatalf("state = %q, want %q: nothing established where the script came from — %s", state, "partial", detail)
+	}
+
 	// The split installation: alive, producing shifts, and executing scripts/
 	// out of a checkout the load path's merges never reach. Reported as the
 	// load path having stopped deploying, because that is what it is.
@@ -113,17 +119,18 @@ func TestScriptOrigin(t *testing.T) {
 
 	for _, c := range []struct {
 		name, script, load, want string
-		split                    bool
+		established, split       bool
 	}{
-		{"inside", script, load, "which is inside the load path", false},
-		{"load path missing", script, filepath.Join(root, "elsewhere"), "not compared", false},
-		{"relative", "shifts.sh", load, "is relative", false},
-		{"no load path", script, "", "not compared: no checkout", false},
-		{"gone", filepath.Join(load, "scripts", "gone.sh"), load, "does not resolve", false},
+		{"inside", script, load, "which is inside the load path", true, false},
+		{"load path missing", script, filepath.Join(root, "elsewhere"), "not compared", false, false},
+		{"relative", "shifts.sh", load, "is relative", false, false},
+		{"no load path", script, "", "not compared: no checkout", false, false},
+		{"gone", filepath.Join(load, "scripts", "gone.sh"), load, "does not resolve", false, false},
 	} {
-		where, split := scriptOrigin(c.script, c.load)
-		if split != c.split || !strings.Contains(where, c.want) {
-			t.Errorf("%s: got %q split=%v, want %q split=%v", c.name, where, split, c.want, c.split)
+		where, established, split := scriptOrigin(c.script, c.load)
+		if split != c.split || established != c.established || !strings.Contains(where, c.want) {
+			t.Errorf("%s: got %q established=%v split=%v, want %q established=%v split=%v",
+				c.name, where, established, split, c.want, c.established, c.split)
 		}
 	}
 
@@ -137,8 +144,8 @@ func TestScriptOrigin(t *testing.T) {
 	if err := os.WriteFile(old, []byte("#!/bin/sh\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	where, split := scriptOrigin(old, load)
-	if !split || !strings.Contains(where, "outside the load path") {
+	where, established, split := scriptOrigin(old, load)
+	if !split || !established || !strings.Contains(where, "outside the load path") {
 		t.Fatalf("split: got %q split=%v, want outside the load path, split=true", where, split)
 	}
 
@@ -150,10 +157,10 @@ func TestScriptOrigin(t *testing.T) {
 	if err := os.Symlink(load, link); err != nil {
 		t.Fatal(err)
 	}
-	if where, split := scriptOrigin(script, link); split {
+	if where, _, split := scriptOrigin(script, link); split {
 		t.Fatalf("symlinked load path read as a split: %q", where)
 	}
-	if where, split := scriptOrigin(filepath.Join(link, "scripts", "shifts.sh"), load); split {
+	if where, _, split := scriptOrigin(filepath.Join(link, "scripts", "shifts.sh"), load); split {
 		t.Fatalf("symlinked script path read as a split: %q", where)
 	}
 }

@@ -16,9 +16,12 @@ is unknown, settle it rather than working around it. Two states exit non-zero,
 and they are different claims: a confirmed absence of something load-bearing,
 and something that has STOPPED deploying — installed, readable, and no longer
 receiving what lands where it is installed from. A checkout publishing to a
-branch nothing loads is one. A live runner executing its shift script out of a
-different checkout than the one sessions load is another, and it is the one
-nobody spots, because each half looks right on its own.
+branch nothing loads is one. A live runner whose `scripts/shifts.sh` is a
+different checkout's than the one sessions load is another, and it is the one
+nobody spots, because each half looks right on its own. That row places the
+runner's `shifts.sh` and nothing else: the shift script and the settings file it
+selects can be overridden past it, so a runner reported `present` is one whose
+loop script was placed, never a whole installation certified.
 
 Permissions, tools, hooks, MCP, sandboxing, credentials and model settings
 belong to the runtime and are inherited exactly as they are; a capability the
