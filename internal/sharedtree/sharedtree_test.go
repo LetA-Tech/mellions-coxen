@@ -286,8 +286,9 @@ func TestTheRefusalNamesRepairAsADecisionRatherThanACommand(t *testing.T) {
 // guard blocking the only sanctioned way to install anything, including a fix
 // to the guard.
 //
-// Safe because git itself refuses a fast-forward that would overwrite local
-// modifications, which is the loss this package exists to prevent.
+// Safe on a clean tree, which is what this estate has: no Dirty probe, so
+// nothing here reports uncommitted work. The dirty case is its own test,
+// because git does NOT refuse it under autostash.
 func TestFastForwardPullOfTheLoadPathIsTheOneAllowedWrite(t *testing.T) {
 	e := sharedtree.Estate{
 		Shared: []sharedtree.Checkout{
@@ -456,5 +457,153 @@ func TestTheLoadPathReachedByItsOtherNameIsStillTheLoadPath(t *testing.T) {
 					tc.command, tc.cwd, got.Verb)
 			}
 		})
+	}
+}
+
+// coxen is the load path in the tests below, and dirtyCoxen is an estate whose
+// probe reports that tree — and only that tree — as carrying uncommitted work.
+const coxen = "/home/you/leta/mellions-coxen"
+
+func coxenEstate(dirty func(string) bool) sharedtree.Estate {
+	return sharedtree.Estate{
+		Shared: []sharedtree.Checkout{
+			{Repo: "mellions-coxen", Dir: coxen},
+			{Repo: "data-service", Dir: "/home/you/workspace/data-service"},
+		},
+		Home:     "/home/you",
+		LoadPath: coxen,
+		Dirty:    dirty,
+	}
+}
+
+func asks(seen *[]string, answer bool) func(string) bool {
+	return func(dir string) bool {
+		*seen = append(*seen, dir)
+		return answer
+	}
+}
+
+// The deployment exemption's whole safety argument was that git refuses what it
+// admits. Measured on git 2.53.0, that is false in one case: with
+// `rebase.autoStash` or `merge.autoStash` set and an upstream that CAN
+// fast-forward, `git pull --ff-only` on a dirty tree stashes, fast-forwards,
+// fails to reapply the stash and exits 0, leaving conflict markers in the
+// working tree. Exit 0 is what the session and scripts/shifts.sh both read as
+// landed.
+//
+// So a dirty load path is refused. The three cases are separate arms because
+// the clean one is what the exemption exists for and the dirty one is what it
+// must not admit — assuming either from the other is how this regressed once.
+func TestTheDeploymentPullIsRefusedWhenTheLoadPathIsDirty(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		command string
+		cwd     string
+		dirty   bool
+		refused bool
+	}{
+		{"a clean load path still lands a fix",
+			"git pull --ff-only", coxen, false, false},
+		{"a dirty load path is refused",
+			"git pull --ff-only", coxen, true, true},
+		// A pull is about the repository, not the directory it is typed in, so
+		// the tree it writes is dirty either way.
+		{"a dirty load path is refused from a subdirectory too",
+			"git pull --ff-only", coxen + "/internal/sharedtree", true, true},
+		{"a dirty load path is refused through -C",
+			"git -C " + coxen + " pull --ff-only", "/tmp", true, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := sharedtree.Find(tc.command, tc.cwd, coxenEstate(func(string) bool { return tc.dirty }))
+			if tc.refused && got == nil {
+				t.Fatalf("%q in a dirty load path was allowed; under autostash that exits 0 "+
+					"and leaves conflict markers in the tree this host loads from", tc.command)
+			}
+			if !tc.refused && got != nil {
+				t.Fatalf("%q in a clean load path was refused, which blocks the only "+
+					"sanctioned way to install a fix:\n%s", tc.command,
+					got.Reason(coxenEstate(nil), "s", tc.cwd))
+			}
+		})
+	}
+}
+
+// A refusal that misdescribes itself costs the session the fix. This one is
+// not "you are in the wrong tree" — it is the right tree and the right
+// command — and the generic text's "no reflog entry, no stash" is the reverse
+// of what autostash does. Literals, so the oracle cannot move with the
+// renderer.
+func TestTheDirtyDeploymentRefusalSaysWhyRatherThanTheGenericReason(t *testing.T) {
+	w := sharedtree.Find("git pull --ff-only", coxen, coxenEstate(func(string) bool { return true }))
+	if w == nil {
+		t.Fatal("the dirty deployment pull was allowed")
+	}
+	got := w.Reason(coxenEstate(nil), "s", coxen)
+	for _, want := range []string{
+		"is the right command",
+		"uncommitted changes",
+		"exits 0",
+		"git -C " + coxen + " status --porcelain",
+		"not yours to clear",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("the refusal does not say %q, so the session is not told what to do "+
+				"about the tree:\n%s", want, got)
+		}
+	}
+	for _, unwanted := range []string{
+		"no reflog entry, no stash",
+		"every lane on this host is cut from",
+	} {
+		if strings.Contains(got, unwanted) {
+			t.Errorf("the refusal falls back on the generic reason (%q), which is wrong here "+
+				"in both halves:\n%s", unwanted, got)
+		}
+	}
+}
+
+// The probe is asked about the tree the pull writes, and it is asked at all
+// only where the exemption would otherwise apply — a refusal that is already
+// decided must not go shelling out to git.
+func TestTheDirtyProbeIsAskedOnlyWhereTheExemptionWouldApply(t *testing.T) {
+	var seen []string
+	if sharedtree.Find("git -C "+coxen+"/hooks pull --ff-only", "/tmp",
+		coxenEstate(asks(&seen, false))) != nil {
+		t.Fatal("a clean load path was refused")
+	}
+	if len(seen) != 1 || seen[0] != coxen+"/hooks" {
+		t.Fatalf("the probe was asked about %v, not about the directory the pull runs in", seen)
+	}
+
+	// Another shared checkout is refused on the tree, before any exemption is
+	// considered, so nothing is asked.
+	seen = nil
+	if sharedtree.Find("git pull --ff-only", "/home/you/workspace/data-service",
+		coxenEstate(asks(&seen, false))) == nil {
+		t.Fatal("a pull of a checkout that is not the load path was allowed")
+	}
+	if len(seen) != 0 {
+		t.Fatalf("the probe ran for a refusal already decided: %v", seen)
+	}
+
+	// A merging pull of the load path is refused on its form, so likewise.
+	seen = nil
+	if sharedtree.Find("git pull --ff-only --no-ff", coxen,
+		coxenEstate(asks(&seen, false))) == nil {
+		t.Fatal("a merging pull of the load path was allowed")
+	}
+	if len(seen) != 0 {
+		t.Fatalf("the probe ran for a pull already refused on its form: %v", seen)
+	}
+}
+
+// No probe is "cannot tell", and cannot tell has to leave the exemption
+// standing: the cost of guessing dirty is that nothing can install a fix,
+// including a fix to this guard. Every existing exemption test relies on this,
+// and it is stated here rather than left implicit in their silence.
+func TestWithNoDirtyProbeTheExemptionStands(t *testing.T) {
+	if got := sharedtree.Find("git pull --ff-only", coxen, coxenEstate(nil)); got != nil {
+		t.Fatalf("a nil Dirty probe refused the deployment pull:\n%s",
+			got.Reason(coxenEstate(nil), "s", coxen))
 	}
 }

@@ -52,20 +52,37 @@ type Estate struct {
 	// Skills, commands and agent from, or "" where it is not known.
 	//
 	// It is exempt from ONE verb and one form of it: `git pull --ff-only`,
-	// aimed at this tree by any of its names or from anywhere inside it.
-	// That is the deployment step for Mellions itself — merged is not landed,
-	// and nothing reaches a session until this tree moves — so refusing it
-	// leaves the guard blocking the only sanctioned way to install a fix,
-	// including a fix to this guard. What makes it safe is git rather than
-	// anything here: a fast-forward that would overwrite local modifications
-	// is refused, and a pull that would merge fails, in git and loudly.
+	// aimed at this tree by any of its names or from anywhere inside it, and
+	// only while that tree is clean. That is the deployment step for Mellions
+	// itself — merged is not landed, and nothing reaches a session until this
+	// tree moves — so refusing it outright leaves the guard blocking the only
+	// sanctioned way to install a fix, including a fix to this guard.
 	//
-	// Not absolute. Under `rebase.autoStash` or `merge.autoStash` git stashes
-	// first and fast-forwards, so a dirty tree can come back with conflict
-	// markers in it. That is recoverable — the stash entry is there — rather
-	// than the silent loss this package exists to prevent, and it is the reason
-	// this comment says what git does instead of promising the tree is safe.
+	// Most of what makes it safe is git: a diverged branch is refused, and
+	// `--ff-only` survives `pull.rebase`, so no local commit is rewritten.
+	// Measured on git 2.53.0, diverged local branch, with and without
+	// `pull.rebase` and with and without autostash: `fatal: Not possible to
+	// fast-forward, aborting`, exit 128, HEAD unmoved.
+	//
+	// One case git does not catch, which is why cleanliness is a condition
+	// here rather than a remark. Under `rebase.autoStash` or `merge.autoStash`,
+	// a pull that CAN fast-forward stashes the dirty tree first, fast-forwards,
+	// and then fails to reapply the stash — and exits 0 while doing it. Same
+	// measurement: `Created autostash`, `Applying autostash resulted in
+	// conflicts`, exit 0, the file left at `UU` with conflict markers in it.
+	// A zero exit is what the session and `scripts/shifts.sh` both read as
+	// landed, and the next step builds out of that tree. So the tree being
+	// clean is the precondition, and it costs the deployment nothing it could
+	// have had: with autostash off git refuses a dirty tree anyway, and with
+	// nothing to stash autostash cannot fire.
 	LoadPath string
+	// Dirty reports that the tree at dir carries uncommitted work, or nil
+	// where this installation cannot ask.
+	//
+	// Injected rather than run here so this package still decides from the
+	// command line and the configuration alone; the production probe is one
+	// `git status --porcelain`.
+	Dirty func(dir string) bool
 	// Lane answers where THIS session's own worktree for a repository is, or
 	// "" where it has none. Nil is the same as none.
 	//
@@ -114,6 +131,10 @@ type Write struct {
 	Repo, Checkout string
 	// Instead is the read that answers the same question without writing.
 	Instead string
+	// Deploy marks the one refusal that is not about the wrong tree: the
+	// Mellions deployment pull, aimed at the right tree in the right form,
+	// declined because that tree is dirty.
+	Deploy bool
 }
 
 // Find returns the first tree-mutating git invocation in command aimed at a
@@ -152,7 +173,13 @@ func Find(command, cwd string, e Estate) *Write {
 			continue
 		}
 		if deploysMellions(verb, rest, at, e) {
-			continue
+			if !dirtyTree(at, e) {
+				continue
+			}
+			// The deployment step, declined for one reason and one only, so
+			// the refusal has to say that reason rather than the generic one.
+			return &Write{Verb: verb, Dir: at, Repo: repo, Checkout: checkout,
+				Instead: instead, Deploy: true}
 		}
 		return &Write{Verb: verb, Dir: at, Repo: repo, Checkout: checkout, Instead: instead}
 	}
@@ -165,6 +192,9 @@ func Find(command, cwd string, e Estate) *Write {
 // without writing. A refusal that only forbids leaves the session to invent a
 // way around it.
 func (w *Write) Reason(e Estate, session, cwd string) string {
+	if w.Deploy {
+		return w.deployReason()
+	}
 	var b strings.Builder
 	b.WriteString("`git " + w.Verb + "` writes the working tree at " + w.Checkout +
 		", which is the " + w.Repo + " checkout every lane on this host is cut from, not your worktree.\n\n" +
@@ -190,6 +220,30 @@ func (w *Write) Reason(e Estate, session, cwd string) string {
 	b.WriteString("\nmellions-territory carries the rule this enforces: never delete, move or revert " +
 		"what another session may hold.")
 	return b.String()
+}
+
+// deployReason is what the session is told when the deployment pull is right
+// in every way except the state of the tree it lands in.
+//
+// The generic refusal would be wrong here twice over: this IS the sanctioned
+// command and it IS the right tree, and "no reflog entry, no stash" is the
+// opposite of what happens — under autostash there is a stash, and that is the
+// problem rather than the consolation. So this says what git will actually do
+// and leaves the session a way forward, because the deployment still has to
+// happen.
+func (w *Write) deployReason() string {
+	return "`git pull --ff-only` is the right command and " + w.Checkout +
+		" is the right tree, but that tree has uncommitted changes in it.\n\n" +
+		"Under `rebase.autoStash` or `merge.autoStash` this does not fail. It stashes, " +
+		"fast-forwards, fails to reapply the stash, and exits 0 — leaving conflict markers " +
+		"in the working tree of the checkout this host loads Mellions from, while reporting " +
+		"success. A build out of that tree is the next thing that happens.\n\n" +
+		"See what is there, and whose it is:\n" +
+		indent("git -C "+w.Checkout+" status --porcelain\ngit -C "+w.Checkout+" diff") + "\n\n" +
+		"If it is yours, commit or stash it and pull again. If it is not — the owner's, or " +
+		"another session's — it is not yours to clear: say what is there and leave it.\n\n" +
+		"mellions-territory carries the rule this enforces: never delete, move or revert " +
+		"what another session may hold."
 }
 
 func laneFor(e Estate, repo, session, cwd string) string {
@@ -462,6 +516,24 @@ func Reach(command, cwd string, e Estate) *Checkout {
 // different tree updated still has to say so.
 func deploysMellions(verb string, args []string, at string, e Estate) bool {
 	return verb == "pull" && e.LoadPath != "" && isLoadPath(at, e) && fastForwardOnly(args)
+}
+
+// dirtyTree reports that the tree this pull would land in carries uncommitted
+// work, which is the one condition that turns the deployment step into a write
+// git will not refuse.
+//
+// `at` rather than `e.LoadPath` because that is the directory the invocation
+// actually runs in, and `git status` reports the whole working tree whichever
+// directory inside it you ask from — so a pull typed one directory in is
+// answered for the tree it writes, not for the subdirectory it was typed in.
+//
+// No probe, or a probe that cannot tell, answers false and the exemption
+// stands. That is this package's rule everywhere else — anything it cannot
+// read is silence — and it is the right way round here too: the cost of
+// guessing dirty is the only sanctioned way to install a fix, including a fix
+// to this function.
+func dirtyTree(at string, e Estate) bool {
+	return e.Dirty != nil && e.Dirty(at)
 }
 
 // fastForwardOnly reports that this pull can only fast-forward.
