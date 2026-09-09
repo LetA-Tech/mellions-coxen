@@ -510,3 +510,60 @@ func TestRequireRef_TheCommitPeelIsWhatMakesItACommitProbe(t *testing.T) {
 		t.Errorf("an annotated tag was refused (%v) — the peel exists so it is not", err)
 	}
 }
+
+// TestCiteHook_TheEventNameIsWhatTheRuntimeDispatchesOn pins the one string that
+// silently disables both outputs.
+//
+// A runtime that does not recognise hookEventName discards the message without
+// error, so a typo leaves every test green while the deny never denies and the
+// context never informs. A reviewer mutated it to "Nonsense" and the whole
+// package passed.
+func TestCiteHook_TheEventNameIsWhatTheRuntimeDispatchesOn(t *testing.T) {
+	if preToolUseEvent != "PreToolUse" {
+		t.Fatalf("preToolUseEvent = %q; the runtime dispatches on this exact string and discards "+
+			"anything else in silence", preToolUseEvent)
+	}
+
+	root := citeGitRepo(t)
+	body := filepath.Join(root, "b.md")
+	if err := os.WriteFile(body,
+		[]byte("upstream abandons it at `runtime/exec.go:1845`.\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var ctxOut string
+	runCiteHookRaw(t, root, "gh pr create --base dev --body-file "+body, &ctxOut)
+	if !strings.Contains(ctxOut, `"hookEventName":"PreToolUse"`) {
+		t.Errorf("the context output does not carry the event name the runtime dispatches on.\ngot: %s", ctxOut)
+	}
+
+	// And the deny path, which carries it too.
+	if err := os.WriteFile(body, []byte("see `internal/a.go:1` for it.\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var denyOut string
+	runCiteHookRaw(t, root, "gh pr create --base dev --body-file "+body, &denyOut)
+	if !strings.Contains(denyOut, `"hookEventName":"PreToolUse"`) {
+		t.Errorf("the deny output does not carry the event name.\ngot: %s", denyOut)
+	}
+}
+
+// TestUnresolvedLine_NamesTheLikelyCauseCorrectly guards the wording against the
+// measurement that corrected it.
+//
+// Across 1,670 real bodies in this estate, roughly two thirds of the citations
+// this check cannot open are paths written without the prefix the checkout needs
+// — the body's OWN repository, cited by bare basename — and only about a sixth
+// are genuinely another repository's. The message used to name the minority as
+// "the usual reason" and call it "not a defect", so the hook spoke and then
+// talked the session out of acting on the majority case.
+func TestUnresolvedLine_NamesTheLikelyCauseCorrectly(t *testing.T) {
+	line := unresolvedLine([]cite.Citation{{Raw: "quotes.go:12", Path: "quotes.go", Line: 12}}, "")
+	if !strings.Contains(line, "open them") {
+		t.Error("the line does not tell the reader to open the citations, which is the one " +
+			"instruction that is right in both cases")
+	}
+	if strings.Contains(line, "a cross-repo path is the usual reason") {
+		t.Error("the line still names the minority case as usual; two thirds of these are a " +
+			"same-repo path missing its prefix, and calling that 'not a defect' is wrong")
+	}
+}
