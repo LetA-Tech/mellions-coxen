@@ -116,6 +116,8 @@ func cmdCiteCheck(ctx context.Context, args []string) error {
 		cwd = "."
 	}
 	var reasons []string
+	// unchecked carries what nothing denied but nothing verified either.
+	var unchecked []string
 	for _, call := range calls {
 		// Per call, and from the directory the call itself runs in. One
 		// resolver built from the session directory is #27: a lane publishes
@@ -129,28 +131,26 @@ func cmdCiteCheck(ctx context.Context, args []string) error {
 			for _, f := range findings {
 				reasons = append(reasons, "  "+f.Reason())
 			}
-			// Named whenever this hook speaks at all.
+			// Named whether or not anything else denies. Denying a body for
+			// citing another repository would refuse exactly the bodies
+			// deep-research asks for, so this must inform without blocking —
+			// which PreToolUse allows through additionalContext, the channel
+			// `mellions state -tool` already publishes on this same event.
 			//
-			// It cannot speak otherwise, and that is a real limit rather than a
-			// choice: a PreToolUse decision is deny or nothing, and denying a
-			// body because its citations are another repository's would refuse
-			// exactly the bodies deep-research asks for. So a body whose
-			// citations are ALL unresolvable still publishes in silence — the
-			// unresolved line rides along only when something else already
-			// denies.
-			//
-			// An earlier comment here said the CLI path prints it instead. It
-			// does not: a session publishing through this hook never runs the
-			// CLI, and that sentence was a rationalisation for a gap. The rule
-			// binds in deep-research's Citing section, which states it for the
-			// author before the body is written, because nothing downstream can.
-			if len(unresolved) > 0 && len(findings) > 0 {
-				reasons = append(reasons, "  "+unresolvedLine(unresolved, dir))
+			// It reaches the session either way: as a deny reason when
+			// something else is wrong, and as context when nothing is.
+			if len(unresolved) > 0 {
+				line := "  " + unresolvedLine(unresolved, dir)
+				if len(findings) > 0 {
+					reasons = append(reasons, line)
+				} else {
+					unchecked = append(unchecked, line)
+				}
 			}
 		}
 	}
 	if len(reasons) == 0 {
-		return nil
+		return emitUnchecked(unchecked)
 	}
 	// A deny is read, so it is bounded: a body that got its anchoring wrong
 	// throughout wants the first several and a count, not a wall the session
@@ -175,7 +175,9 @@ func cmdCiteCheck(ctx context.Context, args []string) error {
 		"Check which before editing:\n\n" +
 		"  mellions cite check -file body.md -dir <checkout> [-commit <ref>]\n\n" +
 		"`-commit` resolves every citation at that ref — the branch under review, not the " +
-		"one checked out — and reports the same thing without publishing anything."
+		"one checked out — and reports the same thing without publishing anything. A ref it " +
+		"cannot resolve is refused rather than graded, because every citation would read as " +
+		"unresolvable and the check would pass having verified nothing."
 	enc := json.NewEncoder(os.Stdout)
 	enc.SetEscapeHTML(false)
 	return enc.Encode(d)
@@ -398,4 +400,40 @@ func requireRef(ctx context.Context, root, commit string) error {
 			"unresolvable and the check would pass having verified nothing", commit, root)
 	}
 	return nil
+}
+
+// emitUnchecked tells the session what this check could not verify, without
+// standing in the way of the command.
+//
+// A body whose citations are all unresolvable used to publish in silence: no
+// finding, so no deny, so nothing said — indistinguishable from a body whose
+// citations were every one verified. Denying instead would refuse the bodies
+// deep-research most wants, which cite another repository and are opened by
+// hand.
+//
+// additionalContext is the third option, and it is not hypothetical here: it is
+// the channel `mellions state -tool` publishes on, on this same PreToolUse
+// event. An earlier comment in this file asserted the runtime offered no such
+// channel. It was wrong, and it foreclosed the remedy for whoever read it next.
+func emitUnchecked(unchecked []string) error {
+	if len(unchecked) == 0 {
+		return nil
+	}
+	unchecked = dedupe(unchecked)
+	var c struct {
+		Output struct {
+			Event   string `json:"hookEventName"`
+			Context string `json:"additionalContext"`
+		} `json:"hookSpecificOutput"`
+	}
+	c.Output.Event = "PreToolUse"
+	c.Output.Context = "This body publishes citations this checkout could not open:\n\n" +
+		strings.Join(unchecked, "\n") + "\n\n" +
+		"Nothing is wrong with citing another repository — deep-research asks for it — but " +
+		"nothing here verified those lines, and the body reads to a reader exactly like one " +
+		"whose citations were all checked. Open them, or say in the body that they are " +
+		"unverified from here."
+	enc := json.NewEncoder(os.Stdout)
+	enc.SetEscapeHTML(false)
+	return enc.Encode(c)
 }
