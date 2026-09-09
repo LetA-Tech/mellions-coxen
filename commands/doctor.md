@@ -21,10 +21,12 @@ different checkout's than the one sessions load is another, and it is the one
 nobody spots, because each half looks right on its own. That row places the
 runner's `shifts.sh`, and — where the runner's own environment is readable — the
 shift script `MELLIONS_SHIFT` substitutes for the one beside it. The settings
-file `MELLIONS_SETTINGS` names is reported too and does not move the word: a
-host's settings living outside every checkout is ordinary, and a state word that
-cannot tell that from a superseded copy would exit non-zero forever for a
-documented configuration. Where the environment cannot be read at all, or where
+file `MELLIONS_SETTINGS` names is reported too, and one the row cannot place
+leaves it `partial` rather than `STOPPED`: a host's settings living outside
+every checkout is ordinary, a superseded checkout's copy is the real thing, and
+nothing here separates them — so the row says unestablished, which is what
+`partial` means, instead of exiting non-zero forever for a documented
+configuration or certifying an installation it did not place. Where the environment cannot be read at all, or where
 the path a process is executing cannot be recovered, the row says so in its
 detail and keeps the word `shifts.sh` earned — and it names no path it could not
 read, a fragment of a real one being a file that is not there. So `present` is a

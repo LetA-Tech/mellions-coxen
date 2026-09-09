@@ -94,9 +94,11 @@ func runnerState(root, loadPath string) (state, detail string) {
 // the checkout's own deploy/unattended-settings.json, so setting it at all
 // means naming a different file, and a host's settings living outside every
 // checkout is the ordinary reason to do that rather than a superseded copy.
-// Which of the two it is here is not established, so the file is named in the
-// detail — a reader needs it either way — and the word stays what the rest of
-// the row earned.
+// Which of the two it is here is not established — and unestablished is what
+// `partial` says, so that is the word: a settings file the row cannot place is
+// neither a certified installation nor a proven split. Calling it `present`
+// would be this row reading green through the state it exists to catch, the
+// same fault as STOPPED mirrored.
 //
 // Every variable is examined. Returning at the first one that could not be
 // placed would let an unplaced neighbour hide an established split behind it,
@@ -121,11 +123,12 @@ func runnerOverrides(pid int, loadPath string) (detail string, split, unplaced b
 		}
 		where, established, isSplit := scriptOrigin(path, loadPath)
 		notes = append(notes, fmt.Sprintf("$%s names %s, %s", o.name, path, where))
-		if !o.binds {
+		if o.binds {
+			split = split || isSplit
+			unplaced = unplaced || !established
 			continue
 		}
-		split = split || isSplit
-		unplaced = unplaced || !established
+		unplaced = unplaced || !established || isSplit
 	}
 	if split {
 		unplaced = false

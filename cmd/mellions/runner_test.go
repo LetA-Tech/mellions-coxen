@@ -211,12 +211,18 @@ func TestRunnerStatePlacesTheEnvironmentsOverrides(t *testing.T) {
 	// setting it at all means naming a different file, and a host's settings
 	// file living outside every checkout is the ordinary reason to do that.
 	// Whether this one is that or a superseded copy is not established here, so
-	// STOPPED — which is doctor exit 1, permanently, for a documented
-	// configuration — is a word this row has not earned.
+	// STOPPED — doctor exit 1, permanently, for a documented configuration —
+	// is a word this row has not earned. Neither is present: a superseded
+	// deploy/unattended-settings.json really is the stopped deployment this row
+	// exists to catch, and calling it certified is the same fault mirrored.
+	// partial is what unestablished means here, and it exits 0.
 	start("MELLIONS_SETTINGS=" + oldSettings)
 	state, detail = runnerState(root, loadPath)
-	if state != "present" || !strings.Contains(detail, "$MELLIONS_SETTINGS names "+oldSettings) {
-		t.Fatalf("got %q %q, want present naming $MELLIONS_SETTINGS %s", state, detail, oldSettings)
+	if state != "partial" || !strings.Contains(detail, "$MELLIONS_SETTINGS names "+oldSettings) {
+		t.Fatalf("got %q %q, want partial naming $MELLIONS_SETTINGS %s", state, detail, oldSettings)
+	}
+	if strings.Contains(detail, "merges to that file do not reach it") {
+		t.Fatalf("detail = %q, claims a split it did not establish", detail)
 	}
 
 	// Every variable is examined. A MELLIONS_SHIFT that cannot be placed is not
