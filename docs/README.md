@@ -11,6 +11,7 @@ Then use:
 - [`install.md`](install.md) — from nothing to the first session: binary, configuration, Claude Code, Codex, `doctor`, program, and partnership.
 - [`playbook.md`](playbook.md) — day-to-day operation: requirements, autonomous work selection, assignments, Skills, continuity, several sessions, unattended work, and return.
 - [`architecture.md`](architecture.md) — how Mellions is realized and why the main boundaries exist.
+- [`agent-communication.md`](agent-communication.md) — proposed durable cross-agent communication architecture: family inboxes, session identity, Markdown messages, delivery/acknowledgement semantics, lifecycle notification, failure handling, testing, and optional local RPC.
 - [`cli.md`](cli.md) — command reference: what each command does, when it is useful, and who normally runs it.
 - [`community.md`](community.md) — GitHub/Discord authority split, benchmark discussion, contributor communication, and how durable findings return to GitHub.
 - [`data-handling.md`](data-handling.md) — what Mellions stores locally, what reaches an agent runtime or provider, and what can become external.
