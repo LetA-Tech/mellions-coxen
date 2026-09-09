@@ -404,10 +404,14 @@ func requireRef(ctx context.Context, root, commit string) error {
 	return nil
 }
 
-// preToolUseEvent is the hookEventName both outputs carry. A runtime that does
-// not recognise it discards the message silently, so a typo here disables the
-// whole feature with everything still passing — held as one constant so a test
-// can pin it and both emitters cannot drift apart.
+// preToolUseEvent is the hookEventName every PreToolUse output in this package
+// carries: the citation check's deny and context, the closing-reference,
+// shared-tree, credential-read and merge safeguards, and the awareness state.
+//
+// A runtime that does not recognise it discards the message silently, so a typo
+// disables that safeguard entirely with everything still passing. It was a bare
+// literal at six sites and pinned at none; a previous change fixed two of them
+// and said so in a way that read as a claim about the package, which it was not.
 const preToolUseEvent = "PreToolUse"
 
 // emitUnchecked tells the session what this check could not verify, without
@@ -423,6 +427,12 @@ const preToolUseEvent = "PreToolUse"
 // the channel `mellions state -tool` publishes on, on this same PreToolUse
 // event. An earlier comment in this file asserted the runtime offered no such
 // channel. It was wrong, and it foreclosed the remedy for whoever read it next.
+// It is not capped the way the deny path is, and the reason is a different
+// shape rather than a smaller number: `reasons` grows one entry per FINDING, so
+// a body wrong throughout produces a wall; `unchecked` grows at most one line
+// per (call, body), and each line already caps the names it prints at six
+// unconditionally. Its length is bounded by how many bodies one command
+// publishes — one to three in practice.
 func emitUnchecked(unchecked []string) error {
 	if len(unchecked) == 0 {
 		return nil
