@@ -3,11 +3,14 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/LetA-Tech/mellions-coxen/internal/cite"
 )
 
 // #27. The hook built one resolver from the session's cwd, so a body published
@@ -181,5 +184,45 @@ func TestCiteHook_UnreachableCdFallsBackToTheSessionCheckout(t *testing.T) {
 	if reason := runCiteHook(t, session, "cd "+missing+" && gh pr create --base dev --body-file "+wrong); reason == "" {
 		t.Fatal("a cd to a nonexistent directory silenced the checker instead of falling back " +
 			"to the session checkout")
+	}
+}
+
+// TestResolver_AWrongSameRepoPathIsAFindingNotSilence drives the REAL resolver,
+// which is where claimsTree lives and where the cite package's own tests cannot
+// reach: they hand Check a fake read, so the predicate that decides whether a
+// path claims this tree is never exercised by them.
+//
+// That gap was found by its own falsification arm — neutralising claimsTree to
+// always return false reddened nothing in the suite, which is the signature of a
+// production branch no test drives.
+func TestResolver_AWrongSameRepoPathIsAFindingNotSilence(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "internal", "cite"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "internal", "cite", "cite.go"),
+		[]byte("package cite\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	read := resolver(context.Background(), root, "")
+
+	// A path whose leading segment is a directory this tree has, naming a file
+	// it does not: the hipsys#123 shape.
+	if _, err := read("internal/cite/citee.go"); !errors.Is(err, cite.ErrPathClaimsTree) {
+		t.Errorf("a wrong same-repo path gave %v, want ErrPathClaimsTree — without it the citation "+
+			"is dropped and the body publishes green", err)
+	}
+	// Another repository's path: the leading segment is no directory here.
+	if _, err := read("mcfo-leankit/agentkit/runtime/exec.go"); err == nil {
+		t.Error("a cross-repo path resolved, which the fixture makes impossible")
+	} else if errors.Is(err, cite.ErrPathClaimsTree) {
+		t.Error("a cross-repo path was treated as claiming this tree — it would be DENIED, and " +
+			"deep-research expects bodies to cite other repositories and verify them by hand")
+	}
+	// The control: a path that does resolve must not take either error branch.
+	if _, err := read("internal/cite/cite.go"); err != nil {
+		t.Errorf("a path this tree holds gave %v; the two assertions above would be vacuous "+
+			"against a resolver that fails everything", err)
 	}
 }
