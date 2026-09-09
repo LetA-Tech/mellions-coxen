@@ -226,6 +226,35 @@ func TestRunnerOverridesStatesTheBoundaryWithoutAProcFilesystem(t *testing.T) {
 	if !strings.Contains(detail, "MELLIONS_SHIFT") || !strings.Contains(detail, "unread") {
 		t.Fatalf("detail = %q, want it to name the variables it could not read", detail)
 	}
+	if !strings.Contains(detail, "no process filesystem on this host") {
+		t.Fatalf("detail = %q, want the reason it could not read them", detail)
+	}
+}
+
+// A runner another user owns is a state this reaches — runnerScript already
+// tolerates EPERM from the liveness signal — and /proc/<pid>/environ is readable
+// by the owning user alone. Reporting that as "no process filesystem" would put
+// a false sentence in doctor's output, so the two reasons stay apart.
+func TestUnreadReasonSeparatesPermissionFromAbsence(t *testing.T) {
+	dir := t.TempDir()
+	locked := filepath.Join(dir, "environ")
+	if err := os.WriteFile(locked, []byte("A=b"), 0o000); err != nil {
+		t.Fatal(err)
+	}
+	if os.Geteuid() == 0 {
+		t.Skip("root reads a 0000 file, so this host cannot produce the permission case")
+	}
+	_, err := os.ReadFile(locked)
+	if err == nil {
+		t.Fatal("a 0000 file read: this host cannot produce the permission case")
+	}
+	if got := unreadReason(err); !strings.Contains(got, "readable only by the user that owns it") {
+		t.Fatalf("unreadReason(permission) = %q, want the ownership reason", got)
+	}
+	_, missing := os.ReadFile(filepath.Join(dir, "no-such-file"))
+	if got := unreadReason(missing); !strings.Contains(got, "no process filesystem on this host") {
+		t.Fatalf("unreadReason(not-exist) = %q, want the absence reason", got)
+	}
 }
 
 // processArgs answers on a host with no process filesystem, which is the only

@@ -8,6 +8,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -77,9 +78,10 @@ func runnerState(root, loadPath string) (state, detail string) {
 // boundary in its detail: a check that reds on what it could not measure is the
 // same fault as one that reads green through the state it was built to catch.
 func runnerOverrides(pid int, loadPath string) (detail string, split, unplaced bool) {
-	env, readable := runnerEnv(pid)
-	if !readable {
-		return "$MELLIONS_SHIFT and $MELLIONS_SETTINGS unread: no process filesystem here, so a shift script or deny list substituted through them is outside what this row places", false, false
+	env, err := runnerEnv(pid)
+	if err != nil {
+		return "$MELLIONS_SHIFT and $MELLIONS_SETTINGS unread — " + unreadReason(err) +
+			", so a shift script or deny list substituted through them is outside what this row places", false, false
 	}
 	for _, name := range []string{"MELLIONS_SHIFT", "MELLIONS_SETTINGS"} {
 		path := env[name]
@@ -195,14 +197,14 @@ func processArgs(pid int) ([]string, bool) {
 	return strings.Fields(string(out)), true
 }
 
-// runnerEnv reads the environment the live runner was given. It answers only
-// where the process filesystem is readable; elsewhere the environment of
-// another process is not reachable, which the caller states rather than reads
-// as an empty one.
-func runnerEnv(pid int) (map[string]string, bool) {
+// runnerEnv reads the environment the live runner was given. It returns why it
+// could not rather than an empty environment: an unset override and an unread
+// one are different claims, and only the first means the file beside shifts.sh
+// is the one in use.
+func runnerEnv(pid int) (map[string]string, error) {
 	raw, err := os.ReadFile(filepath.Join(procRoot, strconv.Itoa(pid), "environ"))
 	if err != nil {
-		return nil, false
+		return nil, err
 	}
 	env := make(map[string]string)
 	for _, entry := range splitNUL(raw) {
@@ -210,7 +212,22 @@ func runnerEnv(pid int) (map[string]string, bool) {
 			env[k] = v
 		}
 	}
-	return env, true
+	return env, nil
+}
+
+// unreadReason keeps the row's detail to what it established. /proc/<pid>/environ
+// is readable by the user that owns the process and nobody else, and runnerScript
+// already tolerates EPERM from the liveness signal, so a runner another user owns
+// is a state this reaches — reporting it as "no process filesystem" would be a
+// false sentence in shipped output, and the two have different remedies.
+func unreadReason(err error) string {
+	switch {
+	case errors.Is(err, fs.ErrPermission):
+		return "the runner's environment is readable only by the user that owns it, and this is not that user"
+	case errors.Is(err, fs.ErrNotExist):
+		return "no process filesystem on this host"
+	}
+	return "the runner's environment did not read: " + err.Error()
 }
 
 func splitNUL(raw []byte) []string {
