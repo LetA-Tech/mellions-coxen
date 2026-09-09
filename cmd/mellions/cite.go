@@ -160,7 +160,7 @@ func cmdCiteCheck(ctx context.Context, args []string) error {
 		reasons = append(reasons[:8], "  … and "+strconv.Itoa(n-8)+" more.")
 	}
 	var d decision
-	d.Output.Event = "PreToolUse"
+	d.Output.Event = preToolUseEvent
 	d.Output.Decide = "deny"
 	d.Output.Reason = "This body publishes a citation the checkout does not back:\n\n" +
 		strings.Join(reasons, "\n") + "\n\n" +
@@ -341,7 +341,9 @@ func unresolvedLine(unresolved []cite.Citation, dir string) string {
 		where = dir
 	}
 	return fmt.Sprintf("%d citation(s) %s cannot open, so nothing here checked them: %s%s — "+
-		"verify these by hand; a cross-repo path is the usual reason and is not a defect.",
+		"open them. Most are a path written without the prefix this checkout needs, which is a "+
+		"citation nobody can follow; a genuinely cross-repo path is the smaller case and is not "+
+		"a defect.",
 		len(unresolved), where, strings.Join(shown, ", "), suffix)
 }
 
@@ -402,6 +404,12 @@ func requireRef(ctx context.Context, root, commit string) error {
 	return nil
 }
 
+// preToolUseEvent is the hookEventName both outputs carry. A runtime that does
+// not recognise it discards the message silently, so a typo here disables the
+// whole feature with everything still passing — held as one constant so a test
+// can pin it and both emitters cannot drift apart.
+const preToolUseEvent = "PreToolUse"
+
 // emitUnchecked tells the session what this check could not verify, without
 // standing in the way of the command.
 //
@@ -426,7 +434,7 @@ func emitUnchecked(unchecked []string) error {
 			Context string `json:"additionalContext"`
 		} `json:"hookSpecificOutput"`
 	}
-	c.Output.Event = "PreToolUse"
+	c.Output.Event = preToolUseEvent
 	c.Output.Context = "This body publishes citations this checkout could not open:\n\n" +
 		strings.Join(unchecked, "\n") + "\n\n" +
 		"Nothing is wrong with citing another repository — deep-research asks for it — but " +
