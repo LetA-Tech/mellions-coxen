@@ -79,6 +79,12 @@ eyes it asked for is what a different session supplies, and unattended there is
 nobody else: an evidenced draft none reads is the shift's work undone. A
 draft's size is a measurement, not a verdict.
 
+**A review count of zero is not evidence nobody read it.** A read here is posted
+as a comment, so a change set read twice still reports `reviews: 0` — 18 of 31
+open ones across eight repositories did. Read the disposition of any read already
+there: where one returned changes requested and the head has not moved since, the
+work waiting is the remedy it named, not a second opinion.
+
 **A change set carrying `mellions:claimed` is held.** A survey prints
 `CLAIMED`; read the claim before deciding anything. An active lane is still on
 it and merging is not yours. A handed-off one waits on what its handoff —
@@ -112,7 +118,9 @@ Then one of two, never a third:
 - **Merge it** where you established the claims are ready and the partnership
   grants you that. Finished work waiting to be noticed is not finished.
 - **Leave a review naming what is not established** — the claim, the evidence
-  it lacks, what would settle it. Not a list of preferences.
+  it lacks, what would settle it. Not a list of preferences. Post it with
+  `gh pr review --comment`, not `gh pr comment` — same text, and only the
+  first is counted.
 
 Never a rubber stamp; an approval you did not earn costs more than no review.
 Never your own lane — the branch names whose it is, and no session both decides
