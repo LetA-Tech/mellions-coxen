@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -531,13 +532,23 @@ func TestHookOutputs_AllCarryTheEventTheRuntimeDispatchesOn(t *testing.T) {
 		t.Errorf("preToolUseEvent = %q; the runtime dispatches on this exact string and discards "+
 			"anything else in silence", preToolUseEvent)
 	}
-	// No non-test file may spell it again: a seventh site added as a literal is
-	// a safeguard nothing pins, which is the state this replaced.
+	// Every place a non-test file names the event must take the constant.
+	//
+	// The earlier form of this scan searched for the correctly-spelled literal,
+	// which caught the tidy mistake and missed the dangerous one: a new emitter
+	// writing "PreToolUsee" passed it, and that misspelling IS the defect this
+	// exists to prevent — a routing key the runtime does not recognise, so the
+	// object is discarded, the hook exits 0 and the guard is deaf with no
+	// symptom. It checked the precursor rather than the property.
+	//
+	// So it reads the right-hand side instead: whatever a site sets the event
+	// to, it must be the constant, and then one pin covers all of them.
 	files, err := filepath.Glob("*.go")
 	if err != nil {
 		t.Fatal(err)
 	}
-	scanned := 0
+	assign := regexp.MustCompile(`(?:Output\.Event\s*=|"hookEventName"\s*:)\s*([^,\n}]+)`)
+	scanned, sites := 0, 0
 	for _, name := range files {
 		if strings.HasSuffix(name, "_test.go") {
 			continue
@@ -547,17 +558,25 @@ func TestHookOutputs_AllCarryTheEventTheRuntimeDispatchesOn(t *testing.T) {
 			t.Fatal(rerr)
 		}
 		scanned++
-		body := string(b)
-		if name == "cite.go" {
-			body = strings.Replace(body, `const preToolUseEvent = "PreToolUse"`, "", 1)
-		}
-		if strings.Contains(body, `"PreToolUse"`) {
-			t.Errorf("%s spells the event name as a literal; use preToolUseEvent so one pin covers "+
-				"every hook output in this package", name)
+		for _, m := range assign.FindAllStringSubmatch(string(b), -1) {
+			rhs := strings.TrimSpace(m[1])
+			// The struct tag `json:"hookEventName"` is a declaration, not a
+			// site; it has no right-hand side of its own.
+			if rhs == "" || strings.HasPrefix(rhs, "string") {
+				continue
+			}
+			sites++
+			if rhs != "preToolUseEvent" {
+				t.Errorf("%s sets the hook event to %s; it must be preToolUseEvent. A value the "+
+					"runtime does not recognise is discarded without error, so the guard emits "+
+					"nothing, exits 0 and is indistinguishable from one that had nothing to say.",
+					name, rhs)
+			}
 		}
 	}
-	if scanned == 0 {
-		t.Fatal("scanned no non-test files — this check would pass vacuously")
+	if scanned == 0 || sites == 0 {
+		t.Fatalf("scanned %d non-test file(s) and found %d event site(s) — this check would pass "+
+			"vacuously; the assignment shape it matches has changed", scanned, sites)
 	}
 }
 
