@@ -43,17 +43,58 @@ func runnerState(root, loadPath string) (state, detail string) {
 		return "absent", fmt.Sprintf("stale lock names pid %d, not a live runner; %s", pid, last)
 	}
 	where, established, split := scriptOrigin(script, loadPath)
+	head := fmt.Sprintf("alive, pid %d running %s, %s", pid, script, where)
+	if split {
+		return "STOPPED", fmt.Sprintf("%s; merges to scripts/ and deploy/ there do not reach it; %s", head, last)
+	}
+	over, overSplit, overUnplaced := runnerOverrides(pid, loadPath)
+	if over != "" {
+		head += "; " + over
+	}
 	switch {
-	case split:
-		return "STOPPED", fmt.Sprintf("alive, pid %d running %s, %s; merges to scripts/ and deploy/ there do not reach it; %s",
-			pid, script, where, last)
-	case !established:
+	case overSplit:
+		return "STOPPED", fmt.Sprintf("%s; merges to that file do not reach it; %s", head, last)
+	case !established || overUnplaced:
 		// A live runner whose script could not be placed is not the same claim
 		// as one placed inside the load path, and saying "present" for both is
 		// the fault this row exists to remove.
-		return "partial", fmt.Sprintf("alive, pid %d running %s, %s; %s", pid, script, where, last)
+		return "partial", fmt.Sprintf("%s; %s", head, last)
 	}
-	return "present", fmt.Sprintf("alive, pid %d running %s, %s; %s", pid, script, where, last)
+	return "present", fmt.Sprintf("%s; %s", head, last)
+}
+
+// runnerOverrides places the deploy files the runner's own environment
+// substitutes for the ones beside its shifts.sh. MELLIONS_SHIFT selects the
+// shift script (scripts/shifts.sh:50) and MELLIONS_SETTINGS the deny list
+// (scripts/shift.sh:30), so placing shifts.sh places neither: a runner whose
+// shifts.sh sits inside the load path can still take its shift script or its
+// unattended settings from a superseded checkout, which is the same stopped
+// deployment by another route.
+//
+// An unset variable is not an override — the file beside shifts.sh is then the
+// one in use, and placing shifts.sh already placed it. Where the environment
+// cannot be read at all the row keeps the word shifts.sh earned and names the
+// boundary in its detail: a check that reds on what it could not measure is the
+// same fault as one that reads green through the state it was built to catch.
+func runnerOverrides(pid int, loadPath string) (detail string, split, unplaced bool) {
+	env, readable := runnerEnv(pid)
+	if !readable {
+		return "$MELLIONS_SHIFT and $MELLIONS_SETTINGS unread: no process filesystem here, so a shift script or deny list substituted through them is outside what this row places", false, false
+	}
+	for _, name := range []string{"MELLIONS_SHIFT", "MELLIONS_SETTINGS"} {
+		path := env[name]
+		if path == "" {
+			continue
+		}
+		where, established, isSplit := scriptOrigin(path, loadPath)
+		switch {
+		case isSplit:
+			return fmt.Sprintf("$%s names %s, %s", name, path, where), true, false
+		case !established:
+			return fmt.Sprintf("$%s names %s, %s", name, path, where), false, true
+		}
+	}
+	return "", false, false
 }
 
 // scriptOrigin says whether the script the runner executes comes out of the
@@ -117,16 +158,63 @@ func runnerScript(pid int) (string, bool) {
 	if err := syscall.Kill(pid, 0); err != nil && !errors.Is(err, syscall.EPERM) {
 		return "", false
 	}
-	out, err := exec.Command("ps", "-o", "args=", "-p", strconv.Itoa(pid)).Output()
-	if err != nil {
+	args, ok := processArgs(pid)
+	if !ok {
 		return "", false
 	}
-	for _, arg := range strings.Fields(string(out)) {
+	for _, arg := range args {
 		if filepath.Base(arg) == "shifts.sh" {
 			return arg, true
 		}
 	}
 	return "", false
+}
+
+// procRoot is where the process filesystem is mounted, indirected so a test on
+// a host that has one can still drive the ps fallback.
+var procRoot = "/proc"
+
+// processArgs returns the pid's argument vector as the kernel holds it.
+// /proc/<pid>/cmdline is NUL-delimited, so an argument that contains a space
+// survives it whole. `ps -o args=` flattens the vector into a single
+// space-joined line instead, and splitting that back apart cuts a checkout path
+// containing a space into two fragments: the row would then print a fragment of
+// a real path, which resolves nowhere and is reported as "not compared" — a
+// split installation reading as unmeasured is the fault this row exists to
+// remove. ps stays as the fallback for hosts with no process filesystem, where
+// the flattened line is the only reading available.
+func processArgs(pid int) ([]string, bool) {
+	raw, err := os.ReadFile(filepath.Join(procRoot, strconv.Itoa(pid), "cmdline"))
+	if err == nil && len(raw) > 0 {
+		return splitNUL(raw), true
+	}
+	out, err := exec.Command("ps", "-o", "args=", "-p", strconv.Itoa(pid)).Output()
+	if err != nil {
+		return nil, false
+	}
+	return strings.Fields(string(out)), true
+}
+
+// runnerEnv reads the environment the live runner was given. It answers only
+// where the process filesystem is readable; elsewhere the environment of
+// another process is not reachable, which the caller states rather than reads
+// as an empty one.
+func runnerEnv(pid int) (map[string]string, bool) {
+	raw, err := os.ReadFile(filepath.Join(procRoot, strconv.Itoa(pid), "environ"))
+	if err != nil {
+		return nil, false
+	}
+	env := make(map[string]string)
+	for _, entry := range splitNUL(raw) {
+		if k, v, ok := strings.Cut(entry, "="); ok {
+			env[k] = v
+		}
+	}
+	return env, true
+}
+
+func splitNUL(raw []byte) []string {
+	return strings.Split(strings.TrimSuffix(string(raw), "\x00"), "\x00")
 }
 
 // lastShift says when the latest shift ended, or that it is still running.
