@@ -226,3 +226,101 @@ func TestResolver_AWrongSameRepoPathIsAFindingNotSilence(t *testing.T) {
 			"against a resolver that fails everything", err)
 	}
 }
+
+// TestCiteCheck_ReportsTheTreeAndWhatItCouldNotOpen drives the CLI end to end.
+//
+// The reporting half — which tree answered, and which citations went unchecked —
+// had no test at all: Check returning the unresolved slice was covered, and
+// nothing asserted that any caller PRINTS it. That is the same gap that let the
+// original defect stand, one layer out: a report nobody reads is a silence with
+// extra steps, and coverage of the producer says nothing about the consumer.
+func TestCiteCheck_ReportsTheTreeAndWhatItCouldNotOpen(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "internal"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "internal", "a.go"),
+		[]byte("package a\nsecond line\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	body := filepath.Join(root, "body.md")
+	if err := os.WriteFile(body, []byte(
+		"see `internal/a.go:2`:\n\n```go\nsecond line\n```\n\nand `runtime/exec.go:1845` upstream.\n",
+	), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var err error
+	out := captureStdout(t, func() {
+		err = cmdCite(context.Background(), []string{"check", "-file", body, "-dir", root})
+	})
+	if err != nil {
+		t.Fatalf("cmdCite: %v — the body's one resolvable citation is quoted, so this must pass", err)
+	}
+	if !strings.Contains(out, "resolved against "+root) {
+		t.Errorf("output does not name the checkout it graded against; a stale tree is invisible "+
+			"without it.\ngot: %s", out)
+	}
+	if !strings.Contains(out, "runtime/exec.go:1845") {
+		t.Errorf("output does not name the citation it could not open, so a body of unverifiable "+
+			"citations reads exactly like a verified one.\ngot: %s", out)
+	}
+}
+
+// TestResolver_CommitGradesTheSameWayAsTheWorkingTree pins the two arms to one
+// verdict.
+//
+// `-commit` returned git's raw error for every unreadable path, so a wrong
+// same-repo path was a finding on the working tree and unresolvable at a ref —
+// the same body passing under one flag and failing under the other, from a tool
+// whose deny message tells sessions `-commit` "reports the same thing".
+//
+// The predicate asks git rather than the filesystem, because the two disagree
+// exactly where it matters: a directory added since the commit is on disk and
+// not in the tree.
+func TestResolver_CommitGradesTheSameWayAsTheWorkingTree(t *testing.T) {
+	root := t.TempDir()
+	run := func(args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", args...)
+		cmd.Dir = root
+		cmd.Env = append(os.Environ(),
+			"GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t", "GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t")
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %s: %v: %s", strings.Join(args, " "), err, out)
+		}
+	}
+	run("init", "-q", "-b", "main")
+	if err := os.MkdirAll(filepath.Join(root, "internal"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "internal", "a.go"), []byte("package a\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	run("add", "-A")
+	run("commit", "-qm", "one")
+
+	head := strings.TrimSpace(gitOut(root, "rev-parse", "HEAD"))
+	const wrong = "internal/aa.go" // internal/ is a directory here; this file is not
+
+	tree := resolver(context.Background(), root, "")
+	atRef := resolver(context.Background(), root, head)
+
+	_, treeErr := tree(wrong)
+	_, refErr := atRef(wrong)
+	if !errors.Is(treeErr, cite.ErrPathClaimsTree) {
+		t.Fatalf("working tree gave %v, want ErrPathClaimsTree — the control for this test", treeErr)
+	}
+	if !errors.Is(refErr, cite.ErrPathClaimsTree) {
+		t.Errorf("-commit gave %v, want ErrPathClaimsTree — the same path must reach the same "+
+			"verdict at a ref as in the tree, or the flag silently changes what passes", refErr)
+	}
+
+	// The other direction: a path neither knows is unresolvable in both.
+	if _, err := tree("elsewhere/x.go"); errors.Is(err, cite.ErrPathClaimsTree) {
+		t.Error("working tree treated a cross-repo path as claiming the tree")
+	}
+	if _, err := atRef("elsewhere/x.go"); errors.Is(err, cite.ErrPathClaimsTree) {
+		t.Error("-commit treated a cross-repo path as claiming the tree")
+	}
+}

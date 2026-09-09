@@ -44,7 +44,7 @@ func cmdCite(ctx context.Context, args []string) error {
 		return err
 	}
 	root := repoRoot(ctx, *dir)
-	findings, unresolved := cite.Check(doc, resolver(ctx, *dir, *commit))
+	findings, unresolved := cite.Check(doc, resolverAt(ctx, root, *commit))
 
 	// Say which tree answered, always. A citation is graded against whatever
 	// checkout the check happened to read, and a shared checkout sitting behind
@@ -197,11 +197,24 @@ func dedupe(in []string) []string {
 // finding — a URL host, another repository's path, or prose that happens to
 // carry a colon.
 func resolver(ctx context.Context, dir, commit string) func(string) ([]string, error) {
-	root := repoRoot(ctx, dir)
+	return resolverAt(ctx, repoRoot(ctx, dir), commit)
+}
+
+// resolverAt is resolver with the repository root already established, so a
+// caller that needed the root for its own report does not run git twice.
+func resolverAt(ctx context.Context, root, commit string) func(string) ([]string, error) {
 	return func(path string) ([]string, error) {
 		if commit != "" {
 			out, err := exec.CommandContext(ctx, "git", "-C", root, "show", commit+":"+path).Output()
 			if err != nil {
+				// The same separation the working-tree arm makes. Without it
+				// `-commit` graded a wrong same-repo path as unresolvable while
+				// the working tree called it a finding — the same body passing
+				// under one flag and failing under the other, from a tool whose
+				// own deny message says -commit "reports the same thing".
+				if claimsTreeAt(ctx, root, commit, path) {
+					return nil, cite.ErrPathClaimsTree
+				}
 				return nil, err
 			}
 			return split(string(out)), nil
@@ -333,4 +346,20 @@ func claimsTree(root, path string) bool {
 	}
 	info, err := os.Stat(filepath.Join(root, head))
 	return err == nil && info.IsDir()
+}
+
+// claimsTreeAt is claimsTree against a commit rather than the working tree: the
+// path's leading segment is a directory in that commit's tree.
+//
+// It asks git rather than the filesystem because the two can disagree — a
+// directory added since the commit exists on disk and not in the tree, and a
+// directory deleted since exists in the tree and not on disk. Grading a
+// citation at a ref means asking that ref.
+func claimsTreeAt(ctx context.Context, root, commit, path string) bool {
+	head, _, ok := strings.Cut(filepath.ToSlash(filepath.Clean(path)), "/")
+	if !ok || head == "" || head == "." || head == ".." {
+		return false
+	}
+	out, err := exec.CommandContext(ctx, "git", "-C", root, "cat-file", "-t", commit+":"+head).Output()
+	return err == nil && strings.TrimSpace(string(out)) == "tree"
 }
