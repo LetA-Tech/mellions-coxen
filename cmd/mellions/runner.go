@@ -87,18 +87,21 @@ func runnerState(root, loadPath string) (state, detail string) {
 // boundary in its detail: a check that reds on what it could not measure is the
 // same fault as one that reads green through the state it was built to catch.
 //
-// Only MELLIONS_SHIFT moves the state word. It selects the runner's own code,
-// which has no reason to come from anywhere but the checkout that is deployed,
-// so a copy outside the load path is the stopped deployment this row exists to
-// name. MELLIONS_SETTINGS selects configuration: docs/cli.md:445 defaults it to
+// The two variables are asked different questions. MELLIONS_SHIFT selects the
+// runner's own code, which has no reason to come from anywhere but the checkout
+// that is deployed, so a copy outside the load path is on its own the stopped
+// deployment this row exists to name. MELLIONS_SETTINGS selects configuration:
+// docs/cli.md:445 defaults it to
 // the checkout's own deploy/unattended-settings.json, so setting it at all
 // means naming a different file, and a host's settings living outside every
 // checkout is the ordinary reason to do that rather than a superseded copy.
-// Which of the two it is here is not established — and unestablished is what
-// `partial` says, so that is the word: a settings file the row cannot place is
-// neither a certified installation nor a proven split. Calling it `present`
-// would be this row reading green through the state it exists to catch, the
-// same fault as STOPPED mirrored.
+// Which of the two it is, this asks rather than declines to answer: a
+// superseded copy sits in a checkout of this repository and a host's own file
+// does not, and checkoutOf is that question. A superseded copy is the stopped
+// deployment the row exists to name, so it says STOPPED; a host's own file is
+// named in the detail and moves nothing. Answering it is what keeps the word
+// off both faults — a STOPPED for every host that keeps settings outside a
+// checkout, and a present for a deny list that stopped receiving merges.
 //
 // Every variable is examined. Returning at the first one that could not be
 // placed would let an unplaced neighbour hide an established split behind it,
@@ -122,13 +125,23 @@ func runnerOverrides(pid int, loadPath string) (detail string, split, unplaced b
 			continue
 		}
 		where, established, isSplit := scriptOrigin(path, loadPath)
-		notes = append(notes, fmt.Sprintf("$%s names %s, %s", o.name, path, where))
+		note := fmt.Sprintf("$%s names %s, %s", o.name, path, where)
 		if o.binds {
+			notes = append(notes, note)
 			split = split || isSplit
 			unplaced = unplaced || !established
 			continue
 		}
-		unplaced = unplaced || !established || isSplit
+		unplaced = unplaced || !established
+		if isSplit {
+			if root := checkoutOf(path); root != "" {
+				note += ", which is a checkout of this repository at " + root
+				split = true
+			} else {
+				note += ", which is no checkout of this repository, so it is this host's own file rather than a superseded copy"
+			}
+		}
+		notes = append(notes, note)
 	}
 	if split {
 		unplaced = false
@@ -152,6 +165,13 @@ func scriptOrigin(script, loadPath string) (where string, established, split boo
 	}
 	s, err := filepath.EvalSymlinks(script)
 	if err != nil {
+		// A path that could not be walked is not a path that is not there. A
+		// settings file under a service user's 0700 home is read by its owner
+		// and refused to the operator running doctor, and calling that "does
+		// not resolve on disk" is a cause this never established.
+		if errors.Is(err, fs.ErrPermission) {
+			return "not compared: " + script + " cannot be read from here, so which checkout it came from is unestablished", false, false
+		}
 		return "not compared: " + script + " does not resolve on disk", false, false
 	}
 	// Both sides are resolved before they are compared: a load path or a
@@ -167,6 +187,26 @@ func scriptOrigin(script, loadPath string) (where string, established, split boo
 		return "which is outside the load path " + loadPath, true, true
 	}
 	return "which is inside the load path " + loadPath, true, false
+}
+
+// checkoutOf names the checkout of this repository a path sits in, or "" for
+// one that sits in none. scripts/shifts.sh beside a deploy/ is what makes a
+// directory a checkout here rather than somewhere a file happens to live, and
+// it is the same file the rest of this row places — so "outside the load path"
+// stops being one predicate doing two jobs: a superseded checkout's copy is a
+// stopped deployment, and a host's own file in /etc or under a home is not.
+func checkoutOf(path string) string {
+	dir := filepath.Dir(path)
+	for {
+		if st, err := os.Stat(filepath.Join(dir, "scripts", "shifts.sh")); err == nil && !st.IsDir() {
+			return dir
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return ""
+		}
+		dir = parent
+	}
 }
 
 func lockPID(path string) (int, bool) {

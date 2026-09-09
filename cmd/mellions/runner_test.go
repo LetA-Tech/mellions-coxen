@@ -210,28 +210,43 @@ func TestRunnerStatePlacesTheEnvironmentsOverrides(t *testing.T) {
 	// defaults it to the checkout's own deploy/unattended-settings.json, so
 	// setting it at all means naming a different file, and a host's settings
 	// file living outside every checkout is the ordinary reason to do that.
-	// Whether this one is that or a superseded copy is not established here, so
-	// STOPPED — doctor exit 1, permanently, for a documented configuration —
-	// is a word this row has not earned. Neither is present: a superseded
-	// deploy/unattended-settings.json really is the stopped deployment this row
-	// exists to catch, and calling it certified is the same fault mirrored.
-	// partial is what unestablished means here, and it exits 0.
+	// A settings file outside the load path is two different states and the row
+	// asks which. In a checkout of this repository it is a deploy/ that stopped
+	// receiving merges — the highest-consequence split on this row, the deny
+	// list an unattended runtime is given — so STOPPED. Anywhere else it is
+	// this host's own file, which is the documented ordinary use
+	// (docs/cli.md:445 defaults the variable to the checkout's own copy, so
+	// setting it means naming another), and moves nothing. Neither a permanent
+	// exit 1 nor a permanent partial: the question is answerable.
+	if err := os.WriteFile(filepath.Join(root, "superseded", "scripts", "shifts.sh"), []byte("sleep 30\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
 	start("MELLIONS_SETTINGS=" + oldSettings)
 	state, detail = runnerState(root, loadPath)
-	if state != "partial" || !strings.Contains(detail, "$MELLIONS_SETTINGS names "+oldSettings) {
-		t.Fatalf("got %q %q, want partial naming $MELLIONS_SETTINGS %s", state, detail, oldSettings)
+	if state != "STOPPED" || !strings.Contains(detail, "a checkout of this repository at "+filepath.Join(root, "superseded")) {
+		t.Fatalf("got %q %q, want STOPPED naming the superseded checkout", state, detail)
 	}
-	if strings.Contains(detail, "merges to that file do not reach it") {
-		t.Fatalf("detail = %q, claims a split it did not establish", detail)
+
+	hostOwn := filepath.Join(root, "etc", "settings.json")
+	if err := os.MkdirAll(filepath.Dir(hostOwn), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(hostOwn, []byte("{}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	start("MELLIONS_SETTINGS=" + hostOwn)
+	state, detail = runnerState(root, loadPath)
+	if state != "present" || !strings.Contains(detail, "no checkout of this repository") {
+		t.Fatalf("got %q %q, want present: %s is in no checkout, so it is this host's own file", state, detail, hostOwn)
 	}
 
 	// Every variable is examined. A MELLIONS_SHIFT that cannot be placed is not
 	// a reason to stop reading, or an unplaced neighbour hides what comes after
 	// it — the shape of #13 itself, inside the fix for #13.
-	start("MELLIONS_SHIFT=shifts.sh", "MELLIONS_SETTINGS="+oldSettings)
+	start("MELLIONS_SHIFT=shifts.sh", "MELLIONS_SETTINGS="+hostOwn)
 	state, detail = runnerState(root, loadPath)
-	if state != "partial" || !strings.Contains(detail, "$MELLIONS_SETTINGS names "+oldSettings) {
-		t.Fatalf("got %q %q, want partial still naming $MELLIONS_SETTINGS %s behind an unplaced $MELLIONS_SHIFT", state, detail, oldSettings)
+	if state != "partial" || !strings.Contains(detail, "$MELLIONS_SETTINGS names "+hostOwn) {
+		t.Fatalf("got %q %q, want partial still naming $MELLIONS_SETTINGS %s behind an unplaced $MELLIONS_SHIFT", state, detail, hostOwn)
 	}
 	if !strings.Contains(detail, "$MELLIONS_SHIFT names shifts.sh") {
 		t.Fatalf("detail = %q, want it to name the unplaced $MELLIONS_SHIFT too", detail)
@@ -430,6 +445,35 @@ func TestScriptOrigin(t *testing.T) {
 	where, established, split := scriptOrigin(old, load)
 	if !split || !established || !strings.Contains(where, "outside the load path") {
 		t.Fatalf("split: got %q split=%v, want outside the load path, split=true", where, split)
+	}
+
+	// A file that could not be walked is not a file that is not there. A
+	// settings file under a service user's 0700 home is read by its owner and
+	// refused to the operator running doctor, and "does not resolve on disk" is
+	// a cause the row never established — the class this row exists to keep out.
+	if os.Geteuid() != 0 {
+		shut := filepath.Join(load, "shut")
+		if err := os.MkdirAll(shut, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		hidden := filepath.Join(shut, "unattended-settings.json")
+		if err := os.WriteFile(hidden, []byte("{}\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chmod(shut, 0o000); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = os.Chmod(shut, 0o755) })
+		where, established, split := scriptOrigin(hidden, load)
+		if established || split {
+			t.Fatalf("got %q established=%v split=%v, want neither: it was never read", where, established, split)
+		}
+		if strings.Contains(where, "does not resolve on disk") {
+			t.Fatalf("where = %q: the file is there and inside the load path; it was not readable", where)
+		}
+		if !strings.Contains(where, "cannot be read from here") {
+			t.Fatalf("where = %q, want the permission reason", where)
+		}
 	}
 
 	// A load path reached through a symlink is the same repository under
