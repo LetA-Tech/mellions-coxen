@@ -140,7 +140,7 @@ var skillsInReserve = map[string]int{
 	"mellions-environment":       7983,
 	"mellions-self-learning":     7987,
 	"mellions-territory":         7983,
-	"mellions-delegation":        7980,
+	"mellions-delegation":        7961,
 	"mellions-issue-remediation": 7976,
 	"mellions-reasoning":         7973,
 	"mellions-bug-audit":         7821,
