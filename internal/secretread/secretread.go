@@ -97,7 +97,7 @@ var consumedFlags = map[string]map[string]bool{
 
 // wrappers stand in front of the real command word without changing what it
 // does with its arguments.
-var wrappers = map[string]bool{"sudo": true, "command": true, "builtin": true, "nohup": true, "time": true}
+var wrappers = map[string]bool{"sudo": true, "command": true, "builtin": true, "nohup": true, "time": true, "busybox": true}
 
 // shells take a whole command line as the operand of -c. That operand is one
 // word with spaces in it, so the fragment scan — which stops at whitespace to
@@ -169,6 +169,19 @@ func writesToTranscript(args []string) bool {
 // as though a stranger were printing it. Returning the count rather than
 // stripping in place keeps the caller's loop able to see a second wrapper.
 func prefixOperands(base string, rest []string) (int, bool) {
+	// env [OPTION]... [NAME=VALUE]... COMMAND [ARG]...
+	//
+	// It is not in wrappers because its options and assignments stand between
+	// it and the real command word: `env bash -c '…'` resolved the reader to
+	// `env`, and `env -i bash -c '…'` would resolve it to `-i`, so the shell
+	// behind it was never recognised as one.
+	if base == "env" {
+		n := 1
+		for n < len(rest) && (strings.HasPrefix(rest[n], "-") || assignment.MatchString(rest[n])) {
+			n++
+		}
+		return n, true
+	}
 	if base != "timeout" {
 		return 0, false
 	}

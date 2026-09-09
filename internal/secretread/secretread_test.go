@@ -442,3 +442,30 @@ func TestScanBash_ShellOperandIsNotPositional(t *testing.T) {
 		t.Errorf("ScanBash(a heredoc fed to gh) denied prose: %+v", got)
 	}
 }
+
+// TestScanBash_PrefixesDoNotHideTheShell: a prefix that stands in front of the
+// real command word must not make the reader resolve to itself or to one of
+// its own options, which is how the shell behind it stopped being a shell.
+func TestScanBash_PrefixesDoNotHideTheShell(t *testing.T) {
+	for _, cmd := range []string{
+		`env bash -c 'cat .env'`,
+		`env -i bash -c 'cat .env'`,
+		`env PATH=/usr/bin sh -c "cat .db_connection"`,
+		`timeout 5 env bash -c 'cat .env'`,
+		`busybox sh -c 'cat .env'`,
+		`env cat .env`,
+	} {
+		if got := ScanBash(cmd); len(got) == 0 {
+			t.Errorf("ScanBash(%q) allowed a credential read", cmd)
+		}
+	}
+	for _, cmd := range []string{
+		`env bash -c 'go build ./...'`,
+		`env -i HOME=/tmp PATH=/usr/bin wc -l .env`,
+		`busybox ls -l .env`,
+	} {
+		if got := ScanBash(cmd); len(got) != 0 {
+			t.Errorf("ScanBash(%q) denied a command that prints no credential: %+v", cmd, got)
+		}
+	}
+}
