@@ -465,6 +465,13 @@ func TestScriptOrigin(t *testing.T) {
 		}
 		t.Cleanup(func() { _ = os.Chmod(shut, 0o755) })
 		where, established, split := scriptOrigin(hidden, load)
+		// Readable again before anything can fail. GOTMPDIR is shared with
+		// whatever else runs on the host, and scripts/shift.sh walks it to
+		// collect what earlier shifts left, so an assertion that exits between
+		// the chmod and the cleanup would leave a directory nothing can walk.
+		if err := os.Chmod(shut, 0o755); err != nil {
+			t.Fatal(err)
+		}
 		if established || split {
 			t.Fatalf("got %q established=%v split=%v, want neither: it was never read", where, established, split)
 		}
