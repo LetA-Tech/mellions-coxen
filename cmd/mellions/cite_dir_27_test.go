@@ -56,6 +56,13 @@ func citeFixture(t *testing.T) (session, lane string) {
 // runCiteHook drives the real entry point: a PreToolUse payload on stdin, the
 // decision on stdout. It returns the deny reason, or "" for silence.
 func runCiteHook(t *testing.T, sessionCwd, command string) string {
+	return runCiteHookRaw(t, sessionCwd, command, nil)
+}
+
+// runCiteHookRaw is runCiteHook with the hook's whole output available, which a
+// test about a NON-deny output needs: the wrapper returns the deny reason and
+// so reads an additionalContext response as silence.
+func runCiteHookRaw(t *testing.T, sessionCwd, command string, rawOut *string) string {
 	t.Helper()
 	t.Setenv("MELLIONS_HOOK", "1")
 
@@ -96,6 +103,9 @@ func runCiteHook(t *testing.T, sessionCwd, command string) string {
 	raw, err := os.ReadFile(outPath)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if rawOut != nil {
+		*rawOut = string(raw)
 	}
 	if len(strings.TrimSpace(string(raw))) == 0 {
 		return ""
@@ -422,4 +432,81 @@ func citeGitRepo(t *testing.T) string {
 	run("add", "-A")
 	run("commit", "-qm", "one")
 	return root
+}
+
+// TestCiteHook_AnAllUnresolvableBodyIsNoLongerSilent drives the real hook entry
+// point with a PreToolUse payload.
+//
+// A body whose citations are all unresolvable produced no finding, so no deny,
+// so nothing at all — indistinguishable from a body whose citations were every
+// one verified. Two comments in this file previously explained that silence
+// away, the second asserting the runtime offered no channel to speak without
+// blocking. It does, and `mellions state -tool` was already using it.
+func TestCiteHook_AnAllUnresolvableBodyIsNoLongerSilent(t *testing.T) {
+	root := citeGitRepo(t)
+	body := filepath.Join(root, "b.md")
+	if err := os.WriteFile(body,
+		[]byte("upstream abandons it at `runtime/exec.go:1845`.\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var out string
+	runCiteHookRaw(t, root, "gh pr create --base dev --body-file "+body, &out)
+
+	if strings.TrimSpace(out) == "" {
+		t.Fatal("the hook said nothing about a body none of whose citations it could open — " +
+			"that silence reads exactly like a body whose citations were all verified")
+	}
+	if strings.Contains(out, "permissionDecision") {
+		t.Error("the hook DENIED a body whose only fault is citing another repository; " +
+			"deep-research asks for those citations and this must inform, not block")
+	}
+	if !strings.Contains(out, "additionalContext") || !strings.Contains(out, "runtime/exec.go:1845") {
+		t.Errorf("the context does not name the citation that went unchecked.\ngot: %s", out)
+	}
+}
+
+// TestCiteHook_AnUnbackedCitationStillDenies is the control: informing about the
+// unresolved must not have replaced denying on a real finding.
+func TestCiteHook_AnUnbackedCitationStillDenies(t *testing.T) {
+	root := citeGitRepo(t)
+	body := filepath.Join(root, "b.md")
+	if err := os.WriteFile(body, []byte("see `internal/a.go:1` for it.\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var out string
+	runCiteHookRaw(t, root, "gh pr create --base dev --body-file "+body, &out)
+	if !strings.Contains(out, `"permissionDecision":"deny"`) {
+		t.Errorf("an unbacked same-repo citation no longer denies.\ngot: %s", out)
+	}
+}
+
+// TestRequireRef_TheCommitPeelIsWhatMakesItACommitProbe drives `^{commit}`.
+//
+// Without the peel, rev-parse --verify accepts any valid OBJECT, so a blob or
+// tree ref passes the guard and then resolves no path — restoring the false
+// green the guard exists to stop. A reviewer found the token undriven: dropping
+// it left the whole package passing.
+func TestRequireRef_TheCommitPeelIsWhatMakesItACommitProbe(t *testing.T) {
+	root := citeGitRepo(t)
+	ctx := context.Background()
+
+	// A blob ref: a real object, not a commit.
+	blob := strings.TrimSpace(gitOut(root, "rev-parse", "HEAD:top.txt"))
+	if blob == "" {
+		t.Fatal("fixture produced no blob; the assertion below would be vacuous")
+	}
+	if err := requireRef(ctx, root, blob); err == nil {
+		t.Error("a blob object was accepted as a commit — it resolves no path, so every citation " +
+			"reads as unresolvable and the check passes having verified nothing")
+	}
+	// An annotated tag: a tag object, and the peel is what makes it work.
+	cmd := exec.Command("git", "tag", "-a", "v1", "-m", "one")
+	cmd.Dir = root
+	cmd.Env = append(os.Environ(), "GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git tag: %v: %s", err, out)
+	}
+	if err := requireRef(ctx, root, "v1"); err != nil {
+		t.Errorf("an annotated tag was refused (%v) — the peel exists so it is not", err)
+	}
 }
