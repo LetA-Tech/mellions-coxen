@@ -61,3 +61,46 @@ func TestArithmeticDoesNotSwallowTheRestOfTheLine(t *testing.T) {
 		t.Errorf("second command = %q, want the gh call whole", got)
 	}
 }
+
+// TestSplit_InputRedirect fixes what the lexer does with `<`. The operand is
+// the file stdin comes from — it is neither an argument nor the command word,
+// and leaving it in Words made `< .env grep .` a command whose first word is a
+// credential path, which is the word every caller reads as the command.
+func TestSplit_InputRedirect(t *testing.T) {
+	for _, tt := range []struct {
+		name  string
+		cmd   string
+		words []string
+		in    string
+	}{
+		{"leading redirect", `< .env grep .`, []string{"grep", "."}, ".env"},
+		{"trailing redirect", `grep . < .env`, []string{"grep", "."}, ".env"},
+		{"no space before the operand", `grep . <.env`, []string{"grep", "."}, ".env"},
+		{"a descriptor duplicate names no file", `grep . <&3`, []string{"grep", "."}, ""},
+		// A here-string's word is the text fed on stdin, so it names no file
+		// and In stays empty. It is left in Words, which makes secretread deny
+		// `grep . <<< .env` for a file the command never opens — a false
+		// denial the guard's asymmetry accepts, and the opposite of the hole
+		// this change closes.
+		{"a here-string is data, not a file", `grep . <<< .env`, []string{"grep", ".", ".env"}, ""},
+		{"both directions", `sort < in.txt > out.txt`, []string{"sort"}, "in.txt"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			got := Split(tt.cmd)
+			if len(got) != 1 {
+				t.Fatalf("Split(%q) returned %d commands, want 1", tt.cmd, len(got))
+			}
+			if got[0].In != tt.in {
+				t.Errorf("Split(%q).In = %q, want %q", tt.cmd, got[0].In, tt.in)
+			}
+			if len(got[0].Words) != len(tt.words) {
+				t.Fatalf("Split(%q).Words = %q, want %q", tt.cmd, got[0].Words, tt.words)
+			}
+			for i := range tt.words {
+				if got[0].Words[i] != tt.words[i] {
+					t.Errorf("Split(%q).Words = %q, want %q", tt.cmd, got[0].Words, tt.words)
+				}
+			}
+		})
+	}
+}

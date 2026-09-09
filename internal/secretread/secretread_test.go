@@ -321,3 +321,93 @@ func TestScanBash_NarrowingDidNotWiden(t *testing.T) {
 		})
 	}
 }
+
+// TestScanBash_ShapesThatReachedTheBytes is the set from mellions-coxen#26:
+// each was allowed on dev at bcc0059, and each reaches a credential's content.
+// They are separated by mechanism because they are three defects, not one — a
+// redirect operand lexed as the command word, a shell operand the whitespace
+// rule silences, and a safeReader whose exoneration is a claim about a
+// destination the command line contradicts.
+func TestScanBash_ShapesThatReachedTheBytes(t *testing.T) {
+	for _, tt := range []struct {
+		name string
+		cmd  string
+		path string
+	}{
+		// The redirect operand is not an argument and not the command word.
+		// Only the leading spelling was open on dev: with the redirect after
+		// the command the operand was still an argument, so the scan caught
+		// it. It is here because the lexer now takes the operand OUT of Words,
+		// which would have turned a caught shape into an allowed one had the
+		// scan not read In — the arm that neutralises In reds all three.
+		{"stdin redirect before the command word", `< .env grep .`, ".env"},
+		{"stdin redirect after it", `grep . < .env`, ".env"},
+		{"an explicit descriptor", `grep . 0< .db_connection`, ".db_connection"},
+
+		// A shell's -c operand is a command line, not a word of prose.
+		{"bash -c", `bash -c 'cat .env'`, ".env"},
+		{"sh -c", `sh -c "cat .db_connection"`, ".db_connection"},
+		{"bundled option letters", `bash -lc 'tail -1 .env'`, ".env"},
+		{"a shell behind a wrapper", `sudo bash -c 'cat /root/.pgpass'`, "/root/.pgpass"},
+		{"a shell inside a shell", `bash -c "sh -c 'cat .env'"`, ".env"},
+		{"the redirect shape nested in one", `bash -c '< .env grep .'`, ".env"},
+
+		// A destination that prints withdraws the safeReader exoneration.
+		{"cp to stdout", `cp .env /dev/stdout`, ".env"},
+		{"cp to a numbered descriptor", `cp .db_connection /dev/fd/1`, ".db_connection"},
+		{"install to the terminal", `install ~/.ssh/id_ed25519 /dev/tty`, "~/.ssh/id_ed25519"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			got := ScanBash(tt.cmd)
+			if len(got) == 0 {
+				t.Fatalf("ScanBash(%q) allowed a credential read", tt.cmd)
+			}
+			for _, f := range got {
+				if f.Path == tt.path {
+					return
+				}
+			}
+			t.Errorf("ScanBash(%q) = %+v, wanted a finding on %q", tt.cmd, got, tt.path)
+		})
+	}
+}
+
+// TestScanBash_TheThreeShapesDidNotOverRefuse is the other direction. Each of
+// the three fixes above refuses more than the code did, so each needs the
+// adjacent shape that must stay silent: a redirect that feeds a non-printer, a
+// shell operand that reads nothing, and a safeReader whose destination is a
+// file.
+func TestScanBash_TheThreeShapesDidNotOverRefuse(t *testing.T) {
+	for _, tt := range []struct {
+		name string
+		cmd  string
+	}{
+		// stdin into a command that does not print its input.
+		{"wc counts without printing", `wc -l < .env`},
+		{"a redirect from an ordinary file", `grep POSTGRES < docker-compose.yml`},
+		{"a descriptor duplicate names no file", `grep . <&3`},
+
+		// The shell operand is scanned as a command line, so an innocent one
+		// stays innocent.
+		{"a build behind bash -c", `bash -c 'go build ./... && make check'`},
+		{"a shell with no -c at all", `bash --version`},
+		{"a long option is not the -c operand", `bash --norc script.sh`},
+
+		// -c belongs to the reader that declares it: `sort -c` checks order.
+		{"a c flag on something that is not a shell", `sort -c notes.txt`},
+
+		// Prose naming the shape is still prose: the reader is git, not a shell.
+		{"the issue title in a commit message", `git commit -m "the guard missed bash -c 'cat .env'"`},
+
+		// cp is still exonerated when its destination is a file.
+		{"cp to a path", `cp .env /tmp/backup.env`},
+		{"cp to the bit bucket", `cp .env /dev/null`},
+		{"mv within the tree", `mv deploy/.env deploy/.env.bak`},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := ScanBash(tt.cmd); len(got) != 0 {
+				t.Errorf("ScanBash(%q) denied a command that reads no credential into the transcript: %+v", tt.cmd, got)
+			}
+		})
+	}
+}

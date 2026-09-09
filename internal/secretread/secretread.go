@@ -99,6 +99,49 @@ var consumedFlags = map[string]map[string]bool{
 // does with its arguments.
 var wrappers = map[string]bool{"sudo": true, "command": true, "builtin": true, "nohup": true, "time": true}
 
+// shells take a whole command line as the operand of -c. That operand is one
+// word with spaces in it, so the fragment scan — which stops at whitespace to
+// stay off prose — never looks inside it, and every shape this package refuses
+// is spelled past it by wrapping it in `bash -c '…'`. It is not prose: the
+// operand of -c on a shell is a command line by the shell's own definition, so
+// it is lexed and scanned as one rather than fragmented as text.
+var shells = map[string]bool{
+	"sh": true, "bash": true, "zsh": true, "dash": true, "ksh": true, "ash": true,
+}
+
+// shellCommandFlag reports whether a shell option word introduces the command
+// line as its next operand. Bash and its relatives bundle single-letter
+// options, so `-lc` and `-xc` take the operand exactly as `-c` does; `--` and
+// long options do not.
+func shellCommandFlag(arg string) bool {
+	if !strings.HasPrefix(arg, "-") || strings.HasPrefix(arg, "--") || arg == "-" {
+		return false
+	}
+	return strings.ContainsRune(arg, 'c')
+}
+
+// transcriptSinks are destinations whose bytes land in the transcript. They are
+// what makes a safeReader unsafe: `cp` is on the safe list because copying a
+// file writes its content to another file, which is true of every ordinary use
+// and false of `cp .env /dev/stdout`. The exoneration is a claim about where
+// the bytes go, so it is void wherever the command line says they go here.
+var transcriptSinks = map[string]bool{
+	"/dev/stdout": true, "/dev/stderr": true, "/dev/fd/1": true,
+	"/dev/fd/2": true, "/dev/tty": true, "/dev/console": true,
+	"/proc/self/fd/1": true, "/proc/self/fd/2": true,
+}
+
+// writesToTranscript reports whether any argument names a descriptor that
+// prints. Trailing "/" is trimmed for the same reason basename does it.
+func writesToTranscript(args []string) bool {
+	for _, a := range args {
+		if transcriptSinks[strings.TrimSuffix(a, "/")] {
+			return true
+		}
+	}
+	return false
+}
+
 // prefixOperands reports how many words a prefix command consumes before the
 // real command word begins, for the wrappers that take operands of their own.
 // Without this the command word resolves to the prefix's own argument — a bare
@@ -339,6 +382,17 @@ func ScanPath(p string) []Finding {
 // them from the words — so writing a document that discusses a credential file
 // by name is silent, which is what makes the guard survivable.
 func ScanBash(command string) []Finding {
+	return scanBash(command, 0)
+}
+
+// maxShellNesting bounds shell-in-shell operands. Each level scans a strictly
+// shorter string than the one that produced it, so this is a bound on
+// pathological input rather than what makes the recursion terminate.
+const maxShellNesting = 8
+
+// scanBash is ScanBash carrying the nesting depth of the shell -c operands it
+// has descended through.
+func scanBash(command string, depth int) []Finding {
 	var out []Finding
 	// A variable that holds a credential's VALUE, read by a substitution. Using
 	// it is the idiom; printing it is the leak.
@@ -395,6 +449,26 @@ func ScanBash(command string) []Finding {
 			continue
 		}
 
+		// A safeReader is exonerated by where its bytes go, so naming a
+		// descriptor that prints withdraws the exoneration for this command.
+		exonerated := safeReaders[reader] && !writesToTranscript(args)
+
+		// stdin redirected from a credential feeds the file to the command
+		// without ever naming it as an argument.
+		if c.In != "" && !exonerated && IsSecretPath(c.In) {
+			out = append(out, Finding{Path: c.In, Reader: reader})
+		}
+
+		// A shell's -c operand is a command line, not an argument: scan it as
+		// one so no shape is reachable by quoting it.
+		if shells[reader] && depth < maxShellNesting {
+			for ai, a := range args {
+				if ai+1 < len(args) && shellCommandFlag(a) {
+					out = append(out, scanBash(args[ai+1], depth+1)...)
+				}
+			}
+		}
+
 		// A variable holding a credential, printed back out. The capture was
 		// safe; handing it to a printer is the same leak one step later.
 		consumed := consumedFlags[reader]
@@ -405,7 +479,7 @@ func ScanBash(command string) []Finding {
 				}
 			}
 			for name := range holdsPath {
-				if !safeReaders[reader] && names(a, name) {
+				if !exonerated && names(a, name) {
 					out = append(out, Finding{Path: "$" + name, Reader: reader})
 				}
 			}
@@ -416,7 +490,7 @@ func ScanBash(command string) []Finding {
 			if found := secretsInWord(a); len(found) > 0 {
 				// A path, however it is spelled: the command opens the file
 				// itself. Only the enumerated non-emitters are exonerated.
-				if !safeReaders[reader] {
+				if !exonerated {
 					for _, f := range found {
 						out = append(out, Finding{Path: f, Reader: reader})
 					}
