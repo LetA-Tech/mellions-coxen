@@ -195,7 +195,16 @@ func scriptOrigin(script, loadPath string) (where string, established, split boo
 // it is the same file the rest of this row places — so "outside the load path"
 // stops being one predicate doing two jobs: a superseded checkout's copy is a
 // stopped deployment, and a host's own file in /etc or under a home is not.
+//
+// The walk starts from the resolved path, because the caller decided this file
+// was outside the load path from the resolved one: a stable /etc name pointing
+// into a superseded checkout is exactly how an operator names a deploy file,
+// and asking the two halves of one decision about two different paths answers
+// "no checkout" for a path that is one.
 func checkoutOf(path string) string {
+	if resolved, err := filepath.EvalSymlinks(path); err == nil {
+		path = resolved
+	}
 	dir := filepath.Dir(path)
 	for {
 		if st, err := os.Stat(filepath.Join(dir, "scripts", "shifts.sh")); err == nil && !st.IsDir() {

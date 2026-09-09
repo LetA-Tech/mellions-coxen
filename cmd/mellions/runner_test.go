@@ -498,3 +498,61 @@ func TestScriptOrigin(t *testing.T) {
 		t.Fatalf("symlinked script path read as a split: %q", where)
 	}
 }
+
+// A stable name outside every checkout that points into one is how an operator
+// names a deploy file, and it is the highest-consequence split on this row: the
+// deny list an unattended runtime is given, taken from a checkout that stopped
+// receiving merges. The row decides "outside the load path" from the resolved
+// path, so it has to ask which checkout from the resolved path too — asking the
+// raw one answers "no checkout of this repository, so it is this host's own
+// file", which is this row reading green through the state it exists to catch.
+func TestRunnerStatePlacesASettingsSymlinkByWhereItResolves(t *testing.T) {
+	requireProcFS(t)
+	root := t.TempDir()
+	loadPath := filepath.Join(root, "loadpath")
+	shifts := filepath.Join(root, "shifts")
+	superseded := filepath.Join(root, "superseded")
+	for _, d := range []string{
+		filepath.Join(loadPath, "scripts"), shifts,
+		filepath.Join(superseded, "scripts"), filepath.Join(superseded, "deploy"),
+		filepath.Join(root, "etc"),
+	} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	script := filepath.Join(loadPath, "scripts", "shifts.sh")
+	if err := os.WriteFile(script, []byte("sleep 30\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// scripts/shifts.sh is what makes superseded a checkout to checkoutOf.
+	if err := os.WriteFile(filepath.Join(superseded, "scripts", "shifts.sh"), []byte("sleep 30\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	settings := filepath.Join(superseded, "deploy", "unattended-settings.json")
+	if err := os.WriteFile(settings, []byte("{}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(root, "etc", "unattended-settings.json")
+	if err := os.Symlink(settings, link); err != nil {
+		t.Fatal(err)
+	}
+
+	live := exec.Command("sh", script)
+	live.Env = append(os.Environ(), "MELLIONS_SETTINGS="+link)
+	if err := live.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = live.Process.Kill(); _ = live.Wait() })
+	if err := os.WriteFile(filepath.Join(shifts, "runner.lock"), []byte(strconv.Itoa(live.Process.Pid)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	state, detail := runnerState(root, loadPath)
+	if state != "STOPPED" || !strings.Contains(detail, "a checkout of this repository at "+superseded) {
+		t.Fatalf("got %q %q, want STOPPED naming the superseded checkout %s", state, detail, superseded)
+	}
+	if strings.Contains(detail, "this host's own file") {
+		t.Fatalf("a superseded checkout's deploy/ reported as this host's own file: %s", detail)
+	}
+}
