@@ -28,7 +28,7 @@ completion       the condition, not the steps to reach it
 
 **High specificity about the problem and the boundary. Near-zero prescription of
 how to think.** A dispatch that scripts the reasoning gets you a worse engineer
-than the one you have. Say what "done" looks like and let it find the route.
+than the one you have.
 
 ## The boundary is a path, not a paragraph
 
@@ -45,21 +45,16 @@ A boundary written as a prohibition — *never touch `<path>`* — is not a
 boundary: it breaks when a failed `cd` leaves the rest of a compound command
 running in the tree it was told to stay out of. `cd <dir>; <command>` runs
 wherever the shell already was; `cd <dir> && <command>` does not run at all.
-The answer is never a better-worded dispatch.
 
-Keep it around two kilobytes. Its own `CLAUDE.md` and the skills it carries
-supply everything else, and it will find them.
-
-## Which tier
-
-The runtime sets it, from the operator's standing configuration — not a
-judgment to re-derive per dispatch.
+Keep it around two kilobytes; its own `CLAUDE.md` and the skills it names
+supply the rest. Tier is the runtime's, from the operator's standing
+configuration; never re-derived per dispatch.
 
 ## Judging what comes back
 
 Verify before believing or building on it. A session reports confidently whether
-or not it is right, and confidence is not evidence — see `mellions-reasoning` and `mellions-deep-research`
-for what each kind of claim costs.
+or not it is right, and confidence is not evidence — see `mellions-reasoning`
+and `mellions-deep-research`.
 
 The failure to watch for is a session that says a thing is fixed because the
 diff exists. Ask what it ran, and what it saw.
@@ -71,13 +66,18 @@ open.
 ## Reviewing a peer's change set
 
 A session you did not open cannot be widened, and its report reaches you as an
-artifact: a pull request. The duty is the same — judge by what it ran and saw.
+artifact: a pull request. The duty is the same.
 
 **A peer's draft left ready is available work.** Evidence in the body and a
-handoff on the change set say it is waiting, not abandoned. The second pair of
-eyes it asked for is what a different session supplies, and unattended there is
-nobody else: an evidenced draft none reads is the shift's work undone. A
-draft's size is a measurement, not a verdict.
+handoff on the change set say it is waiting, not abandoned, and unattended
+nobody else will read it: an evidenced draft none reads is the shift's work
+undone. A draft's size is a measurement, not a verdict.
+
+**A review count of zero is not evidence nobody read it.** A read here is posted
+as a comment, so a change set read twice still reports `reviews: 0` — 18 of 31
+open ones across eight repositories did. Read the disposition of any read already
+there: where one returned changes requested and the head has not moved since, the
+work waiting is the remedy it named, not a second opinion.
 
 **A change set carrying `mellions:claimed` is held.** A survey prints
 `CLAIMED`; read the claim before deciding anything. An active lane is still on
@@ -87,7 +87,7 @@ for a day is stale: swept, not obeyed. Draft state separates none of these — a
 peer merged a draft with a review in flight because it could not.
 
 **A lane that dispatches a review of its own draft claims it first** —
-`mellions assign claim -id <lane> -pr <n>` — before sending the review. A
+`mellions assign claim <lane> -pr <n>` — before sending the review. A
 comment is not what another host sees; the claim is.
 
 **Read the requirement at the base commit before the diff.** The body is the
@@ -112,22 +112,21 @@ Then one of two, never a third:
 - **Merge it** where you established the claims are ready and the partnership
   grants you that. Finished work waiting to be noticed is not finished.
 - **Leave a review naming what is not established** — the claim, the evidence
-  it lacks, what would settle it. Not a list of preferences.
+  it lacks, what would settle it. Not a list of preferences. Post it with
+  `gh pr review --comment`, not `gh pr comment` — same text, and only the
+  first is counted.
 
 Never a rubber stamp; an approval you did not earn costs more than no review.
-Never your own lane — the branch names whose it is, and no session both decides
-and approves its own work.
+Never your own lane — the branch names whose it is.
 
 **A repository's own governance outranks the grant.** Where its `CLAUDE.md` or
 `AGENTS.md` reserves merge to named people, review and leave the merge to them,
-saying so on the pull request. The grant says what you may do, never what a
-repository has already decided.
+saying so on the pull request.
 
 ## Supporting one
 
 Answer questions with evidence it cannot reach — decisions, history, what
-another repository does, what was already tried. That is what you have and it
-does not.
+another repository does, what was already tried.
 
 Challenge a conclusion that outruns its evidence. Do it once, plainly, with the
 reason.
@@ -138,7 +137,7 @@ being a dispatch edit and becomes an escalation.
 
 ## Isolation
 
-Sessions run on the host, in a real checkout. They are hands, not threats.
+Sessions run on the host, in a real checkout.
 
 Send work to the disposable sandbox when it is **risky, not merely uncertain**:
 a destructive command, untrusted code, a dependency you would not install on the
@@ -151,7 +150,7 @@ Close when the objective is met, or when the work has moved somewhere a fresh
 session would serve better than this one's accumulated context.
 
 A session left open holds a model context and several hundred megabytes. Idle
-ones are reaped, but reaping is a backstop, not a plan.
+ones are reaped, but reaping is a backstop.
 
 Record what was learned before closing. The session's context dies with it; your
 record is what survives.
