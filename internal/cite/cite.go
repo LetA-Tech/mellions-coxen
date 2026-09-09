@@ -54,6 +54,7 @@
 package cite
 
 import (
+	"errors"
 	"regexp"
 	"strconv"
 	"strings"
@@ -78,6 +79,11 @@ type Kind int
 const (
 	// Missing: the file has fewer lines than the citation claims.
 	Missing Kind = iota
+	// Absent: the path names a directory this checkout has, and no such file.
+	// A citation of this shape is a claim about code that is not there, and a
+	// reader cannot tell it from one that is — which is why it is a finding
+	// rather than one of the unresolved the check merely reports.
+	Absent
 	// Unbacked: the line exists and the document quotes nothing equal to it.
 	Unbacked
 	// Unanchored: the document quotes the line, somewhere other than under
@@ -97,6 +103,9 @@ type Finding struct {
 // Reason states the finding in the terms the author has to act on.
 func (f Finding) Reason() string {
 	switch f.Kind {
+	case Absent:
+		return f.Raw + ": no such file in this checkout, though the path names a directory it has. " +
+			"A citation nobody can open is a claim about code that is not there."
 	case Missing:
 		return f.Raw + ": no such line — the file is shorter than that."
 	case Unanchored:
@@ -175,14 +184,35 @@ func occurrences(doc string) []Citation {
 	return out
 }
 
-// Check reports the citations a document cannot back. read answers with a
-// file's lines, or an error where the path is not a file in the tree — which
-// is not a finding but the bound on what counts as a citation at all, since a
-// path this tree does not have is a URL host, another repository, or prose.
-func Check(doc string, read func(path string) ([]string, error)) []Finding {
+// ErrPathClaimsTree is what a resolver returns for a path whose leading segment
+// names a directory this checkout has, while the path itself is not a file in
+// it. It separates the two reasons a read fails, which the checker previously
+// could not tell apart: a citation belonging to another repository, a URL host
+// or prose carrying a colon — all legitimately unresolvable here — from one
+// that says it is this tree's and is wrong. The first is reported, the second
+// is a finding.
+var ErrPathClaimsTree = errors.New("cite: the path names a directory this checkout has, and no such file")
+
+// Check reports the citations a document cannot back, and separately every
+// citation this checkout could not resolve at all.
+//
+// read answers with a file's lines, or an error. An error was the bound on what
+// counts as a citation at all — a path this tree does not have is a URL host,
+// another repository, or prose — and that bound was too wide: it also swallowed
+// a path claiming this tree and absent from it. A resolver separates the two
+// with ErrPathClaimsTree.
+//
+// The unresolved are returned rather than dropped. They were silently skipped,
+// which made the check's silence ambiguous: a body whose citations all pointed
+// at another repository passed exactly as one whose citations were all verified,
+// and no reader could tell the two apart from the result. A caller states them
+// so a green says what it covered.
+func Check(doc string, read func(path string) ([]string, error)) ([]Finding, []Citation) {
 	q := quotations(doc)
 	backed := map[string]bool{}
 	first := map[string]Finding{}
+	seenUnresolved := map[string]struct{}{}
+	var unresolved []Citation
 	var order []string
 	note := func(f Finding) {
 		if _, seen := first[f.Raw]; !seen {
@@ -195,6 +225,18 @@ func Check(doc string, read func(path string) ([]string, error)) []Finding {
 		}
 		lines, err := read(c.Path)
 		if err != nil {
+			if _, seen := seenUnresolved[c.Raw]; !seen && !errors.Is(err, ErrPathClaimsTree) {
+				seenUnresolved[c.Raw] = struct{}{}
+				unresolved = append(unresolved, c)
+				continue
+			}
+			if !errors.Is(err, ErrPathClaimsTree) {
+				continue
+			}
+			if _, seen := first[c.Raw]; !seen {
+				order = append(order, c.Raw)
+			}
+			note(Finding{Citation: c, Kind: Absent})
 			continue
 		}
 		if _, seen := first[c.Raw]; !seen {
@@ -222,7 +264,7 @@ func Check(doc string, read func(path string) ([]string, error)) []Finding {
 		}
 		out = append(out, first[raw])
 	}
-	return out
+	return out, unresolved
 }
 
 // prose is the document with everything it quotes rather than states removed,
