@@ -324,3 +324,102 @@ func TestResolver_CommitGradesTheSameWayAsTheWorkingTree(t *testing.T) {
 		t.Error("-commit treated a cross-repo path as claiming the tree")
 	}
 }
+
+// TestRequireRef_ARefThatResolvesToNothingIsRefused closes the largest hole a
+// reviewer found in this check: git can read no path at a ref that does not
+// exist, so every citation becomes unresolvable, the body is reported as
+// unchecked, and the command exits 0 saying "every citation this checkout can
+// resolve is quoted in the body" — having resolved none. A typo in -commit
+// silently disabled the gate and was reassuring while it did.
+func TestRequireRef_ARefThatResolvesToNothingIsRefused(t *testing.T) {
+	root := citeGitRepo(t)
+	if err := requireRef(context.Background(), root, "no-such-ref"); err == nil {
+		t.Error("a ref resolving to no commit was accepted; every citation would read as " +
+			"unresolvable and the check would pass having verified nothing")
+	}
+	if err := requireRef(context.Background(), root, "HEAD"); err != nil {
+		t.Errorf("HEAD was refused (%v) — the assertion above would be vacuous against a "+
+			"requireRef that rejects everything", err)
+	}
+	if err := requireRef(context.Background(), root, ""); err != nil {
+		t.Errorf("the working-tree case must not be refused: %v", err)
+	}
+
+	// And that cmdCite actually calls it. Testing the predicate alone leaves the
+	// call site undriven — deleting the guard from cmdCite reddened nothing, so
+	// the three assertions above were about a function nothing had to invoke.
+	body := filepath.Join(root, "body.md")
+	if err := os.WriteFile(body, []byte("see `internal/a.go:1` somewhere.\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	err := cmdCite(context.Background(), []string{"check", "-file", body, "-dir", root, "-commit", "no-such-ref"})
+	if err == nil {
+		t.Error("cmdCite accepted a ref resolving to no commit — the gate is disabled by a typo " +
+			"and reports that every citation it can resolve is quoted")
+	}
+	if err != nil && !strings.Contains(err.Error(), "resolves to no commit") {
+		t.Errorf("cmdCite failed for the wrong reason: %v", err)
+	}
+}
+
+// TestClaimsTreeAt_OnlyADirectoryClaimsTheTree drives the comparison that
+// decides it. `git cat-file -t <commit>:<segment>` answers "tree" for a
+// directory and "blob" for a file, and only the first means the path claims
+// this tree. Accepting any successful answer would call `README.md/x.go` a
+// same-repo path and re-open the arm divergence #69 closed — and it would pull
+// a submodule gitlink into the finding path too.
+//
+// A reviewer found this comparison had no test: mutating it to `err == nil`
+// left all 28 packages green.
+func TestClaimsTreeAt_OnlyADirectoryClaimsTheTree(t *testing.T) {
+	root := citeGitRepo(t)
+	ctx := context.Background()
+	head := strings.TrimSpace(gitOut(root, "rev-parse", "HEAD"))
+
+	// internal/ is a directory at HEAD: a path under it claims this tree.
+	if !claimsTreeAt(ctx, root, head, "internal/missing.go") {
+		t.Error("a path under a directory in the commit did not claim the tree")
+	}
+	// top.txt is a FILE at HEAD. A path under it is not this tree's, and
+	// cat-file answers "blob" rather than failing — which is why the comparison
+	// and not merely the error is what decides.
+	if claimsTreeAt(ctx, root, head, "top.txt/nested.go") {
+		t.Error("a path under a FILE was treated as claiming the tree; the check accepts any " +
+			"answer git gives rather than requiring a directory")
+	}
+	// A segment the commit does not have at all.
+	if claimsTreeAt(ctx, root, head, "elsewhere/x.go") {
+		t.Error("a path under a segment absent from the commit claimed the tree")
+	}
+}
+
+// citeGitRepo is a one-commit repository with a directory and a top-level file,
+// which is what separates "tree" from "blob" above.
+func citeGitRepo(t *testing.T) string {
+	t.Helper()
+	root := t.TempDir()
+	run := func(args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", args...)
+		cmd.Dir = root
+		cmd.Env = append(os.Environ(),
+			"GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t",
+			"GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t")
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %s: %v: %s", strings.Join(args, " "), err, out)
+		}
+	}
+	run("init", "-q", "-b", "main")
+	if err := os.MkdirAll(filepath.Join(root, "internal"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "internal", "a.go"), []byte("package a\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "top.txt"), []byte("x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	run("add", "-A")
+	run("commit", "-qm", "one")
+	return root
+}
