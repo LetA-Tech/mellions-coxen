@@ -556,3 +556,48 @@ func TestRunnerStatePlacesASettingsSymlinkByWhereItResolves(t *testing.T) {
 		t.Fatalf("a superseded checkout's deploy/ reported as this host's own file: %s", detail)
 	}
 }
+
+// The tail of a path containing a space is itself absolute when the directory
+// before the space ends there, so `filepath.IsAbs` on a token re-split out of a
+// flattened ps line is not a test of exactness: the token resolves, sits inside
+// the load path, and is not what the pid is executing. The row would then print
+// a path the runner is not running and call it present — the split this row
+// exists to name, certified. The /proc reading of the same process is the
+// control: it holds the argument whole and says STOPPED.
+func TestRunnerStateDoesNotBelieveAnAbsoluteFragmentOfAPSLine(t *testing.T) {
+	root := t.TempDir()
+	loadPath := filepath.Join(root, "loadpath")
+	shifts := filepath.Join(root, "shifts")
+	inside := filepath.Join(loadPath, "scripts", "shifts.sh")
+	script := filepath.Join(root, "backup ") + inside
+	for _, d := range []string{filepath.Dir(inside), shifts, filepath.Dir(script)} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, f := range []string{inside, script} {
+		if err := os.WriteFile(f, []byte("sleep 30\n"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	live := exec.Command("sh", script)
+	if err := live.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = live.Process.Kill(); _ = live.Wait() })
+	if err := os.WriteFile(filepath.Join(shifts, "runner.lock"), []byte(strconv.Itoa(live.Process.Pid)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	restore := procRoot
+	t.Cleanup(func() { procRoot = restore })
+	procRoot = filepath.Join(root, "no-proc")
+
+	state, detail := runnerState(root, loadPath)
+	if state == "present" {
+		t.Fatalf("state = %q for a pid executing %s: a fragment of the ps line was believed — %s", state, script, detail)
+	}
+	if !strings.Contains(detail, "unrecoverable") {
+		t.Fatalf("detail = %q, want it to say the path could not be recovered", detail)
+	}
+}

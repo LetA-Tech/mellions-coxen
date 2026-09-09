@@ -29,9 +29,12 @@ moves nothing. Neither a non-zero exit forever for a documented configuration,
 nor an installation certified that was never placed. Where the environment
 cannot be read at all, or where
 the path a process is executing cannot be recovered, the row says so in its
-detail and keeps the word `shifts.sh` earned — and it names no path it could not
-read, a fragment of a real one being a file that is not there. So `present` is a
-loop script placed, never a whole installation certified.
+detail and keeps the word `shifts.sh` earned — and it names no path it did not
+get from the kernel. A `ps` line is joined with the byte it would be split on, so
+no token out of one is a path the kernel holds; a fragment of a real path can
+itself be a real file, and the one it most easily is happens to be a `shifts.sh`
+inside the load path. So `present` is a loop script placed, never a whole
+installation certified.
 
 Permissions, tools, hooks, MCP, sandboxing, credentials and model settings
 belong to the runtime and are inherited exactly as they are; a capability the

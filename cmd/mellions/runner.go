@@ -242,11 +242,15 @@ func lockPID(path string) (int, bool) {
 // `shifts.sh` is returned as it stands: it is as legitimate an invocation as an
 // absolute one, and which checkout it came from is then a question ps cannot
 // answer, which scriptOrigin says out loud rather than guesses at.
-// exact is false where the reading cannot bear a path at all. A flattened
-// vector is joined with the byte it is then split on, so a token that is not
-// absolute is either a relative invocation or the tail of an absolute path
-// containing a space, and nothing in the line separates them. Under the process
-// filesystem the ambiguity does not exist and every token is exact.
+// exact is the NUL-delimited reading and nothing else. A flattened vector is
+// joined with the byte it is then split on, so no token out of it is a path the
+// kernel holds — and being absolute does not rescue one, because the tail of a
+// path containing a space is absolute exactly when the directory before the
+// space ends there. A checkout under `<dir> ` whose remaining path is itself an
+// absolute path to a real shifts.sh inside the load path yields a token that is
+// absolute, resolves, and is not what the pid is executing, which is a `present`
+// for the split this row exists to name. Under the process filesystem the
+// ambiguity does not exist and every token is exact.
 func runnerScript(pid int) (script string, exact, alive bool) {
 	if err := syscall.Kill(pid, 0); err != nil && !errors.Is(err, syscall.EPERM) {
 		return "", false, false
@@ -257,7 +261,7 @@ func runnerScript(pid int) (script string, exact, alive bool) {
 	}
 	for _, arg := range args {
 		if filepath.Base(arg) == "shifts.sh" {
-			return arg, whole || filepath.IsAbs(arg), true
+			return arg, whole, true
 		}
 	}
 	return "", false, false
