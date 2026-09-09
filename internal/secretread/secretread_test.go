@@ -411,3 +411,34 @@ func TestScanBash_TheThreeShapesDidNotOverRefuse(t *testing.T) {
 		})
 	}
 }
+
+// TestScanBash_ShellOperandIsNotPositional closes what an independent read of
+// the first commit ran and found: the shell descent read the word after the
+// -c-bearing option instead of the first operand, so two characters put the
+// script back out of reach. Each case here executes and prints in real bash.
+func TestScanBash_ShellOperandIsNotPositional(t *testing.T) {
+	for _, cmd := range []string{
+		`bash -c -- 'cat .env'`,
+		`sh -c -- "cat .db_connection"`,
+		`bash -c -x 'cat .env'`,
+		`bash -c --norc 'cat .env'`,
+		`bash -c 'cat .env' arg0 arg1`,
+		`eval 'cat .env'`,
+		`eval "tail -1 .db_connection"`,
+	} {
+		if got := ScanBash(cmd); len(got) == 0 {
+			t.Errorf("ScanBash(%q) allowed a credential read", cmd)
+		}
+	}
+	// A heredoc is data to every reader but a shell, for which it is a script.
+	heredoc := "bash <<'EOF'\ncat .env\nEOF\n"
+	if got := ScanBash(heredoc); len(got) == 0 {
+		t.Errorf("ScanBash(a heredoc fed to bash) allowed a credential read")
+	}
+	// The same body handed to a reader that is not a shell stays data, which
+	// is what keeps a pull-request body naming a credential file silent.
+	prose := "gh pr create --body-file - <<'EOF'\ncat .env is what the guard refuses\nEOF\n"
+	if got := ScanBash(prose); len(got) != 0 {
+		t.Errorf("ScanBash(a heredoc fed to gh) denied prose: %+v", got)
+	}
+}

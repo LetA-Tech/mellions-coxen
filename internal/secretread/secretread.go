@@ -109,15 +109,35 @@ var shells = map[string]bool{
 	"sh": true, "bash": true, "zsh": true, "dash": true, "ksh": true, "ash": true,
 }
 
-// shellCommandFlag reports whether a shell option word introduces the command
-// line as its next operand. Bash and its relatives bundle single-letter
-// options, so `-lc` and `-xc` take the operand exactly as `-c` does; `--` and
-// long options do not.
+// shellCommandFlag reports whether a shell option word carries -c. Bash and
+// its relatives bundle single-letter options, so `-lc` and `-xc` carry it
+// exactly as `-c` does; long options do not.
 func shellCommandFlag(arg string) bool {
 	if !strings.HasPrefix(arg, "-") || strings.HasPrefix(arg, "--") || arg == "-" {
 		return false
 	}
 	return strings.ContainsRune(arg, 'c')
+}
+
+// shellCommandOperand returns the command line a shell will run, or "".
+//
+// It is the first NON-OPTION word after the option word carrying -c, not the
+// word positionally after it. `bash -c -- 'cat .env'` and `bash -c -x 'cat
+// .env'` both run the quoted script, and reading `args[i+1]` finds `--` or
+// `-x` there — a two-character rewrite past the whole rule.
+func shellCommandOperand(args []string) string {
+	seen := false
+	for _, a := range args {
+		if !seen {
+			seen = shellCommandFlag(a)
+			continue
+		}
+		if a == "--" || strings.HasPrefix(a, "-") {
+			continue
+		}
+		return a
+	}
+	return ""
 }
 
 // transcriptSinks are destinations whose bytes land in the transcript. They are
@@ -459,12 +479,24 @@ func scanBash(command string, depth int) []Finding {
 			out = append(out, Finding{Path: c.In, Reader: reader})
 		}
 
-		// A shell's -c operand is a command line, not an argument: scan it as
-		// one so no shape is reachable by quoting it.
-		if shells[reader] && depth < maxShellNesting {
-			for ai, a := range args {
-				if ai+1 < len(args) && shellCommandFlag(a) {
-					out = append(out, scanBash(args[ai+1], depth+1)...)
+		// A shell's operand is a command line, not an argument: scan it as one
+		// so no shape is reachable by quoting it. A heredoc fed to a shell is
+		// the same thing spelled over several lines — bodies are data to every
+		// other reader and a script to this one.
+		if depth < maxShellNesting {
+			if shells[reader] {
+				if op := shellCommandOperand(args); op != "" {
+					out = append(out, scanBash(op, depth+1)...)
+				}
+				for _, h := range c.Heredocs {
+					out = append(out, scanBash(h, depth+1)...)
+				}
+			}
+			// eval takes a command line by the shell's own definition, and
+			// takes it as every operand rather than behind a flag.
+			if reader == "eval" {
+				for _, a := range args {
+					out = append(out, scanBash(a, depth+1)...)
 				}
 			}
 		}
