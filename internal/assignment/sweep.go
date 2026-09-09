@@ -19,15 +19,6 @@ import (
 // to whether the lane is finished.
 type PullRequests func(ctx context.Context, repo, branch string) ([]claim.PullRequest, error)
 
-// PullRequestAt asks the tracker about the pull request a reference names.
-//
-// A lane that reviews another lane's change set holds a reference to it and
-// produces no branch of its own, so PullRequests answers nothing about the one
-// item it holds. An error is unknown here for the same reason it is there: an
-// issue number put to this question is refused, and a refusal is not evidence
-// that the work is unfinished.
-type PullRequestAt func(ctx context.Context, repo, ref string) (claim.PullRequest, error)
-
 // SweepOptions says what a sweep reads and whether it acts.
 type SweepOptions struct {
 	// Repo narrows the sweep to one repository; empty is every one.
@@ -38,9 +29,6 @@ type SweepOptions struct {
 	// PullRequests reads the tracker. Nil is an installation with no tracker,
 	// and every handed-off lane is then kept: unknown is not closable.
 	PullRequests PullRequests
-	// PullRequestAt reads one pull request by the reference a lane holds,
-	// for a lane whose own branch produced none. Nil asks only the branch.
-	PullRequestAt PullRequestAt
 	// Live describes the running session holding a lane, by the session id
 	// the lane records. A lane with a live session is being worked whatever
 	// its state says, and the sweep says so instead of asking for a handoff.
@@ -120,11 +108,6 @@ func (s *Store) sweepOne(ctx context.Context, a *Assignment, o SweepOptions) Swe
 		return v
 	}
 	pr, ok := decisive(prs)
-	held := false
-	if !ok {
-		pr, ok = heldPullRequest(ctx, a, o)
-		held = ok
-	}
 	switch {
 	case !ok:
 		v.Why = "no pull request for " + a.Branch
@@ -137,9 +120,6 @@ func (s *Store) sweepOne(ctx context.Context, a *Assignment, o SweepOptions) Swe
 		return v
 	}
 	why := finished(pr)
-	if held {
-		why += ", which is the change set this lane holds rather than one its branch produced"
-	}
 	u, err := s.Unsaved(a)
 	if err != nil {
 		v.Why = why + ", but the worktree could not be read: " + err.Error()
@@ -233,42 +213,6 @@ func decisive(prs []claim.PullRequest) (claim.PullRequest, bool) {
 		}
 	}
 	return pick, found
-}
-
-// heldPullRequest is what the tracker says about the change set this lane
-// holds, for a lane whose own branch produced none.
-//
-// A lane opened to read somebody else's change set is the case: it commits
-// nothing, so its branch has no pull request and the branch question answers
-// "no pull request" forever — while the one item it holds is merged. A lane
-// kept forever keeps its published claim forever, and that claim is what tells
-// every other session the merged change set is still being worked and must not
-// be merged.
-//
-// A finished pull request among the items settles it whichever item it is; an
-// unfinished one is reported so the lane is kept for a reason that names it. A
-// reference gh refuses is skipped rather than believed: an issue number and a
-// pull request number come from one space, and a refusal says which this was,
-// not that the work is done.
-func heldPullRequest(ctx context.Context, a *Assignment, o SweepOptions) (claim.PullRequest, bool) {
-	if o.PullRequestAt == nil {
-		return claim.PullRequest{}, false
-	}
-	var unfinished claim.PullRequest
-	found := false
-	for _, ref := range a.claimRefs() {
-		pr, err := o.PullRequestAt(ctx, a.Repo, ref)
-		if err != nil {
-			continue
-		}
-		if pr.State == "MERGED" || pr.State == "CLOSED" {
-			return pr, true
-		}
-		if !found {
-			unfinished, found = pr, true
-		}
-	}
-	return unfinished, found
 }
 
 // finished says what the tracker established, in the words the record keeps.
