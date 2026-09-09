@@ -662,6 +662,11 @@ func assignSweep(ctx context.Context, args []string) error {
 			defer cancel()
 			return tr.PullRequests(c, repo, branch)
 		}
+		o.PullRequestAt = func(ctx context.Context, repo, ref string) (claim.PullRequest, error) {
+			c, cancel := context.WithTimeout(ctx, 15*time.Second)
+			defer cancel()
+			return tr.PullRequestAt(c, repo, ref)
+		}
 	}
 	swept, err := store.Sweep(ctx, o)
 	if err != nil {

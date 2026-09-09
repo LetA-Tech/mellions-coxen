@@ -521,3 +521,37 @@ func (t *Tracker) PullRequests(ctx context.Context, repo, branch string) ([]Pull
 	}
 	return prs, nil
 }
+
+// PullRequestAt reads what the tracker says about the pull request a reference
+// names, whatever branch produced it.
+//
+// PullRequests answers for a branch, which is the lane's own change set. A lane
+// that reviews somebody else's change set holds a reference to it and produces
+// no branch of its own, so the branch question returns nothing about the only
+// item it holds.
+//
+// The reference decides nothing here: gh does. An issue number and a pull
+// request number come from one space and a record cannot tell them apart, so
+// the number is put to `pr view`, which answers for a pull request and refuses
+// for an issue. That refusal is the discriminator, and it is an error rather
+// than a state — unknown, never "not finished".
+func (t *Tracker) PullRequestAt(ctx context.Context, repo, ref string) (PullRequest, error) {
+	slug, err := t.slug(repo)
+	if err != nil {
+		return PullRequest{}, err
+	}
+	n, err := Number(strings.TrimSpace(prefix.ReplaceAllString(strings.TrimSpace(ref), "")))
+	if err != nil {
+		return PullRequest{}, err
+	}
+	out, err := t.run(ctx, "pr", "view", strconv.Itoa(n), "--repo", slug,
+		"--json", "number,state,mergedAt")
+	if err != nil {
+		return PullRequest{}, fmt.Errorf("claim: read %s: %w", name(slug, "pr", n), err)
+	}
+	var pr PullRequest
+	if err := json.Unmarshal(out, &pr); err != nil {
+		return PullRequest{}, fmt.Errorf("claim: read %s: %w", name(slug, "pr", n), err)
+	}
+	return pr, nil
+}

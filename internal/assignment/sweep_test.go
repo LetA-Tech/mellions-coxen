@@ -19,6 +19,9 @@ import (
 // and records what it was asked.
 type ghSays struct {
 	byBranch map[string]string
+	// byNumber answers `pr view <n>`. A number absent from it is refused the
+	// way gh refuses an issue number put to a pull request question.
+	byNumber map[string]string
 	err      error
 	asked    [][]string
 }
@@ -27,6 +30,12 @@ func (g *ghSays) run(_ context.Context, args ...string) ([]byte, error) {
 	g.asked = append(g.asked, args)
 	if g.err != nil {
 		return nil, g.err
+	}
+	if len(args) > 2 && args[0] == "pr" && args[1] == "view" {
+		if out, ok := g.byNumber[args[2]]; ok {
+			return []byte(out), nil
+		}
+		return nil, errors.New("gh: Could not resolve to a PullRequest with the number of " + args[2])
 	}
 	for i, a := range args {
 		if a == "--head" && i+1 < len(args) {
@@ -42,6 +51,26 @@ func (g *ghSays) run(_ context.Context, args ...string) ([]byte, error) {
 func fakePullRequests(g *ghSays) PullRequests {
 	tr := &claim.Tracker{Owner: "example-org", Host: "here", Run: g.run}
 	return tr.PullRequests
+}
+
+// fakePullRequestAt uses the same runner boundary as the GitHub claim tracker,
+// so the test exercises the gh command the sweep actually issues.
+func fakePullRequestAt(g *ghSays) PullRequestAt {
+	tr := &claim.Tracker{Owner: "example-org", Host: "here", Run: g.run}
+	return tr.PullRequestAt
+}
+
+// holding is a handed-off lane that holds an item it did not produce: a review
+// lane, which commits nothing and whose branch therefore never has a pull
+// request of its own.
+func holding(t *testing.T, s *Store, id, repo, source, ref, handoff string) *Assignment {
+	t.Helper()
+	a := mustOpen(t, s, OpenOptions{ID: id, Repo: repo, Source: source, Issue: ref,
+		Objective: "read " + ref, Because: "nobody had reviewed it"})
+	if err := s.Handoff(id, handoff); err != nil {
+		t.Fatal(err)
+	}
+	return a
 }
 
 func handedOff(t *testing.T, s *Store, id, repo, source, handoff string) *Assignment {
@@ -315,4 +344,111 @@ func TestSweepNarrowsToARepository(t *testing.T) {
 	if sw[0].Verdict != StateBlocked || !strings.Contains(sw[0].Why, "set down on purpose") {
 		t.Errorf("blocked lane: %+v", sw[0])
 	}
+}
+
+// TestSweepClosesALaneOnTheChangeSetItHoldsRatherThanTheOneItProduced is the
+// review lane's whole case: it commits nothing, so its branch has no pull
+// request and the branch question keeps it forever — while the item it holds
+// is merged and its published claim goes on telling every other session that a
+// merged change set must not be merged.
+//
+// The two spellings are the point. A lane records "PR #41" or "#41" for the
+// same pull request, and a record cannot tell either from an issue number, so
+// what settles it is gh's answer and not the spelling. The lane holding a real
+// issue is the control: gh refuses the question, and a refusal must keep the
+// lane rather than close it.
+func TestSweepClosesALaneOnTheChangeSetItHoldsRatherThanTheOneItProduced(t *testing.T) {
+	repo := realRepo(t)
+	s := newStore(t)
+	holding(t, s, "read-canonical", "rates-service", repo, "PR #41", "Read it and merged it.")
+	holding(t, s, "read-bare", "rates-service", repo, "#41", "Read it; the other lane merged it.")
+	holding(t, s, "read-live", "rates-service", repo, "PR #42", "Read it; still open.")
+	issue := holding(t, s, "read-issue", "rates-service", repo, "#77", "Investigated; no change set.")
+
+	gh := &ghSays{
+		// No lane's own branch ever produced a pull request.
+		byBranch: map[string]string{},
+		byNumber: map[string]string{
+			"41": `{"number":41,"state":"MERGED","mergedAt":"2026-09-08T11:02:00Z"}`,
+			"42": `{"number":42,"state":"OPEN","mergedAt":null}`,
+		},
+	}
+	o := SweepOptions{PullRequests: fakePullRequests(gh), PullRequestAt: fakePullRequestAt(gh)}
+
+	got := verdicts(mustSweep(t, s, o))
+	for _, id := range []string{"read-canonical", "read-bare"} {
+		v := got[id]
+		if v.Verdict != "closable" || !strings.Contains(v.Why, "pull request #41 merged 2026-09-08 11:02 UTC") {
+			t.Errorf("%s: %+v, want closable naming the merged #41 it holds", id, v)
+		}
+		if !strings.Contains(v.Why, "the change set this lane holds rather than one its branch produced") {
+			t.Errorf("%s: %+v, want the reason to say the change set is not this branch's", id, v)
+		}
+	}
+	if v := got["read-live"]; v.Verdict != "kept" || !strings.Contains(v.Why, "pull request #42 is open") {
+		t.Errorf("open held PR: %+v, want kept naming the open #42", v)
+	}
+	if v := got["read-issue"]; v.Verdict != "kept" || !strings.Contains(v.Why, "no pull request for "+issue.Branch) {
+		t.Errorf("held issue: %+v, want kept: gh refusing the number is not evidence the work is finished", v)
+	}
+
+	// The question the sweep says it asks, against the reference the lane
+	// holds — and against nothing the lane does not hold.
+	asked := map[string]bool{}
+	for _, call := range gh.asked {
+		if len(call) > 2 && call[0] == "pr" && call[1] == "view" {
+			asked[call[2]] = true
+		}
+	}
+	for _, n := range []string{"41", "42", "77"} {
+		if !asked[n] {
+			t.Errorf("gh was never asked `pr view %s`; asked: %+v", n, gh.asked)
+		}
+	}
+
+	// Applying closes the two the tracker finished and leaves the rest.
+	got = verdicts(mustSweep(t, s, SweepOptions{Apply: true,
+		PullRequests: fakePullRequests(gh), PullRequestAt: fakePullRequestAt(gh)}))
+	for _, id := range []string{"read-canonical", "read-bare"} {
+		if v := got[id]; v.Verdict != "closed" {
+			t.Errorf("%s: %+v, want closed", id, v)
+		}
+		if a, _ := s.Get(id); a.State != StateClosed {
+			t.Errorf("%s is %s after -apply, want closed", id, a.State)
+		}
+	}
+	for _, id := range []string{"read-live", "read-issue"} {
+		if a, _ := s.Get(id); a.State != StateHandedOff {
+			t.Errorf("%s is %s after -apply, want left handed off", id, a.State)
+		}
+	}
+}
+
+// TestSweepAsksNothingExtraWithoutTheReferenceReader: an installation that
+// supplies no PullRequestAt reads exactly what it read before.
+func TestSweepAsksNothingExtraWithoutTheReferenceReader(t *testing.T) {
+	repo := realRepo(t)
+	s := newStore(t)
+	held := holding(t, s, "read-only", "rates-service", repo, "PR #41", "Read it and merged it.")
+	gh := &ghSays{byBranch: map[string]string{}, byNumber: map[string]string{
+		"41": `{"number":41,"state":"MERGED","mergedAt":"2026-09-08T11:02:00Z"}`,
+	}}
+	got := verdicts(mustSweep(t, s, SweepOptions{PullRequests: fakePullRequests(gh)}))
+	if v := got["read-only"]; v.Verdict != "kept" || !strings.Contains(v.Why, "no pull request for "+held.Branch) {
+		t.Errorf("without a reference reader: %+v, want kept on the branch question alone", v)
+	}
+	for _, call := range gh.asked {
+		if len(call) > 1 && call[0] == "pr" && call[1] == "view" {
+			t.Errorf("asked %+v with no PullRequestAt configured", call)
+		}
+	}
+}
+
+func mustSweep(t *testing.T, s *Store, o SweepOptions) []Swept {
+	t.Helper()
+	sw, err := s.Sweep(context.Background(), o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return sw
 }
