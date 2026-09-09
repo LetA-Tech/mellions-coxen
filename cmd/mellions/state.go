@@ -95,7 +95,7 @@ func cmdState(args []string) error {
 	}
 	if *tool {
 		out, err := json.Marshal(map[string]any{"hookSpecificOutput": map[string]string{
-			"hookEventName": "PreToolUse", "additionalContext": stateText(notes, clock)}})
+			"hookEventName": preToolUseEvent, "additionalContext": stateText(notes, clock)}})
 		if err != nil {
 			return nil
 		}

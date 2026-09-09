@@ -511,39 +511,83 @@ func TestRequireRef_TheCommitPeelIsWhatMakesItACommitProbe(t *testing.T) {
 	}
 }
 
-// TestCiteHook_TheEventNameIsWhatTheRuntimeDispatchesOn pins the one string that
-// silently disables both outputs.
+// TestHookOutputs_AllCarryTheEventTheRuntimeDispatchesOn pins the one string
+// that silently disables a safeguard.
 //
 // A runtime that does not recognise hookEventName discards the message without
-// error, so a typo leaves every test green while the deny never denies and the
-// context never informs. A reviewer mutated it to "Nonsense" and the whole
-// package passed.
-func TestCiteHook_TheEventNameIsWhatTheRuntimeDispatchesOn(t *testing.T) {
+// error, so a typo leaves every test green while a deny never denies and a
+// context never informs. It was a bare literal at six sites in this package —
+// the citation check's two outputs, the closing-reference, shared-tree,
+// credential-read and merge safeguards, and the awareness state — and pinned at
+// none.
+//
+// The assertions are separate tests on purpose. An earlier version guarded the
+// constant with t.Fatalf and then checked both emitters below it, so a mutation
+// of the constant aborted before either emitter assertion ran: the arm proved
+// the guard fired and nothing about what it was said to protect. Split, each
+// mutation reds its own assertion.
+func TestHookOutputs_AllCarryTheEventTheRuntimeDispatchesOn(t *testing.T) {
 	if preToolUseEvent != "PreToolUse" {
-		t.Fatalf("preToolUseEvent = %q; the runtime dispatches on this exact string and discards "+
+		t.Errorf("preToolUseEvent = %q; the runtime dispatches on this exact string and discards "+
 			"anything else in silence", preToolUseEvent)
 	}
+	// No non-test file may spell it again: a seventh site added as a literal is
+	// a safeguard nothing pins, which is the state this replaced.
+	files, err := filepath.Glob("*.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	scanned := 0
+	for _, name := range files {
+		if strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+		b, rerr := os.ReadFile(name)
+		if rerr != nil {
+			t.Fatal(rerr)
+		}
+		scanned++
+		body := string(b)
+		if name == "cite.go" {
+			body = strings.Replace(body, `const preToolUseEvent = "PreToolUse"`, "", 1)
+		}
+		if strings.Contains(body, `"PreToolUse"`) {
+			t.Errorf("%s spells the event name as a literal; use preToolUseEvent so one pin covers "+
+				"every hook output in this package", name)
+		}
+	}
+	if scanned == 0 {
+		t.Fatal("scanned no non-test files — this check would pass vacuously")
+	}
+}
 
+// TestCiteHook_TheContextOutputCarriesTheEvent is one emitter, with its own arm.
+func TestCiteHook_TheContextOutputCarriesTheEvent(t *testing.T) {
 	root := citeGitRepo(t)
 	body := filepath.Join(root, "b.md")
 	if err := os.WriteFile(body,
 		[]byte("upstream abandons it at `runtime/exec.go:1845`.\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	var ctxOut string
-	runCiteHookRaw(t, root, "gh pr create --base dev --body-file "+body, &ctxOut)
-	if !strings.Contains(ctxOut, `"hookEventName":"PreToolUse"`) {
-		t.Errorf("the context output does not carry the event name the runtime dispatches on.\ngot: %s", ctxOut)
+	var out string
+	runCiteHookRaw(t, root, "gh pr create --base dev --body-file "+body, &out)
+	if !strings.Contains(out, `"hookEventName":"PreToolUse"`) {
+		t.Errorf("the context output does not carry the event name the runtime dispatches on.\ngot: %s", out)
 	}
+}
 
-	// And the deny path, which carries it too.
+// TestCiteHook_TheDenyOutputCarriesTheEvent is the other, and it must be its own
+// test for the same reason.
+func TestCiteHook_TheDenyOutputCarriesTheEvent(t *testing.T) {
+	root := citeGitRepo(t)
+	body := filepath.Join(root, "b.md")
 	if err := os.WriteFile(body, []byte("see `internal/a.go:1` for it.\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	var denyOut string
-	runCiteHookRaw(t, root, "gh pr create --base dev --body-file "+body, &denyOut)
-	if !strings.Contains(denyOut, `"hookEventName":"PreToolUse"`) {
-		t.Errorf("the deny output does not carry the event name.\ngot: %s", denyOut)
+	var out string
+	runCiteHookRaw(t, root, "gh pr create --base dev --body-file "+body, &out)
+	if !strings.Contains(out, `"hookEventName":"PreToolUse"`) {
+		t.Errorf("the deny output does not carry the event name.\ngot: %s", out)
 	}
 }
 

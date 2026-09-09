@@ -50,7 +50,7 @@ func cmdPRBodyCheck(ctx context.Context, args []string) error {
 		return nil
 	}
 	var d decision
-	d.Output.Event = "PreToolUse"
+	d.Output.Event = preToolUseEvent
 	d.Output.Decide = "deny"
 	d.Output.Reason = reason
 	enc := json.NewEncoder(os.Stdout)

@@ -102,7 +102,7 @@ func cmdSecretCheck(args []string) error {
 	}
 
 	var d decision
-	d.Output.Event = "PreToolUse"
+	d.Output.Event = preToolUseEvent
 	d.Output.Decide = "deny"
 	d.Output.Reason = "This would read a credential into the transcript:\n\n" +
 		strings.Join(reasons, "\n") + "\n\n" +
