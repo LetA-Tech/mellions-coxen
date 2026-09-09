@@ -20,10 +20,15 @@ branch nothing loads is one. A live runner whose `scripts/shifts.sh` is a
 different checkout's than the one sessions load is another, and it is the one
 nobody spots, because each half looks right on its own. That row places the
 runner's `shifts.sh`, and — where the runner's own environment is readable — the
-shift script and settings file `MELLIONS_SHIFT` and `MELLIONS_SETTINGS`
-substitute for the ones beside it. Where that environment cannot be read the row
-says so in its detail and keeps the word `shifts.sh` earned, so `present` there
-is a loop script placed, never a whole installation certified.
+shift script `MELLIONS_SHIFT` substitutes for the one beside it. The settings
+file `MELLIONS_SETTINGS` names is reported too and does not move the word: a
+host's settings living outside every checkout is ordinary, and a state word that
+cannot tell that from a superseded copy would exit non-zero forever for a
+documented configuration. Where the environment cannot be read at all, or where
+the path a process is executing cannot be recovered, the row says so in its
+detail and keeps the word `shifts.sh` earned — and it names no path it could not
+read, a fragment of a real one being a file that is not there. So `present` is a
+loop script placed, never a whole installation certified.
 
 Permissions, tools, hooks, MCP, sandboxing, credentials and model settings
 belong to the runtime and are inherited exactly as they are; a capability the

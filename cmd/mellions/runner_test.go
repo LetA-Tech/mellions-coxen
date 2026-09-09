@@ -109,6 +109,7 @@ func TestRunnerState(t *testing.T) {
 // installation is reported as "not compared" rather than as the split it is —
 // the row reading green through the state it exists to catch.
 func TestRunnerStatePlacesAScriptWhosePathHasASpace(t *testing.T) {
+	requireProcFS(t)
 	root := t.TempDir()
 	loadPath := filepath.Join(root, "loadpath")
 	if err := os.MkdirAll(filepath.Join(loadPath, "scripts"), 0o755); err != nil {
@@ -147,7 +148,23 @@ func TestRunnerStatePlacesAScriptWhosePathHasASpace(t *testing.T) {
 // falsification clause: they substitute the shift script and the deny list for
 // the ones beside shifts.sh, so placing shifts.sh alone leaves a runner taking
 // its deploy files from a superseded checkout reporting present.
+// requireProcFS skips where another process's argument vector and environment
+// cannot be read at all. Darwin is a deploy target (deploy/README.md:129) and
+// has no process filesystem, so a test that asserts what the kernel holds for
+// another pid states a condition that host cannot produce — and `make check`
+// red on every Mac is the class of open issue #39, not a finding about this
+// code. What the row does on such a host is asserted, without /proc, by
+// TestRunnerOverridesStatesTheBoundaryWithoutAProcFilesystem and
+// TestProcessArgsFallsBackToPS.
+func requireProcFS(t *testing.T) {
+	t.Helper()
+	if _, err := os.ReadFile(filepath.Join(procRoot, "self", "environ")); err != nil {
+		t.Skipf("no readable process filesystem at %s (%v)", procRoot, err)
+	}
+}
+
 func TestRunnerStatePlacesTheEnvironmentsOverrides(t *testing.T) {
+	requireProcFS(t)
 	root := t.TempDir()
 	loadPath := filepath.Join(root, "loadpath")
 	shifts := filepath.Join(root, "shifts")
@@ -189,10 +206,29 @@ func TestRunnerStatePlacesTheEnvironmentsOverrides(t *testing.T) {
 		t.Fatalf("got %q %q, want STOPPED naming $MELLIONS_SHIFT %s", state, detail, oldShift)
 	}
 
+	// MELLIONS_SETTINGS is named and does not move the word. docs/cli.md:445
+	// defaults it to the checkout's own deploy/unattended-settings.json, so
+	// setting it at all means naming a different file, and a host's settings
+	// file living outside every checkout is the ordinary reason to do that.
+	// Whether this one is that or a superseded copy is not established here, so
+	// STOPPED — which is doctor exit 1, permanently, for a documented
+	// configuration — is a word this row has not earned.
 	start("MELLIONS_SETTINGS=" + oldSettings)
 	state, detail = runnerState(root, loadPath)
-	if state != "STOPPED" || !strings.Contains(detail, "$MELLIONS_SETTINGS names "+oldSettings) {
-		t.Fatalf("got %q %q, want STOPPED naming $MELLIONS_SETTINGS %s", state, detail, oldSettings)
+	if state != "present" || !strings.Contains(detail, "$MELLIONS_SETTINGS names "+oldSettings) {
+		t.Fatalf("got %q %q, want present naming $MELLIONS_SETTINGS %s", state, detail, oldSettings)
+	}
+
+	// Every variable is examined. A MELLIONS_SHIFT that cannot be placed is not
+	// a reason to stop reading, or an unplaced neighbour hides what comes after
+	// it — the shape of #13 itself, inside the fix for #13.
+	start("MELLIONS_SHIFT=shifts.sh", "MELLIONS_SETTINGS="+oldSettings)
+	state, detail = runnerState(root, loadPath)
+	if state != "partial" || !strings.Contains(detail, "$MELLIONS_SETTINGS names "+oldSettings) {
+		t.Fatalf("got %q %q, want partial still naming $MELLIONS_SETTINGS %s behind an unplaced $MELLIONS_SHIFT", state, detail, oldSettings)
+	}
+	if !strings.Contains(detail, "$MELLIONS_SHIFT names shifts.sh") {
+		t.Fatalf("detail = %q, want it to name the unplaced $MELLIONS_SHIFT too", detail)
 	}
 
 	// An override inside the load path is not a split, and an unset one is not
@@ -237,11 +273,35 @@ func TestRunnerOverridesStatesTheBoundaryWithoutAProcFilesystem(t *testing.T) {
 // a false sentence in doctor's output, so the two reasons stay apart.
 func TestUnreadReasonSeparatesPermissionFromAbsence(t *testing.T) {
 	dir := t.TempDir()
+	_, missing := os.ReadFile(filepath.Join(dir, "no-such-file"))
+	if missing == nil {
+		t.Fatal("a file that is not there read")
+	}
+
+	// ENOENT is two states and only the host separates them. With no process
+	// filesystem the absence is the host's; with one mounted, the same errno on
+	// /proc/<pid>/environ is a pid that ended between the two reads — and
+	// naming the host there is the false sentence this function exists to keep
+	// out, one errno over from the one it already keeps out.
+	restore := procRoot
+	t.Cleanup(func() { procRoot = restore })
+
+	procRoot = filepath.Join(dir, "no-proc")
+	if got := unreadReason(missing); !strings.Contains(got, "no process filesystem on this host") {
+		t.Fatalf("unreadReason(not-exist, no procfs) = %q, want the absence reason", got)
+	}
+	procRoot = dir
+	if got := unreadReason(missing); !strings.Contains(got, "process ended") {
+		t.Fatalf("unreadReason(not-exist, procfs present) = %q, want the exited-process reason", got)
+	}
+	procRoot = restore
+
 	locked := filepath.Join(dir, "environ")
 	if err := os.WriteFile(locked, []byte("A=b"), 0o000); err != nil {
 		t.Fatal(err)
 	}
 	if os.Geteuid() == 0 {
+		// Only the permission half needs a non-root reader; the arms above ran.
 		t.Skip("root reads a 0000 file, so this host cannot produce the permission case")
 	}
 	_, err := os.ReadFile(locked)
@@ -250,10 +310,6 @@ func TestUnreadReasonSeparatesPermissionFromAbsence(t *testing.T) {
 	}
 	if got := unreadReason(err); !strings.Contains(got, "readable only by the user that owns it") {
 		t.Fatalf("unreadReason(permission) = %q, want the ownership reason", got)
-	}
-	_, missing := os.ReadFile(filepath.Join(dir, "no-such-file"))
-	if got := unreadReason(missing); !strings.Contains(got, "no process filesystem on this host") {
-		t.Fatalf("unreadReason(not-exist) = %q, want the absence reason", got)
 	}
 }
 
@@ -270,9 +326,56 @@ func TestProcessArgsFallsBackToPS(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = live.Process.Kill(); _ = live.Wait() })
 
-	args, ok := processArgs(live.Process.Pid)
+	args, whole, ok := processArgs(live.Process.Pid)
 	if !ok || len(args) == 0 || filepath.Base(args[0]) != "sleep" {
 		t.Fatalf("processArgs = %q %v, want the ps fallback to name sleep", args, ok)
+	}
+	if whole {
+		t.Fatal("the ps line was reported as the kernel's argument vector; it is a flattened reading")
+	}
+}
+
+// On a host with no process filesystem the row must refuse a path it cannot
+// read rather than print a fragment of one. ps joins argv with the byte the
+// line is then split on, so the tail of "/…/a superseded checkout/scripts/
+// shifts.sh" comes back as the relative "checkout/scripts/shifts.sh" — a file
+// that is nowhere on disk, which the row would have named as the script the
+// runner executes.
+func TestRunnerStateNamesNoPathWhenPSCannotBearOne(t *testing.T) {
+	restore := procRoot
+	procRoot = filepath.Join(t.TempDir(), "no-proc")
+	t.Cleanup(func() { procRoot = restore })
+
+	root := t.TempDir()
+	loadPath := filepath.Join(root, "loadpath")
+	shifts := filepath.Join(root, "shifts")
+	script := filepath.Join(root, "a superseded checkout", "scripts", "shifts.sh")
+	for _, d := range []string{filepath.Join(loadPath, "scripts"), shifts, filepath.Dir(script)} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(script, []byte("sleep 30\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	live := exec.Command("sh", script)
+	if err := live.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = live.Process.Kill(); _ = live.Wait() })
+	if err := os.WriteFile(filepath.Join(shifts, "runner.lock"), []byte(strconv.Itoa(live.Process.Pid)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	state, detail := runnerState(root, loadPath)
+	if state != "partial" {
+		t.Fatalf("state = %q, want partial: nothing about the script is established here — %s", state, detail)
+	}
+	if strings.Contains(detail, "checkout/scripts/shifts.sh") {
+		t.Fatalf("detail = %q, want no fabricated path: that fragment is not a file on disk", detail)
+	}
+	if !strings.Contains(detail, "unrecoverable") {
+		t.Fatalf("detail = %q, want it to say the path could not be recovered", detail)
 	}
 }
 
