@@ -43,7 +43,18 @@ func cmdCite(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	findings := cite.Check(doc, resolver(ctx, *dir, *commit))
+	root := repoRoot(ctx, *dir)
+	findings, unresolved := cite.Check(doc, resolver(ctx, *dir, *commit))
+
+	// Say which tree answered, always. A citation is graded against whatever
+	// checkout the check happened to read, and a shared checkout sitting behind
+	// its remote grades at a commit that is neither the branch under review nor
+	// its own origin — so a line correct at the reviewed head is refused, and
+	// one that happens to land elsewhere in the stale tree is ACCEPTED. Silence
+	// about the tree is what lets that green read as verified.
+	fmt.Printf("cite: resolved against %s at %s\n", root, treeRef(ctx, root, *commit))
+	reportUnresolved(unresolved)
+
 	if len(findings) == 0 {
 		fmt.Println("cite: every citation this checkout can resolve is quoted in the body.")
 		return nil
@@ -104,10 +115,20 @@ func cmdCiteCheck(ctx context.Context, args []string) error {
 		// with `cd <worktree> && gh pr create`, so the body describes the
 		// worktree while the checker read the session's checkout — and one
 		// command line can publish from two different trees.
-		read := resolver(ctx, citeDir(call.Dir, cwd), "")
+		dir := citeDir(call.Dir, cwd)
+		read := resolver(ctx, dir, "")
 		for _, body := range call.Bodies {
-			for _, f := range cite.Check(body, read) {
+			findings, unresolved := cite.Check(body, read)
+			for _, f := range findings {
 				reasons = append(reasons, "  "+f.Reason())
+			}
+			// Named, not counted away. A body whose citations this tree cannot
+			// open passed identically to one whose citations were all verified,
+			// and the session had no way to tell. If the command is denied for
+			// something else, the reader gets this too; if it is not, the CLI
+			// path prints it.
+			if len(unresolved) > 0 && len(findings) > 0 {
+				reasons = append(reasons, "  "+unresolvedLine(unresolved, dir))
 			}
 		}
 	}
@@ -190,6 +211,15 @@ func resolver(ctx context.Context, dir, commit string) func(string) ([]string, e
 		full := filepath.Join(root, filepath.Clean("/"+path))
 		info, err := os.Stat(full)
 		if err != nil || !info.Mode().IsRegular() {
+			// Two different failures wear one error today, and only one of them
+			// is innocent. `mcfo-leankit/agentkit/runtime/exec.go` is another
+			// repository's path and this checkout is right not to hold it.
+			// `internal/cite/citee.go` is a typo for a file in THIS tree, and
+			// reads as the same silence — which is how a wrong same-repo path
+			// passes a check named for verifying citations.
+			if claimsTree(root, path) {
+				return nil, cite.ErrPathClaimsTree
+			}
 			return nil, errors.New("not a file in this checkout")
 		}
 		b, err := os.ReadFile(full)
@@ -231,4 +261,76 @@ func readDoc(file string) (string, error) {
 	defer f.Close()
 	b, err := io.ReadAll(io.LimitReader(f, citeLimit))
 	return string(b), err
+}
+
+// treeRef names the commit the resolver answered from: the explicit ref when
+// one was given, otherwise the working tree and the HEAD it sits on. The HEAD
+// is printed even for a working-tree read because it is what tells a reader
+// WHICH tree this was, and a stale one is invisible otherwise.
+func treeRef(ctx context.Context, root, commit string) string {
+	if commit != "" {
+		return commit
+	}
+	out, err := exec.CommandContext(ctx, "git", "-C", root, "rev-parse", "--short", "HEAD").Output()
+	if err != nil {
+		return "the working tree (no git HEAD here)"
+	}
+	return "the working tree, HEAD " + strings.TrimSpace(string(out))
+}
+
+// reportUnresolved states what the check did not check.
+func reportUnresolved(unresolved []cite.Citation) {
+	if len(unresolved) == 0 {
+		return
+	}
+	fmt.Println("  " + unresolvedLine(unresolved, ""))
+}
+
+// unresolvedLine is the one sentence a reader needs: how many citations this
+// checkout could not open, and which. A cross-repo citation is the common and
+// legitimate case — mellions-deep-research says code in another repository is
+// not evidence until it has been opened, and this check cannot open it — so
+// these are reported rather than denied. Reported is the point: unstated, they
+// were indistinguishable from citations that passed.
+func unresolvedLine(unresolved []cite.Citation, dir string) string {
+	const show = 6
+	names := make([]string, 0, len(unresolved))
+	for _, c := range unresolved {
+		names = append(names, c.Raw)
+	}
+	shown := names
+	suffix := ""
+	if len(shown) > show {
+		shown = shown[:show]
+		suffix = fmt.Sprintf(" and %d more", len(names)-show)
+	}
+	where := "this checkout"
+	if dir != "" {
+		where = dir
+	}
+	return fmt.Sprintf("%d citation(s) %s cannot open, so nothing here checked them: %s%s — "+
+		"verify these by hand; a cross-repo path is the usual reason and is not a defect.",
+		len(unresolved), where, strings.Join(shown, ", "), suffix)
+}
+
+// claimsTree reports whether a path asserts it belongs to this checkout: its
+// leading segment names a directory the checkout has.
+//
+// The rule is deliberately the weakest one that separates the two cases. A
+// stronger test — say, that every segment but the last resolves — would call a
+// path with one wrong directory "another repository's" and let it through,
+// which is the failure being closed. A weaker one, treating every unresolvable
+// path as this tree's, would deny the cross-repo citations
+// mellions-deep-research expects a body to carry and verify by hand.
+//
+// A single-segment path (`README.md`) names no directory, so it claims the
+// tree only if the root holds it — which the caller has already established it
+// does not.
+func claimsTree(root, path string) bool {
+	head, _, ok := strings.Cut(filepath.ToSlash(filepath.Clean(path)), "/")
+	if !ok || head == "" || head == "." || head == ".." {
+		return false
+	}
+	info, err := os.Stat(filepath.Join(root, head))
+	return err == nil && info.IsDir()
 }

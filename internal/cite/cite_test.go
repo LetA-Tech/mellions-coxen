@@ -64,7 +64,7 @@ internal/advisor/grounding/facts.go:239 grounds the balance.
 Mellions' source carries an unselected licence (CONTRIBUTING.md:82).
 The assertion at hooks/test-session-digest.sh:73 passes vacuously.`
 
-	got := kinds(Check(doc, files.read))
+	got := kinds(firstOnly(Check(doc, files.read)))
 	for _, raw := range []string{
 		"goals.go:64",
 		"goals.go:89",
@@ -100,7 +100,7 @@ func TestQuotedCitationPasses(t *testing.T) {
 		"re-indented":   "goals.go:64\n\n```\ncache.Set(key, out)\n```\n",
 	}
 	for name, doc := range docs {
-		if f := Check(doc, files.read); len(f) != 0 {
+		if f := firstOnly(Check(doc, files.read)); len(f) != 0 {
 			t.Errorf("%s: %v, want clean", name, f[0].Reason())
 		}
 	}
@@ -110,7 +110,7 @@ func TestQuotedCitationPasses(t *testing.T) {
 // would have caught, and it must still be caught here.
 func TestMissingLine(t *testing.T) {
 	files := tree{"CONTRIBUTING.md": strings.Repeat("w\n", 95)}
-	f := Check("see CONTRIBUTING.md:400 for the rule", files.read)
+	f := firstOnly(Check("see CONTRIBUTING.md:400 for the rule", files.read))
 	if len(f) != 1 || f[0].Kind != Missing {
 		t.Fatalf("got %v, want one Missing", f)
 	}
@@ -121,7 +121,7 @@ func TestMissingLine(t *testing.T) {
 // author their line "says """.
 func TestBlankLineReadsAsBlank(t *testing.T) {
 	files := tree{"a.go": "package a\n\nfunc F() {}\n"}
-	f := Check("see a.go:2", files.read)
+	f := firstOnly(Check("see a.go:2", files.read))
 	if len(f) != 1 {
 		t.Fatalf("got %v, want one finding", f)
 	}
@@ -139,7 +139,7 @@ The tunnel is http://127.0.0.1:9428 and the host is 192.0.2.6:8428.
 Shift 20260829-002635 ran 3:1 against it. See docker.io/library/go:1.22.
 A range read of a.go:1-125 is a region, not a line.
 Makefile: the target is there. The ratio is 100:1.`
-	if f := Check(doc, files.read); len(f) != 0 {
+	if f := firstOnly(Check(doc, files.read)); len(f) != 0 {
 		t.Errorf("denied on noise: %s", f[0].Reason())
 	}
 }
@@ -161,7 +161,7 @@ func TestQuotedOutputIsNotACitation(t *testing.T) {
 		"```\n\n" +
 		"and `go vet` reported:\n\n" +
 		"> cmd/mellions/report.go:159: unreachable code\n"
-	if f := Check(doc, files.read); len(f) != 0 {
+	if f := firstOnly(Check(doc, files.read)); len(f) != 0 {
 		t.Errorf("read quoted output as a citation: %s", f[0].Reason())
 	}
 }
@@ -175,7 +175,7 @@ func TestCorpusNoiseIsSilent(t *testing.T) {
 Images postgres:18, golang:1, schema:1, docker.io/library/go:1.22.
 Runs at 03:08/03:11/03:15 all show startedAt == createdAt, at 2026-08-29T15:11.
 Config unless-stopped:0 and session_start:0. Base was 7944 bytes.`
-	if f := Check(doc, files.read); len(f) != 0 {
+	if f := firstOnly(Check(doc, files.read)); len(f) != 0 {
 		t.Errorf("denied on corpus noise: %s", f[0].Reason())
 	}
 }
@@ -189,7 +189,7 @@ func TestUnfencedGrepOutputBacksItsOwnCitation(t *testing.T) {
 		"\t// Missing: the file has fewer lines than the citation claims.\n"}
 	doc := "The Missing kind is declared here:\n\n" +
 		"internal/cite/cite.go:57:\t// Missing: the file has fewer lines than the citation claims.\n"
-	if f := Check(doc, files.read); len(f) != 0 {
+	if f := firstOnly(Check(doc, files.read)); len(f) != 0 {
 		t.Errorf("denied evidence the body quotes verbatim: %s", f[0].Reason())
 	}
 }
@@ -210,7 +210,7 @@ func TestDashRangesAreStillRanges(t *testing.T) {
 // must not be reported as though it were wrong.
 func TestForeignPathIsSilent(t *testing.T) {
 	files := tree{"a.go": strings.Repeat("x\n", 10)}
-	if f := Check("see advisor-service/internal/grpc/goals.go:64", files.read); len(f) != 0 {
+	if f := firstOnly(Check("see advisor-service/internal/grpc/goals.go:64", files.read)); len(f) != 0 {
 		t.Errorf("judged a path it cannot read: %s", f[0].Reason())
 	}
 }
@@ -259,7 +259,7 @@ func TestARangePasteDoesNotBackALineInsideIt(t *testing.T) {
 		"\n" +
 		"type Finding struct {\n" +
 		"```\n"
-	f := Check(doc, files.read)
+	f := firstOnly(Check(doc, files.read))
 	if len(f) != 1 || f[0].Kind != Unbacked {
 		t.Fatalf("got %v, want the citation reported unbacked", f)
 	}
@@ -278,7 +278,7 @@ func TestOneQuotationBacksOneCitation(t *testing.T) {
 		"}\n"} // :69
 	doc := "The extractor ends at `internal/cite/cite.go:51` and the prose walker at\n" +
 		"`internal/cite/cite.go:69`. Both close with `}`.\n"
-	f := Check(doc, files.read)
+	f := firstOnly(Check(doc, files.read))
 	if len(f) != 1 {
 		t.Fatalf("got %d findings, want exactly one — the second brace citation is unbacked: %v", len(f), f)
 	}
@@ -301,7 +301,7 @@ func TestAQuotationIsSpentOnOneCitation(t *testing.T) {
 		"one block, two citations above it":   "Both `internal/cite/cite.go:51` and `internal/cite/cite.go:69`:\n\n```go\n}\n```\n",
 	}
 	for name, doc := range docs {
-		f := Check(doc, files.read)
+		f := firstOnly(Check(doc, files.read))
 		if len(f) != 1 {
 			t.Errorf("%s: got %d findings, want one — a second citation cannot spend the same quotation: %v", name, len(f), f)
 		}
@@ -318,7 +318,7 @@ func TestACitationReachesTheBlockUnderItsParagraph(t *testing.T) {
 	doc := "Verified at the artifact — `CONTRIBUTING.md:82`\n" +
 		"on `dev`, in a file of 95 lines:\n\n" +
 		"```\nChanging logic includes updating or removing its comments.\n```\n"
-	if f := Check(doc, files.read); len(f) != 0 {
+	if f := firstOnly(Check(doc, files.read)); len(f) != 0 {
 		t.Errorf("denied a citation whose sentence wraps: %s", f[0].Reason())
 	}
 }
@@ -331,7 +331,7 @@ func TestBackingMustBeAnchoredToTheCitation(t *testing.T) {
 	doc := "The write at goals.go:64 caches the built goals.\n\n" +
 		"Unrelated prose about something else entirely.\n\n" +
 		"```go\n\tcache.Set(key, out)\n```\n"
-	if f := Check(doc, files.read); len(f) != 1 {
+	if f := firstOnly(Check(doc, files.read)); len(f) != 1 {
 		t.Errorf("got %v, want the citation reported unbacked", f)
 	}
 }
@@ -348,7 +348,7 @@ func TestEachCitationWithItsOwnBlockPasses(t *testing.T) {
 		"```go\n}\n```\n\n" +
 		"and the prose walker at `internal/cite/cite.go:69`:\n\n" +
 		"```go\n}\n```\n"
-	if f := Check(doc, files.read); len(f) != 0 {
+	if f := firstOnly(Check(doc, files.read)); len(f) != 0 {
 		t.Errorf("denied a citation quoted the way the Skill asks: %s", f[0].Reason())
 	}
 }
@@ -358,7 +358,7 @@ func TestEachCitationWithItsOwnBlockPasses(t *testing.T) {
 // about what line 64 holds.
 func TestCitationSpanDoesNotBackItself(t *testing.T) {
 	files := tree{"goals.go": strings.Repeat("x\n", 63) + "\tcache.Set(key, out)\n"}
-	if f := Check("the write at `goals.go:64` caches it", files.read); len(f) != 1 {
+	if f := firstOnly(Check("the write at `goals.go:64` caches it", files.read)); len(f) != 1 {
 		t.Errorf("got %v, want the citation reported unbacked", f)
 	}
 }
@@ -375,11 +375,11 @@ func TestQuotationInTheWrongPlaceIsNotTheSameAsNoQuotation(t *testing.T) {
 	under := "`pkg/run.go:151`\n\n```go\n\t// re-offers propose (parity with the legacy resume path).\n```\n"
 	silent := "The comment at `pkg/run.go:151` is stale.\n"
 
-	if fs := Check(under, files.read); len(fs) != 0 {
+	if fs := firstOnly(Check(under, files.read)); len(fs) != 0 {
 		t.Fatalf("quoted under the citation: got %d findings, want 0 (%s)", len(fs), fs[0].Reason())
 	}
 
-	fs := Check(above, files.read)
+	fs := firstOnly(Check(above, files.read))
 	if len(fs) != 1 || fs[0].Kind != Unanchored {
 		t.Fatalf("quoted above the citation: got %#v, want one Unanchored finding", fs)
 	}
@@ -387,7 +387,7 @@ func TestQuotationInTheWrongPlaceIsNotTheSameAsNoQuotation(t *testing.T) {
 		t.Errorf("Unanchored reason denies the body quoted the line at all: %q", r)
 	}
 
-	fs = Check(silent, files.read)
+	fs = firstOnly(Check(silent, files.read))
 	if len(fs) != 1 || fs[0].Kind != Unbacked {
 		t.Fatalf("no quotation anywhere: got %#v, want one Unbacked finding", fs)
 	}
@@ -403,8 +403,86 @@ func TestQuotationInTheWrongPlaceIsNotTheSameAsNoQuotation(t *testing.T) {
 func TestSpentQuotationReadsAsMisplacedNotAsAbsent(t *testing.T) {
 	files := tree{"a.go": "}\n", "b.go": "}\n"}
 	doc := "`a.go:1`\n\n```go\n}\n```\n\nand `b.go:1`\n"
-	fs := Check(doc, files.read)
+	fs := firstOnly(Check(doc, files.read))
 	if len(fs) != 1 || fs[0].Raw != "b.go:1" || fs[0].Kind != Unanchored {
 		t.Fatalf("got %#v, want one Unanchored finding on b.go:1", fs)
+	}
+}
+
+// firstOnly keeps these tests reading as they did when Check returned findings
+// alone. The unresolved half has its own tests below; everything above is about
+// findings and says so more clearly without a discarded second value on every
+// line.
+func firstOnly(f []Finding, _ []Citation) []Finding { return f }
+
+// TestCheck_APathClaimingThisTreeIsAFinding is the defect this pair closes. A
+// wrong same-repo path — a typo, a file that moved, a directory renamed — read
+// as the same silence as another repository's path, so a body citing code that
+// is not there passed a check named for verifying citations. Observed on
+// hipsys#123, where a wrong same-repo path published green.
+func TestCheck_APathClaimingThisTreeIsAFinding(t *testing.T) {
+	read := func(path string) ([]string, error) {
+		if path == "internal/cite/cite.go" {
+			return []string{"package cite"}, nil
+		}
+		// The resolver's own rule: this path's leading segment names a
+		// directory the checkout has, and the file is not in it.
+		return nil, ErrPathClaimsTree
+	}
+	findings, unresolved := Check("the rule lives in internal/cite/citee.go:12", read)
+	if len(findings) != 1 {
+		t.Fatalf("findings = %d, want 1 — a path claiming this tree and absent from it is a claim "+
+			"about code that is not there", len(findings))
+	}
+	if findings[0].Kind != Absent {
+		t.Errorf("kind = %v, want Absent", findings[0].Kind)
+	}
+	if len(unresolved) != 0 {
+		t.Errorf("unresolved = %d, want 0 — a path claiming this tree is a finding, not an "+
+			"unchecked citation", len(unresolved))
+	}
+}
+
+// TestCheck_ACrossRepoPathIsReportedNotDenied is the other half, and the reason
+// the two must be told apart. mellions-deep-research expects a body to cite
+// another repository and to have opened it by hand; denying those would refuse
+// the bodies that reach furthest for their evidence. They are named instead.
+func TestCheck_ACrossRepoPathIsReportedNotDenied(t *testing.T) {
+	read := func(string) ([]string, error) { return nil, errors.New("not a file in this checkout") }
+	findings, unresolved := Check("agentkit@v0.17.0 runtime/exec.go:1845 abandons the tail", read)
+	if len(findings) != 0 {
+		t.Fatalf("findings = %d, want 0 — another repository's path is not this checkout's to deny",
+			len(findings))
+	}
+	if len(unresolved) != 1 {
+		t.Fatalf("unresolved = %d, want 1 — it must be NAMED; silence here is what made a body of "+
+			"unverifiable citations pass identically to a verified one", len(unresolved))
+	}
+	if unresolved[0].Raw != "runtime/exec.go:1845" {
+		t.Errorf("unresolved[0] = %q", unresolved[0].Raw)
+	}
+}
+
+// TestCheck_UnresolvedAreDeduped keeps the report readable: one citation named
+// three times is one thing a reader has to verify, not three.
+func TestCheck_UnresolvedAreDeduped(t *testing.T) {
+	read := func(string) ([]string, error) { return nil, errors.New("not a file in this checkout") }
+	_, unresolved := Check("a/b.go:1 and again a/b.go:1 and once more a/b.go:1", read)
+	if len(unresolved) != 1 {
+		t.Fatalf("unresolved = %d, want 1", len(unresolved))
+	}
+}
+
+// TestCheck_AResolvedCitationIsNeverUnresolved is the control. Without it the
+// two tests above pass on a Check that reported everything as unresolved.
+func TestCheck_AResolvedCitationIsNeverUnresolved(t *testing.T) {
+	read := func(string) ([]string, error) { return []string{"package cite"}, nil }
+	findings, unresolved := Check("`internal/cite/cite.go:1`:\n\n```go\npackage cite\n```", read)
+	if len(findings) != 0 {
+		t.Fatalf("findings = %d, want 0", len(findings))
+	}
+	if len(unresolved) != 0 {
+		t.Fatalf("unresolved = %d, want 0 — a citation this checkout read is checked, not unchecked",
+			len(unresolved))
 	}
 }
