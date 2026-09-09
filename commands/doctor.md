@@ -19,9 +19,11 @@ receiving what lands where it is installed from. A checkout publishing to a
 branch nothing loads is one. A live runner whose `scripts/shifts.sh` is a
 different checkout's than the one sessions load is another, and it is the one
 nobody spots, because each half looks right on its own. That row places the
-runner's `shifts.sh` and nothing else: the shift script and the settings file it
-selects can be overridden past it, so a runner reported `present` is one whose
-loop script was placed, never a whole installation certified.
+runner's `shifts.sh`, and — where the runner's own environment is readable — the
+shift script and settings file `MELLIONS_SHIFT` and `MELLIONS_SETTINGS`
+substitute for the ones beside it. Where that environment cannot be read the row
+says so in its detail and keeps the word `shifts.sh` earned, so `present` there
+is a loop script placed, never a whole installation certified.
 
 Permissions, tools, hooks, MCP, sandboxing, credentials and model settings
 belong to the runtime and are inherited exactly as they are; a capability the
