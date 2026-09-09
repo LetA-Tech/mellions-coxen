@@ -159,7 +159,54 @@ func (s *Store) sweepOne(ctx context.Context, a *Assignment, o SweepOptions) Swe
 		return v
 	}
 	v.Verdict, v.Why = "closed", why
+	if note := s.releaseJudged(ctx, a, pr); note != "" {
+		v.Why += "; " + note
+	}
 	return v
+}
+
+// releaseJudged withdraws the claim on the pull request the sweep closed the
+// lane on, where the lane's own record does not name it.
+//
+// The verdict is read off the branch and the release is made off the record,
+// and nothing reconciles the two. `mellions assign claim` overwrites the
+// recorded reference without releasing the one it replaces, so a lane that
+// published a claim on one change set and later recorded another closes
+// cleanly — its record says every reference it names was released — while the
+// change set the sweep actually read as merged keeps the label and a comment
+// naming a lane that no longer exists.
+//
+// Only a claim this lane published is withdrawn, and only after reading it
+// back: a label with no claim comment behind it is somebody else's residue,
+// and removing it on an unread guess would be the same mistake in the other
+// direction. A tracker that cannot be read says so on the sweep line rather
+// than failing the close, which has already happened.
+func (s *Store) releaseJudged(ctx context.Context, a *Assignment, pr claim.PullRequest) string {
+	if s.Tracker == nil || pr.Number <= 0 {
+		return ""
+	}
+	ref := fmt.Sprintf("PR #%d", pr.Number)
+	for _, r := range a.claimRefs() {
+		// Same number, either spelling: an issue reference and a pull request
+		// reference carrying one number address one item on the tracker.
+		if got, err := claim.PullRequestRef(r); err == nil && got == ref {
+			return ""
+		}
+	}
+	claims, err := s.Tracker.Claims(ctx, a.Repo, ref)
+	if err != nil {
+		return "whether " + ref + " still carries this lane's claim could not be read: " + err.Error()
+	}
+	for _, c := range claims {
+		if c.ID != a.ID {
+			continue
+		}
+		if err := s.Tracker.Release(ctx, a.Repo, ref, a.ID); err != nil {
+			return "the claim it published on " + ref + " could not be released: " + err.Error()
+		}
+		return "the claim it published on " + ref + " is released"
+	}
+	return ""
 }
 
 // decisive is the pull request that settles the lane. An open one wins
