@@ -44,6 +44,13 @@ func cmdCite(ctx context.Context, args []string) error {
 		return err
 	}
 	root := repoRoot(ctx, *dir)
+	// A ref this repository cannot resolve makes EVERY citation unreadable, so
+	// the check reports a body of unresolved citations and exits 0 — a typo in
+	// -commit silently disables the gate and says something reassuring while it
+	// does. Refuse before grading anything.
+	if err := requireRef(ctx, root, *commit); err != nil {
+		return err
+	}
 	findings, unresolved := cite.Check(doc, resolverAt(ctx, root, *commit))
 
 	// Say which tree answered, always. A citation is graded against whatever
@@ -122,11 +129,21 @@ func cmdCiteCheck(ctx context.Context, args []string) error {
 			for _, f := range findings {
 				reasons = append(reasons, "  "+f.Reason())
 			}
-			// Named, not counted away. A body whose citations this tree cannot
-			// open passed identically to one whose citations were all verified,
-			// and the session had no way to tell. If the command is denied for
-			// something else, the reader gets this too; if it is not, the CLI
-			// path prints it.
+			// Named whenever this hook speaks at all.
+			//
+			// It cannot speak otherwise, and that is a real limit rather than a
+			// choice: a PreToolUse decision is deny or nothing, and denying a
+			// body because its citations are another repository's would refuse
+			// exactly the bodies deep-research asks for. So a body whose
+			// citations are ALL unresolvable still publishes in silence — the
+			// unresolved line rides along only when something else already
+			// denies.
+			//
+			// An earlier comment here said the CLI path prints it instead. It
+			// does not: a session publishing through this hook never runs the
+			// CLI, and that sentence was a rationalisation for a gap. The rule
+			// binds in deep-research's Citing section, which states it for the
+			// author before the body is written, because nothing downstream can.
 			if len(unresolved) > 0 && len(findings) > 0 {
 				reasons = append(reasons, "  "+unresolvedLine(unresolved, dir))
 			}
@@ -362,4 +379,23 @@ func claimsTreeAt(ctx context.Context, root, commit, path string) bool {
 	}
 	out, err := exec.CommandContext(ctx, "git", "-C", root, "cat-file", "-t", commit+":"+head).Output()
 	return err == nil && strings.TrimSpace(string(out)) == "tree"
+}
+
+// requireRef refuses a -commit this repository cannot resolve.
+//
+// Without it the failure is silent and reassuring: git cannot read any path at
+// a ref that does not exist, so every citation becomes unresolvable, the check
+// reports them as unchecked and exits 0. A body denied on the working tree
+// passes under a mistyped ref, and the output says "every citation this
+// checkout can resolve is quoted in the body" while having resolved none.
+func requireRef(ctx context.Context, root, commit string) error {
+	if commit == "" {
+		return nil
+	}
+	if err := exec.CommandContext(ctx, "git", "-C", root,
+		"rev-parse", "--verify", "--quiet", commit+"^{commit}").Run(); err != nil {
+		return fmt.Errorf("cite: %s resolves to no commit in %s — every citation would read as "+
+			"unresolvable and the check would pass having verified nothing", commit, root)
+	}
+	return nil
 }
