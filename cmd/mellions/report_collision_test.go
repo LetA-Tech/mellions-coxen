@@ -164,18 +164,17 @@ func TestReportsWrittenInDifferentSecondsTakeTheirOwnNames(t *testing.T) {
 	first := writeReportAt(t, dir, atSecond(0), reportBody{did: "written in the first second"})
 	second := writeReportAt(t, dir, atSecond(1), reportBody{did: "written in the second"})
 
-	if stamp(first) != atSecondStamp {
-		t.Errorf("a report written at %s was named %s", atSecondStamp, first)
-	}
-	if want := "20260829-041501"; stamp(second) != want {
-		t.Errorf("a report written at %s was named %s", want, second)
-	}
-	// The suffix is the collision's mark. A second that collided with nothing
-	// must not carry one, or the name no longer says when the report was
-	// written.
-	for _, p := range []string{first, second} {
-		if strings.HasSuffix(filepath.Base(p), "-2.md") {
-			t.Errorf("%s was disambiguated against a report in a different second", p)
+	// The whole name, not the stamp and not the absence of one suffix. The
+	// suffix is the collision's mark, and a report that collided with nothing
+	// must carry no mark at all — asking only that it is not "-2" says nothing
+	// about "-3", and stamp() truncates at fifteen characters, so every suffix
+	// satisfies it.
+	for _, c := range []struct{ path, want string }{
+		{first, atSecondStamp + ".md"},
+		{second, "20260829-041501.md"},
+	} {
+		if got := filepath.Base(c.path); got != c.want {
+			t.Errorf("a report that collided with nothing was named %s, want %s", got, c.want)
 		}
 	}
 	if n := mdCount(t, dir); n != 2 {
