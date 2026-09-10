@@ -8,6 +8,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -63,54 +64,15 @@ func cmdReport(args []string) error {
 		if strings.TrimSpace(body) == "" && strings.TrimSpace(*needsOwner) == "" {
 			return errors.New("a report says what happened (-did) or what needs the owner (-needs-owner)")
 		}
-		now := time.Now().UTC()
-		name := now.Format("20060102-150405")
-		if *assignment != "" {
-			name += "-" + *assignment
-		}
-		var b strings.Builder
-		fmt.Fprintf(&b, "# %s", now.Format("2006-01-02 15:04 UTC"))
-		if *assignment != "" {
-			fmt.Fprintf(&b, " — %s", *assignment)
-		}
-		b.WriteString("\n")
-		for _, sec := range []struct{ h, v string }{
-			{"Needs you", *needsOwner},
-			{"What changed about what you believe", *established},
-			{"What I did", body},
-			{"Blocked", *blocked},
-			{"Next, and why that", *next},
-		} {
-			if strings.TrimSpace(sec.v) == "" {
-				continue
-			}
-			fmt.Fprintf(&b, "\n## %s\n\n%s\n", sec.h, strings.TrimSpace(sec.v))
-		}
-		if err := os.MkdirAll(dir, 0o755); err != nil {
-			return err
-		}
-		path, err := claimReportPath(dir, name)
-		if err != nil {
-			return err
-		}
-		if err := durable.Write(path, []byte(b.String()), 0o644); err != nil {
-			releaseUnwrittenClaim(path)
-			return err
-		}
-		fmt.Println(path)
-		// Only the flags say what a report carries. A body read from -file is
-		// one document, and the reassurance would be computed from flags that
-		// are empty because they were never the input — printing it there tells
-		// a report whose first section is "Needs you" that nothing needs the
-		// owner, which is worse than saying nothing at all.
-		//
-		// -blocked counts for the same reason: it is what stopped and on whom,
-		// so a report carrying one is not a run with nothing in it for the
-		// owner, whatever the other flags hold.
-		if *file == "" && strings.TrimSpace(*needsOwner) == "" && strings.TrimSpace(*established) == "" && strings.TrimSpace(*blocked) == "" {
-			fmt.Println("\n(nothing here needs the owner)")
-		}
-		return nil
+		return reportWrite(dir, reportBody{
+			assignment:  *assignment,
+			did:         body,
+			established: *established,
+			blocked:     *blocked,
+			next:        *next,
+			needsOwner:  *needsOwner,
+			fromFile:    *file != "",
+		}, time.Now().UTC(), os.Stdout)
 	case "latest":
 		paths, err := latestReports(dir, *n)
 		if err != nil {
@@ -136,6 +98,79 @@ func cmdReport(args []string) error {
 }
 
 func (c *Config) reportsDir() string { return filepath.Join(c.reportRoot(), "reports") }
+
+// reportBody is what one report carries. Only the flags say what is in it, so
+// fromFile records that the body arrived as one document rather than as the
+// sections reportWrite's closing reassurance is computed from.
+type reportBody struct {
+	assignment  string
+	did         string
+	established string
+	blocked     string
+	next        string
+	needsOwner  string
+	fromFile    bool
+}
+
+// reportWrite names a report from now, claims that name and writes it, printing
+// the path it took to w.
+//
+// now is a parameter for the same reason reportDigest's is: the name's
+// resolution is one UTC second, so whether two reports collide is a fact about
+// the second they are written in. A caller that cannot state that second can
+// only observe it, and a test that observes it is asserting about the host's
+// load rather than about the naming. It is taken as UTC here rather than
+// required to be, so a caller holding a local time still names the right second.
+func reportWrite(dir string, r reportBody, now time.Time, w io.Writer) error {
+	now = now.UTC()
+	name := now.Format(reportStamp)
+	if r.assignment != "" {
+		name += "-" + r.assignment
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "# %s", now.Format("2006-01-02 15:04 UTC"))
+	if r.assignment != "" {
+		fmt.Fprintf(&b, " — %s", r.assignment)
+	}
+	b.WriteString("\n")
+	for _, sec := range []struct{ h, v string }{
+		{"Needs you", r.needsOwner},
+		{"What changed about what you believe", r.established},
+		{"What I did", r.did},
+		{"Blocked", r.blocked},
+		{"Next, and why that", r.next},
+	} {
+		if strings.TrimSpace(sec.v) == "" {
+			continue
+		}
+		fmt.Fprintf(&b, "\n## %s\n\n%s\n", sec.h, strings.TrimSpace(sec.v))
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	path, err := claimReportPath(dir, name)
+	if err != nil {
+		return err
+	}
+	if err := durable.Write(path, []byte(b.String()), 0o644); err != nil {
+		releaseUnwrittenClaim(path)
+		return err
+	}
+	fmt.Fprintln(w, path)
+	// Only the flags say what a report carries. A body read from -file is one
+	// document, and the reassurance would be computed from flags that are empty
+	// because they were never the input — printing it there tells a report whose
+	// first section is "Needs you" that nothing needs the owner, which is worse
+	// than saying nothing at all.
+	//
+	// -blocked counts for the same reason: it is what stopped and on whom, so a
+	// report carrying one is not a run with nothing in it for the owner,
+	// whatever the other flags hold.
+	if !r.fromFile && strings.TrimSpace(r.needsOwner) == "" && strings.TrimSpace(r.established) == "" && strings.TrimSpace(r.blocked) == "" {
+		fmt.Fprintln(w, "\n(nothing here needs the owner)")
+	}
+	return nil
+}
 
 // reportSuffixes bounds the disambiguation loop. A hundred reports written into
 // one UTC second is far outside anything the shift script or a person produces,
