@@ -23,7 +23,7 @@ func TestLatestSkipsAStrandedReservation(t *testing.T) {
 	cfgPath, dir := collisionConfig(t)
 	const asking = "the RLS decision on finrate.schema_migrations is yours"
 
-	real := writeReport(t, cfgPath, "-needs-owner", asking)
+	real := writeReportAt(t, dir, atSecond(0), reportBody{needsOwner: asking})
 
 	// The residue exactly as claimReportPath leaves it — the name claimed, the
 	// content write never arrived — under a name that sorts after every real
@@ -65,10 +65,14 @@ func TestLatestSkipsAStrandedReservation(t *testing.T) {
 // rather than by name: nothing about the name says the write never landed, and
 // the next release's residue may carry a different one.
 func TestLatestStillAnswersWhenEveryReportIsReal(t *testing.T) {
-	cfgPath, _ := collisionConfig(t)
+	cfgPath, dir := collisionConfig(t)
 
-	first := writeReport(t, cfgPath, "-did", "written first")
-	second := writeReport(t, cfgPath, "-did", "written second")
+	// One stated second for both, so the size filter is asked about two real
+	// reports that actually collided. Left to the host's clock this passed
+	// whenever the writes straddled a boundary, having exercised no claim at
+	// all.
+	first := writeReportAt(t, dir, atSecond(0), reportBody{did: "written first"})
+	second := writeReportAt(t, dir, atSecond(0), reportBody{did: "written second"})
 	if first == second {
 		t.Fatalf("two reports were given one path: %s", first)
 	}

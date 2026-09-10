@@ -48,20 +48,38 @@ func collisionConfig(t *testing.T) (cfgPath, reportsDir string) {
 	return cfgPath, filepath.Join(root, "reports")
 }
 
-// writeReport runs one `report write` and returns the path it printed.
-func writeReport(t *testing.T, cfgPath string, args ...string) string {
+// atSecond is a stated UTC second, offset seconds from a fixed base. Nothing
+// about the base matters; what matters is that the test names the second
+// instead of the host's clock choosing it.
+func atSecond(offset int) time.Time {
+	return time.Date(2026, 8, 29, 4, 15, 0, 0, time.UTC).Add(time.Duration(offset) * time.Second)
+}
+
+// atSecondStamp is the name every report written at atSecond(0) starts with. It
+// is written out rather than derived, so the tests below have an oracle the
+// naming code cannot move.
+const atSecondStamp = "20260829-041500"
+
+// writeReportAt runs one report write at a stated UTC second and returns the
+// path it printed.
+//
+// The second is stated rather than observed. A report's name has one-second
+// resolution, so whether two reports collide is decided by the second they were
+// written in — and a test that lets the host's clock decide it is asserting
+// about the host's load. Stated, both directions are reachable on purpose and
+// neither one is load-sensitive.
+func writeReportAt(t *testing.T, dir string, now time.Time, r reportBody) string {
 	t.Helper()
-	out := captureStdout(t, func() {
-		if err := cmdReport(append([]string{"write", "-config", cfgPath}, args...)); err != nil {
-			t.Fatal(err)
-		}
-	})
-	for _, line := range strings.Split(out, "\n") {
+	var out strings.Builder
+	if err := reportWrite(dir, r, now, &out); err != nil {
+		t.Fatal(err)
+	}
+	for _, line := range strings.Split(out.String(), "\n") {
 		if strings.HasSuffix(strings.TrimSpace(line), ".md") {
 			return strings.TrimSpace(line)
 		}
 	}
-	t.Fatalf("report write printed no path\noutput: %s", out)
+	t.Fatalf("report write printed no path\noutput: %s", out.String())
 	return ""
 }
 
@@ -81,15 +99,6 @@ func mdCount(t *testing.T, dir string) int {
 	return n
 }
 
-// atFreshSecond sleeps to the next UTC second boundary, so the writes that
-// follow have a whole second to land in. It buys the collision a wide window;
-// it does not assume one, which is why every test below asserts that the
-// reports it wrote actually did share a second.
-func atFreshSecond(t *testing.T) {
-	t.Helper()
-	time.Sleep(time.Second - time.Duration(time.Now().UTC().Nanosecond()))
-}
-
 // stamp is the UTC second a report's name was built from.
 func stamp(path string) string {
 	base := filepath.Base(path)
@@ -103,21 +112,23 @@ func stamp(path string) string {
 // one second, no -id. Before the claim they were one file and two of the three
 // bodies were gone.
 func TestReportsWrittenInOneSecondAllSurvive(t *testing.T) {
-	cfgPath, dir := collisionConfig(t)
+	_, dir := collisionConfig(t)
 	bodies := []string{"the first report", "the second report", "the third report"}
 
-	atFreshSecond(t)
 	paths := make([]string, 0, len(bodies))
 	for _, body := range bodies {
-		paths = append(paths, writeReport(t, cfgPath, "-did", body))
+		paths = append(paths, writeReportAt(t, dir, atSecond(0), reportBody{did: body}))
 	}
 
-	// Without this the test can pass on a second boundary having proved
-	// nothing: three reports in three seconds never collided in the first
-	// place, and three distinct files say nothing about the defect.
-	for _, p := range paths[1:] {
-		if stamp(p) != stamp(paths[0]) {
-			t.Fatalf("the writes straddled a second boundary, so no collision was exercised: %v", paths)
+	// Without this the test can pass having proved nothing: three reports in
+	// three seconds never collided in the first place, and three distinct files
+	// say nothing about the defect. The second is stated, so this is no longer a
+	// window that load can close — it is the assertion that the stated second
+	// reached the name, against a literal the naming code cannot move.
+	for _, p := range paths {
+		if stamp(p) != atSecondStamp {
+			t.Fatalf("a report written at %s was named %s, so no collision was exercised: %v",
+				atSecondStamp, stamp(p), paths)
 		}
 	}
 
@@ -140,19 +151,64 @@ func TestReportsWrittenInOneSecondAllSurvive(t *testing.T) {
 	}
 }
 
+// TestReportsWrittenInDifferentSecondsTakeTheirOwnNames is the other half of
+// the property, and until the clock was a parameter no test could state it: the
+// disambiguation is meant to fire only on a real collision. A claim that handed
+// out a suffix for every write would satisfy every test above and be wrong —
+// each report's name would stop being the second it was written in, which is
+// what `latest`, the digest's ordering and every reader of a report directory
+// read it for.
+func TestReportsWrittenInDifferentSecondsTakeTheirOwnNames(t *testing.T) {
+	_, dir := collisionConfig(t)
+
+	first := writeReportAt(t, dir, atSecond(0), reportBody{did: "written in the first second"})
+	second := writeReportAt(t, dir, atSecond(1), reportBody{did: "written in the second"})
+
+	if stamp(first) != atSecondStamp {
+		t.Errorf("a report written at %s was named %s", atSecondStamp, first)
+	}
+	if want := "20260829-041501"; stamp(second) != want {
+		t.Errorf("a report written at %s was named %s", want, second)
+	}
+	// The suffix is the collision's mark. A second that collided with nothing
+	// must not carry one, or the name no longer says when the report was
+	// written.
+	for _, p := range []string{first, second} {
+		if strings.HasSuffix(filepath.Base(p), "-2.md") {
+			t.Errorf("%s was disambiguated against a report in a different second", p)
+		}
+	}
+	if n := mdCount(t, dir); n != 2 {
+		t.Errorf("two reports a second apart left %d files, want 2", n)
+	}
+	for _, c := range []struct{ path, body string }{
+		{first, "written in the first second"},
+		{second, "written in the second"},
+	} {
+		raw, err := os.ReadFile(c.path)
+		if err != nil {
+			t.Errorf("report write printed %s, which cannot be read: %v", c.path, err)
+			continue
+		}
+		if !strings.Contains(string(raw), c.body) {
+			t.Errorf("report write printed %s for %q, but that file holds:\n%s", c.path, c.body, raw)
+		}
+	}
+}
+
 // TestReportsWrittenInOneSecondUnderOneIdAllSurvive: the assignment id was the
 // only other thing in the name, so one lane writing twice in a second collided
 // with itself. Naming the lane never separated them.
 func TestReportsWrittenInOneSecondUnderOneIdAllSurvive(t *testing.T) {
-	cfgPath, dir := collisionConfig(t)
+	_, dir := collisionConfig(t)
 	const id = "report-collision-42"
 
-	atFreshSecond(t)
-	first := writeReport(t, cfgPath, "-id", id, "-did", "what the lane established")
-	second := writeReport(t, cfgPath, "-id", id, "-did", "what the lane did next")
+	first := writeReportAt(t, dir, atSecond(0), reportBody{assignment: id, did: "what the lane established"})
+	second := writeReportAt(t, dir, atSecond(0), reportBody{assignment: id, did: "what the lane did next"})
 
-	if stamp(first) != stamp(second) {
-		t.Fatalf("the writes straddled a second boundary, so no collision was exercised: %s, %s", first, second)
+	if stamp(first) != atSecondStamp || stamp(second) != atSecondStamp {
+		t.Fatalf("reports written at %s were named %s and %s, so no collision was exercised",
+			atSecondStamp, first, second)
 	}
 	if first == second {
 		t.Fatalf("two reports under one id in one second were given one path: %s", first)
@@ -175,15 +231,15 @@ func TestReportsWrittenInOneSecondUnderOneIdAllSurvive(t *testing.T) {
 // asking for the owner that a quiet one overwrote is not late — it is gone,
 // and the digest cannot know it ever existed.
 func TestDigestStillSeesAReportASameSecondSuccessorWouldHaveDestroyed(t *testing.T) {
-	cfgPath, _ := collisionConfig(t)
+	cfgPath, dir := collisionConfig(t)
 	const asking = "merge the pull request, it is a protected branch"
 
-	atFreshSecond(t)
-	needs := writeReport(t, cfgPath, "-needs-owner", asking)
-	quiet := writeReport(t, cfgPath, "-did", "a quiet run with nothing in it")
+	needs := writeReportAt(t, dir, atSecond(0), reportBody{needsOwner: asking})
+	quiet := writeReportAt(t, dir, atSecond(0), reportBody{did: "a quiet run with nothing in it"})
 
-	if stamp(needs) != stamp(quiet) {
-		t.Fatalf("the writes straddled a second boundary, so no collision was exercised: %s, %s", needs, quiet)
+	if stamp(needs) != atSecondStamp || stamp(quiet) != atSecondStamp {
+		t.Fatalf("reports written at %s were named %s and %s, so no collision was exercised",
+			atSecondStamp, needs, quiet)
 	}
 
 	out := captureStdout(t, func() {
@@ -278,13 +334,13 @@ func TestAFailedWriteGivesBackOnlyAnEmptyClaim(t *testing.T) {
 // 20260829-041500.md ranked above its own -2 successor and `latest -n 1`
 // answered with the older of the two.
 func TestLatestAnswersWithTheReportWrittenLast(t *testing.T) {
-	cfgPath, dir := collisionConfig(t)
+	_, dir := collisionConfig(t)
 
-	atFreshSecond(t)
-	first := writeReport(t, cfgPath, "-did", "written first")
-	second := writeReport(t, cfgPath, "-did", "written second")
-	if stamp(first) != stamp(second) {
-		t.Fatalf("the writes straddled a second boundary, so no collision was exercised: %s, %s", first, second)
+	first := writeReportAt(t, dir, atSecond(0), reportBody{did: "written first"})
+	second := writeReportAt(t, dir, atSecond(0), reportBody{did: "written second"})
+	if stamp(first) != atSecondStamp || stamp(second) != atSecondStamp {
+		t.Fatalf("reports written at %s were named %s and %s, so no collision was exercised",
+			atSecondStamp, first, second)
 	}
 
 	paths, err := latestReports(dir, 1)
