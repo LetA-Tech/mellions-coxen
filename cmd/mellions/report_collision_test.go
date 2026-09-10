@@ -426,3 +426,48 @@ func TestLatestOrdersTheSuffixAsANumber(t *testing.T) {
 			filepath.Base(paths[0]), strings.TrimSpace(string(raw)), filepath.Base(last))
 	}
 }
+
+// TestCmdReportWriteNamesTheReportFromTheClock binds the call site.
+//
+// reportWrite takes the second as a parameter, so every test above states one.
+// That leaves the command's own argument unasserted: a cmdReport passing a
+// constant names every report the same second, and the whole suite above stays
+// green because none of it goes through cmdReport's argument.
+//
+// The tolerance is the point. This asserts the name's second came from the
+// clock, not which second it was, so it cannot reintroduce the alignment the
+// stated seconds removed: the name is the write instant truncated, and a
+// truncated instant is never below the floor of a reading taken before it nor
+// above one taken after.
+func TestCmdReportWriteNamesTheReportFromTheClock(t *testing.T) {
+	cfgPath, dir := collisionConfig(t)
+
+	before := time.Now().UTC()
+	if err := cmdReport([]string{"write", "-config", cfgPath, "-did", "a run with a real clock"}); err != nil {
+		t.Fatal(err)
+	}
+	after := time.Now().UTC()
+
+	if n := mdCount(t, dir); n != 1 {
+		t.Fatalf("one write left %d reports on disk", n)
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var name string
+	for _, e := range entries {
+		if strings.HasSuffix(e.Name(), ".md") {
+			name = e.Name()
+		}
+	}
+
+	named, err := time.Parse(reportStamp, stamp(name))
+	if err != nil {
+		t.Fatalf("report %s is not named from a UTC second: %v", name, err)
+	}
+	if floor := before.Truncate(time.Second); named.Before(floor) || named.After(after) {
+		t.Errorf("report %s is named %s; the write happened between %s and %s, so the command did not name it from the clock",
+			name, named.Format(time.RFC3339), floor.Format(time.RFC3339), after.Format(time.RFC3339))
+	}
+}
