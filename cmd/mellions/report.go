@@ -101,7 +101,7 @@ func (c *Config) reportsDir() string { return filepath.Join(c.reportRoot(), "rep
 
 // reportBody is what one report carries. Only the flags say what is in it, so
 // fromFile records that the body arrived as one document rather than as the
-// sections the reassurance below is computed from.
+// sections reportWrite's closing reassurance is computed from.
 type reportBody struct {
 	assignment  string
 	did         string
