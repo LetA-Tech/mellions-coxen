@@ -628,7 +628,8 @@ func TestHookOutputs_AllCarryTheEventTheRuntimeDispatchesOn(t *testing.T) {
 				if x.Kind != token.STRING || x.Pos() == constLit {
 					return true
 				}
-				if s, uerr := strconv.Unquote(x.Value); uerr == nil && s == "PreToolUse" {
+				s, uerr := strconv.Unquote(x.Value)
+				if uerr == nil && (s == "PreToolUse" || strings.Contains(s, `"PreToolUse"`)) {
 					t.Errorf("%s spells the event name as a literal; take preToolUseEvent so one "+
 						"pin covers every hook output in this package",
 						fset.Position(x.Pos()).String())
