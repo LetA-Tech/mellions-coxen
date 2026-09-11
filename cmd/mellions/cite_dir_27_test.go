@@ -578,6 +578,20 @@ func TestHookOutputs_AllCarryTheEventTheRuntimeDispatchesOn(t *testing.T) {
 			t.Fatal(perr)
 		}
 		scanned++
+		// The constant's own declaration is the one place the literal belongs.
+		constLit := token.NoPos
+		ast.Inspect(f, func(n ast.Node) bool {
+			spec, ok := n.(*ast.ValueSpec)
+			if !ok {
+				return true
+			}
+			for i, id := range spec.Names {
+				if id.Name == "preToolUseEvent" && i < len(spec.Values) {
+					constLit = spec.Values[i].Pos()
+				}
+			}
+			return true
+		})
 		bad := func(pos token.Pos, what string) {
 			t.Errorf("%s sets the hook event to %s; it must be preToolUseEvent. A value the "+
 				"runtime does not recognise is discarded without error, so the guard emits "+
@@ -606,6 +620,18 @@ func TestHookOutputs_AllCarryTheEventTheRuntimeDispatchesOn(t *testing.T) {
 						continue
 					}
 					value(sel.Pos(), x.Rhs[i])
+				}
+			case *ast.BasicLit:
+				// A second spelling of the literal is a safeguard nothing
+				// pins. The comparison is to the requirement's own string, not
+				// to the constant, so mutating the constant cannot silence it.
+				if x.Kind != token.STRING || x.Pos() == constLit {
+					return true
+				}
+				if s, uerr := strconv.Unquote(x.Value); uerr == nil && s == "PreToolUse" {
+					t.Errorf("%s spells the event name as a literal; take preToolUseEvent so one "+
+						"pin covers every hook output in this package",
+						fset.Position(x.Pos()).String())
 				}
 			case *ast.KeyValueExpr:
 				switch k := x.Key.(type) {
