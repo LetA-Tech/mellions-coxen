@@ -471,3 +471,26 @@ func TestCmdReportWriteNamesTheReportFromTheClock(t *testing.T) {
 			name, named.Format(time.RFC3339), floor.Format(time.RFC3339), after.Format(time.RFC3339))
 	}
 }
+
+// TestAReportsHeadingIsTheSecondItsNameCarries binds the two readers of one
+// instant. reportWrite formats the name and the document's heading from the
+// same now, and nothing asserted that they agree — a heading built from a
+// different instant leaves the whole package green while the report
+// contradicts itself in the owner's hands, which is where reports are read.
+func TestAReportsHeadingIsTheSecondItsNameCarries(t *testing.T) {
+	_, dir := collisionConfig(t)
+	path := writeReportAt(t, dir, atSecond(0), reportBody{did: "one instant, two readers of it"})
+
+	if got, want := filepath.Base(path), atSecondStamp+".md"; got != want {
+		t.Fatalf("report named %s, want %s", got, want)
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	first := strings.SplitN(strings.TrimSpace(string(raw)), "\n", 2)[0]
+	if want := "# 2026-08-29 04:15 UTC"; first != want {
+		t.Errorf("the report named %s carries the heading %q, want %q: the name and the document disagree about when it was written",
+			filepath.Base(path), first, want)
+	}
+}
