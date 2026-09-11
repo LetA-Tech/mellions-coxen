@@ -1,13 +1,18 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"go/ast"
+	"go/parser"
+	"go/printer"
+	"go/token"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -532,51 +537,98 @@ func TestHookOutputs_AllCarryTheEventTheRuntimeDispatchesOn(t *testing.T) {
 		t.Errorf("preToolUseEvent = %q; the runtime dispatches on this exact string and discards "+
 			"anything else in silence", preToolUseEvent)
 	}
-	// Every place a non-test file names the event must take the constant.
+	// Every place a non-test file sets the event must take the constant, and
+	// what is checked is the value, not the spelling: the dangerous mistake is
+	// not a tidy literal but a misspelled one, because a routing key the
+	// runtime does not recognise is discarded without error — the hook exits 0
+	// and the guard is deaf with no symptom.
 	//
-	// The earlier form of this scan searched for the correctly-spelled literal,
-	// which caught the tidy mistake and missed the dangerous one: a new emitter
-	// writing "PreToolUsee" passed it, and that misspelling IS the defect this
-	// exists to prevent — a routing key the runtime does not recognise, so the
-	// object is discarded, the hook exits 0 and the guard is deaf with no
-	// symptom. It checked the precursor rather than the property.
+	// The scan reads the syntax tree, so the shape a site is written in cannot
+	// carry it out of sight: any field named Event, in any struct, under any
+	// spelling of the assignment, and the hookEventName key of a map or
+	// composite literal. A comparison is not an assignment, a conversion is
+	// not the constant, a value arriving from a multi-value call cannot be
+	// shown to be the constant and so is refused, prose in a comment is not a
+	// node, and gofmt cannot reformat a site out of the pattern.
 	//
-	// So it reads the right-hand side instead: whatever a site sets the event
-	// to, it must be the constant, and then one pin covers all of them.
+	// knownEventSites is the vacuity control. A count below it means either an
+	// emitter was deliberately removed — then lower this — or a site left the
+	// scan's sight while still shipping, which is the failure the count exists
+	// to make loud.
+	const knownEventSites = 7
 	files, err := filepath.Glob("*.go")
 	if err != nil {
 		t.Fatal(err)
 	}
-	assign := regexp.MustCompile(`(?:Output\.Event\s*=|"hookEventName"\s*:)\s*([^,\n}]+)`)
+	fset := token.NewFileSet()
+	render := func(e ast.Expr) string {
+		var buf bytes.Buffer
+		if perr := printer.Fprint(&buf, fset, e); perr != nil {
+			return "a value this check could not print"
+		}
+		return buf.String()
+	}
 	scanned, sites := 0, 0
 	for _, name := range files {
 		if strings.HasSuffix(name, "_test.go") {
 			continue
 		}
-		b, rerr := os.ReadFile(name)
-		if rerr != nil {
-			t.Fatal(rerr)
+		f, perr := parser.ParseFile(fset, name, nil, 0)
+		if perr != nil {
+			t.Fatal(perr)
 		}
 		scanned++
-		for _, m := range assign.FindAllStringSubmatch(string(b), -1) {
-			rhs := strings.TrimSpace(m[1])
-			// The struct tag `json:"hookEventName"` is a declaration, not a
-			// site; it has no right-hand side of its own.
-			if rhs == "" || strings.HasPrefix(rhs, "string") {
-				continue
-			}
-			sites++
-			if rhs != "preToolUseEvent" {
-				t.Errorf("%s sets the hook event to %s; it must be preToolUseEvent. A value the "+
-					"runtime does not recognise is discarded without error, so the guard emits "+
-					"nothing, exits 0 and is indistinguishable from one that had nothing to say.",
-					name, rhs)
-			}
+		bad := func(pos token.Pos, what string) {
+			t.Errorf("%s sets the hook event to %s; it must be preToolUseEvent. A value the "+
+				"runtime does not recognise is discarded without error, so the guard emits "+
+				"nothing, exits 0 and is indistinguishable from one that had nothing to say.",
+				fset.Position(pos).String(), what)
 		}
+		value := func(pos token.Pos, v ast.Expr) {
+			sites++
+			if id, ok := v.(*ast.Ident); ok && id.Name == "preToolUseEvent" {
+				return
+			}
+			bad(pos, render(v))
+		}
+		ast.Inspect(f, func(n ast.Node) bool {
+			switch x := n.(type) {
+			case *ast.AssignStmt:
+				for i, lhs := range x.Lhs {
+					sel, ok := lhs.(*ast.SelectorExpr)
+					if !ok || sel.Sel.Name != "Event" {
+						continue
+					}
+					if len(x.Rhs) != len(x.Lhs) {
+						sites++
+						bad(sel.Pos(), "a value from a multi-value expression — assign the "+
+							"constant on its own statement so this is checkable")
+						continue
+					}
+					value(sel.Pos(), x.Rhs[i])
+				}
+			case *ast.KeyValueExpr:
+				switch k := x.Key.(type) {
+				case *ast.Ident:
+					if k.Name == "Event" {
+						value(k.Pos(), x.Value)
+					}
+				case *ast.BasicLit:
+					if k.Kind != token.STRING {
+						return true
+					}
+					if s, uerr := strconv.Unquote(k.Value); uerr == nil && s == "hookEventName" {
+						value(k.Pos(), x.Value)
+					}
+				}
+			}
+			return true
+		})
 	}
-	if scanned == 0 || sites == 0 {
-		t.Fatalf("scanned %d non-test file(s) and found %d event site(s) — this check would pass "+
-			"vacuously; the assignment shape it matches has changed", scanned, sites)
+	if scanned == 0 || sites < knownEventSites {
+		t.Fatalf("scanned %d non-test file(s) and found %d event site(s), fewer than the %d that "+
+			"ship — this check would pass having verified less than it claims; a site has left "+
+			"the shape it matches", scanned, sites, knownEventSites)
 	}
 }
 
