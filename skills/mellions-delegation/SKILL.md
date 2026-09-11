@@ -95,9 +95,9 @@ author's account, and a reviewer who starts there can no longer produce a first
 judgment — `mellions-reasoning`. Take that reading from a subagent that has not
 seen the diff where being wrong is expensive, and wherever the case rests on a
 count of what it drops, a claimed zero included: a reviewer handed a count
-checks it; one who has not seen it counts for themselves. Give it a base tree
-you will not mutate — an extraction or a second worktree, never the lane tree,
-since you are what contaminates it by checking the diff out to run it. The base
+checks it; one who has not seen it counts for themselves. Give it paths you never
+write to — an extraction, not the lane tree nor review scratch — and the issue
+body without comments, where the lane states its fix's shape. The base
 commit is the merge base — `git merge-base <target> <head>` — not the tip the
 metadata reports: a branch behind its target diffs as though it *removes*
 everything landed since it was cut, and the phantom deletion reads exactly like
