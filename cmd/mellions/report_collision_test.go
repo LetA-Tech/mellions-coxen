@@ -494,3 +494,34 @@ func TestAReportsHeadingIsTheSecondItsNameCarries(t *testing.T) {
 			filepath.Base(path), first, want)
 	}
 }
+
+// TestAReportsHeadingCarriesTheLaneItsNameDoes is the same binding one field
+// over. reportWrite writes the assignment id into both artifacts — into the
+// name at report.go:127-129 and into the heading at :132-134 — and until this
+// test nothing asserted the second one: deleting the heading's suffix outright
+// left the whole package green, so a report that stopped naming its lane in its
+// own title while the file name still carried it passed the gate.
+//
+// Both wants are whole literals rather than atSecondStamp plus the id, for the
+// reason atSecondStamp itself is written out: an oracle assembled from the same
+// pieces the naming code uses follows the naming code wherever it goes.
+func TestAReportsHeadingCarriesTheLaneItsNameDoes(t *testing.T) {
+	_, dir := collisionConfig(t)
+	path := writeReportAt(t, dir, atSecond(0), reportBody{
+		assignment: "report-collision-42",
+		did:        "one lane, two readers of it",
+	})
+
+	if got, want := filepath.Base(path), "20260829-041500-report-collision-42.md"; got != want {
+		t.Fatalf("report named %s, want %s", got, want)
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	first := strings.SplitN(strings.TrimSpace(string(raw)), "\n", 2)[0]
+	if want := "# 2026-08-29 04:15 UTC — report-collision-42"; first != want {
+		t.Errorf("the report named %s carries the heading %q, want %q: the name and the document disagree about which lane it is from",
+			filepath.Base(path), first, want)
+	}
+}
