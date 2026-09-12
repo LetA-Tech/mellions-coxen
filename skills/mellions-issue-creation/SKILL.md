@@ -77,7 +77,10 @@ between taxonomies.
 - **The finding is established, not inferred.** Re-open every citation at the
   base branch HEAD now; the code wins over the finding's account of it. What
   drifted is corrected before it is written; a claim you have not read the
-  code for does not go in.
+  code for does not go in. Line numbers read off a scrolled window land two or
+  three out and still resolve, so the body reads as checked: settle them with
+  `mellions cite check -file <body> -dir <checkout> [-commit <ref>]`, which
+  reports every citation the body does not quote, before the issue is filed.
 - **The base branch is established, not guessed.** From the repository's own
   binding or `CLAUDE.md` where it declares one. Where nothing declares one the
   remote's default is read instead and said to be discovered — that is a fact
