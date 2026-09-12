@@ -54,6 +54,12 @@ func cmdDoctor(ctx context.Context, args []string) error {
 		line("binary", "ABSENT", "not on PATH; this one is "+self+" — put it on PATH or set MELLIONS_BIN")
 	}
 
+	// Read before the first line that needs it: the runner line compares the
+	// script the live runner executes against the load path, and the load path
+	// rows are printed further down.
+	reg := pluginreg.Read(home(), pluginreg.ID)
+	hooksRoot := pluginRoot(reg)
+
 	cfg, err := loadConfig(*cfgPath)
 	if err != nil {
 		line("config", "ABSENT", err.Error())
@@ -92,7 +98,22 @@ func cmdDoctor(ctx context.Context, args []string) error {
 		// The runner keeps its lock and log where the shifts land, and both
 		// scripts ask the binary for that directory, so Config.home is the one
 		// answer rather than a second reading of the same environment.
-		state, detail := runnerState(cfg.home())
+		// Only a load path the runtime reads in place is a checkout the runner
+		// could be sharing. Where the runtime fetched a copy instead, the
+		// plugin and scripts/ deploy through two channels by design, and the
+		// runner running out of a checkout somewhere else is the arrangement
+		// rather than a split — so there is nothing to compare and the row
+		// says so.
+		// reg.LoadPath, not hooksRoot: hooksRoot prefers $CLAUDE_PLUGIN_ROOT,
+		// which locates hook and Skill files for the process reading it and is
+		// not a claim about which checkout the runtime loads. Taking it here
+		// makes this row name a different directory than the load path row
+		// two lines below, and call the foreign one "the load path".
+		shared := ""
+		if reg.Marketplace.InPlace() {
+			shared = reg.LoadPath
+		}
+		state, detail := runnerState(cfg.home(), shared)
 		line("runner", state, detail)
 		shifts := filepath.Join(cfg.home(), "shifts")
 		if _, err := os.Stat(shifts); err == nil {
@@ -131,8 +152,6 @@ func cmdDoctor(ctx context.Context, args []string) error {
 		line("runtime "+rt.name, state, detail)
 	}
 
-	reg := pluginreg.Read(home(), pluginreg.ID)
-	hooksRoot := pluginRoot(reg)
 	if reg.Installed {
 		state, detail := loadPathState(reg)
 		line("load path", state, detail)
