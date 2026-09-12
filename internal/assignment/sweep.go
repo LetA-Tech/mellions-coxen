@@ -161,8 +161,13 @@ func (s *Store) sweepOne(ctx context.Context, a *Assignment, o SweepOptions) Swe
 // and removing it on an unread guess would be the same mistake in the other
 // direction. A tracker that cannot be read says so on the sweep line rather
 // than failing the close, which has already happened.
+//
+// A claim is (host, id), which is what Release itself matches on: lane ids are
+// chosen by hand and nothing makes them unique across machines, so a lane with
+// no published claim of its own has nothing here to withdraw and one that
+// matches by id alone would withdraw the other machine's.
 func (s *Store) releaseJudged(ctx context.Context, a *Assignment, pr claim.PullRequest) string {
-	if s.Tracker == nil || pr.Number <= 0 {
+	if s.Tracker == nil || pr.Number <= 0 || a.Claim == nil {
 		return ""
 	}
 	ref := fmt.Sprintf("PR #%d", pr.Number)
@@ -178,7 +183,7 @@ func (s *Store) releaseJudged(ctx context.Context, a *Assignment, pr claim.PullR
 		return "whether " + ref + " still carries this lane's claim could not be read: " + err.Error()
 	}
 	for _, c := range claims {
-		if c.ID != a.ID {
+		if c.ID != a.ID || c.Host != a.Claim.Host {
 			continue
 		}
 		if err := s.Tracker.Release(ctx, a.Repo, ref, a.ID); err != nil {

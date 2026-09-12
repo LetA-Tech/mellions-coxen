@@ -317,6 +317,7 @@ func TestSweepNarrowsToARepository(t *testing.T) {
 		t.Errorf("blocked lane: %+v", sw[0])
 	}
 }
+
 // TestSweepReleasesTheClaimItClosedTheLaneOn: the verdict is read off the
 // branch and the release is made off the record, and a lane can hold one
 // change set while being finished by another — `mellions assign claim`
@@ -358,6 +359,11 @@ func TestSweepReleasesTheClaimItClosedTheLaneOn(t *testing.T) {
 		if len(held) != 0 {
 			t.Errorf("%s still carries %+v after the lane closed", ref, held)
 		}
+		// The label is what a peer on another machine reads, and #66 is about
+		// the label rather than the comment behind it.
+		if tr.label("rates-service", ref) {
+			t.Errorf("%s still carries the claim label after the lane closed", ref)
+		}
 	}
 }
 
@@ -376,6 +382,7 @@ func TestSweepSaysNothingAboutAClaimItDidNotPublish(t *testing.T) {
 	}
 	other := claim.Claim{ID: "another-lane", Host: "elsewhere", State: StateActive, At: time.Now().UTC()}
 	tr.claims[key("rates-service", "PR #22")] = []claim.Claim{other}
+	tr.labelled[key("rates-service", "PR #22")] = true
 	tr.prs[a.Branch] = []claim.PullRequest{{Number: 22, State: "MERGED"}}
 
 	v := verdicts(mustSweep(t, s, SweepOptions{Apply: true, PullRequests: tr.PullRequests}))["tidy"]
@@ -391,6 +398,47 @@ func TestSweepSaysNothingAboutAClaimItDidNotPublish(t *testing.T) {
 	}
 	if len(held) != 1 || held[0].ID != "another-lane" {
 		t.Errorf("PR #22 holds %+v, want another lane's claim untouched", held)
+	}
+	// The discriminating half: the label stays while a live claim is left, so
+	// a test cannot pass by stripping every label it can reach.
+	if !tr.label("rates-service", "PR #22") {
+		t.Error("PR #22 lost the claim label while another lane still holds it")
+	}
+}
+
+// TestSweepLeavesAnotherMachinesClaimOfTheSameName: a claim is (host, id) and
+// lane ids are chosen by hand, so an identically named lane on another machine
+// holds its own claim and the sweep here is not the party that releases it.
+func TestSweepLeavesAnotherMachinesClaimOfTheSameName(t *testing.T) {
+	repo := realRepo(t)
+	s := newStore(t)
+	tr := newFakeTracker()
+	s.Tracker = tr
+	a := handedOff(t, s, "twin", "rates-service", repo, "Merged as #23.")
+	if err := s.ClaimPullRequest(context.Background(), "twin", "19"); err != nil {
+		t.Fatal(err)
+	}
+	elsewhere := claim.Claim{ID: "twin", Host: "elsewhere", State: StateActive, At: time.Now().UTC()}
+	tr.claims[key("rates-service", "PR #23")] = []claim.Claim{elsewhere}
+	tr.labelled[key("rates-service", "PR #23")] = true
+	tr.prs[a.Branch] = []claim.PullRequest{{Number: 23, State: "MERGED"}}
+
+	v := verdicts(mustSweep(t, s, SweepOptions{Apply: true, PullRequests: tr.PullRequests}))["twin"]
+	if v.Verdict != "closed" {
+		t.Fatalf("twin: %+v, want closed", v)
+	}
+	if strings.Contains(v.Why, "PR #23") {
+		t.Errorf("twin: %+v, want no claim of releasing another machine's hold", v)
+	}
+	held, err := tr.Claims(context.Background(), "rates-service", "PR #23")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(held) != 1 || held[0].Host != "elsewhere" {
+		t.Errorf("PR #23 holds %+v, want the other machine's claim untouched", held)
+	}
+	if !tr.label("rates-service", "PR #23") {
+		t.Error("PR #23 lost the claim label the other machine still holds")
 	}
 }
 
