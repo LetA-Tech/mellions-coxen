@@ -72,6 +72,11 @@ func TestSweepClosesOnlyWhatTheTrackerEstablishes(t *testing.T) {
 	merged := handedOff(t, s, "fx-merged", "rates-service", repo, "Done and merged as PR #7.")
 	open := handedOff(t, s, "fx-open", "rates-service", repo, "Draft PR #8 is up for review.")
 	none := handedOff(t, s, "fx-none", "rates-service", repo, "Branch pushed; no PR yet.")
+	commitIn(t, none.Worktree, "work.go")
+	// A lane whose whole product is its record — an independent read, an
+	// investigation, a decision package — never opens a pull request, so no
+	// pull request will ever close it and only what it still holds can.
+	spent := handedOff(t, s, "fx-spent", "rates-service", repo, "Read PR #12 and posted the verdict; nothing to publish here.")
 	active := mustOpen(t, s, OpenOptions{ID: "fx-active", Repo: "rates-service", Source: repo,
 		Objective: "still working", Because: "the owner asked for it"})
 
@@ -79,6 +84,7 @@ func TestSweepClosesOnlyWhatTheTrackerEstablishes(t *testing.T) {
 		merged.Branch: `[{"number":7,"state":"MERGED","mergedAt":"2026-08-28T19:54:26Z"}]`,
 		open.Branch:   `[{"number":8,"state":"OPEN","mergedAt":null}]`,
 		none.Branch:   `[]`,
+		spent.Branch:  `[]`,
 		// The tracker would say merged; the lane is active, so it must not matter.
 		active.Branch: `[{"number":9,"state":"MERGED","mergedAt":"2026-08-28T19:54:26Z"}]`,
 	}}
@@ -88,8 +94,8 @@ func TestSweepClosesOnlyWhatTheTrackerEstablishes(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := verdicts(dry)
-	if len(got) != 4 {
-		t.Fatalf("dry run printed %d lines for 4 open lanes: %+v", len(got), dry)
+	if len(got) != 5 {
+		t.Fatalf("dry run printed %d lines for 5 open lanes: %+v", len(got), dry)
 	}
 	if v := got["fx-merged"]; v.Verdict != "closable" || !strings.Contains(v.Why, "pull request #7 merged 2026-08-28 19:54 UTC") {
 		t.Errorf("merged PR: %+v, want closable naming #7 and when it merged", v)
@@ -97,14 +103,25 @@ func TestSweepClosesOnlyWhatTheTrackerEstablishes(t *testing.T) {
 	if v := got["fx-open"]; v.Verdict != "kept" || !strings.Contains(v.Why, "pull request #8 is open") {
 		t.Errorf("open PR: %+v, want kept naming the open #8", v)
 	}
-	if v := got["fx-none"]; v.Verdict != "kept" || !strings.Contains(v.Why, "no pull request for "+none.Branch) {
-		t.Errorf("no PR: %+v, want kept saying there is none", v)
+	// Both directions of the property the tracker's silence cannot settle: a
+	// lane carrying commits is work waiting to be published and stays open; a
+	// lane carrying nothing is not kept open by a pull request that will never
+	// exist. One direction alone passes with the sweep keeping everything.
+	if v := got["fx-none"]; v.Verdict != "kept" ||
+		!strings.Contains(v.Why, "no pull request for "+none.Branch) ||
+		!strings.Contains(v.Why, "carries 1 commit") {
+		t.Errorf("no PR over commits: %+v, want kept naming the commits it would strand", v)
+	}
+	if v := got["fx-spent"]; v.Verdict != "closable" ||
+		!strings.Contains(v.Why, "no pull request was ever opened for "+spent.Branch) ||
+		!strings.Contains(v.Why, "nothing to publish") {
+		t.Errorf("no PR and nothing held: %+v, want closable saying no pull request will ever settle it", v)
 	}
 	if v := got["fx-active"]; v.Verdict != StateActive || !strings.Contains(v.Why, "`mellions assign handoff fx-active` first") {
 		t.Errorf("active lane: %+v, want its state and the handoff nudge", v)
 	}
 	// A dry run acts on nothing.
-	for _, id := range []string{"fx-merged", "fx-open", "fx-none"} {
+	for _, id := range []string{"fx-merged", "fx-open", "fx-none", "fx-spent"} {
 		if a, _ := s.Get(id); a.State != StateHandedOff {
 			t.Errorf("dry run changed %s to %s", id, a.State)
 		}
@@ -168,6 +185,34 @@ func TestSweepClosesOnlyWhatTheTrackerEstablishes(t *testing.T) {
 		if a, _ := s.Get(id); a.State != StateHandedOff {
 			t.Errorf("apply closed %s (%s) on evidence that does not close a lane", id, a.State)
 		}
+	}
+	if v := got["fx-spent"]; v.Verdict != "closed" {
+		t.Errorf("apply on the lane no pull request can settle: %+v, want closed", v)
+	}
+	ended, err := s.Get("fx-spent")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ended.State != StateClosed {
+		t.Errorf("record says %s after the sweep closed fx-spent", ended.State)
+	}
+	if _, err := os.Stat(spent.Worktree); !os.IsNotExist(err) {
+		t.Errorf("worktree %s survived the close: %v", spent.Worktree, err)
+	}
+	// The branch and the record survive, which is what makes closing on this
+	// evidence recoverable rather than a discard.
+	if _, err := s.Git(repo, "rev-parse", "--verify", "--quiet", "refs/heads/"+spent.Branch); err != nil {
+		t.Errorf("closing deleted branch %s; a close keeps the branch", spent.Branch)
+	}
+	saidWhy := false
+	for _, f := range ended.Findings {
+		if f.Kind == "note" && strings.Contains(f.Text, "closed by `mellions assign sweep`") &&
+			strings.Contains(f.Text, "no pull request was ever opened") {
+			saidWhy = true
+		}
+	}
+	if !saidWhy {
+		t.Errorf("the closed record does not say why the sweep closed fx-spent; findings: %+v", ended.Findings)
 	}
 	if a, _ := s.Get("fx-active"); a.State != StateActive {
 		t.Errorf("apply changed the active lane to %s; the sweep never closes active work", a.State)
