@@ -35,11 +35,40 @@ type fakeTracker struct {
 	// is what was posted, keyed by ref — the two halves a handoff travels on.
 	prs      map[string][]claim.PullRequest
 	comments map[string][]string
+	// labelled is the mellions:claimed label, keyed by ref. It is the half a
+	// peer on another machine actually reads, and it comes off only when no
+	// live claim is left — modelling the comment alone would let a test prove
+	// a claim entry went away while the label a survey prints stayed on.
+	labelled map[string]bool
 }
 
 func newFakeTracker() *fakeTracker {
 	return &fakeTracker{host: "here", now: time.Now, claims: map[string][]claim.Claim{},
-		prs: map[string][]claim.PullRequest{}, comments: map[string][]string{}}
+		prs: map[string][]claim.PullRequest{}, comments: map[string][]string{},
+		labelled: map[string]bool{}}
+}
+
+// label reports whether ref carries mellions:claimed, as a peer would read it.
+func (f *fakeTracker) label(repo, ref string) bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.labelled[key(repo, ref)]
+}
+
+// relabel holds the tracker's own rule: the label follows the live claims, so
+// it goes on with the first and comes off only with the last.
+func (f *fakeTracker) relabel(k string) {
+	if f.labelled == nil {
+		f.labelled = map[string]bool{}
+	}
+	now := f.now()
+	for _, e := range f.claims[k] {
+		if !e.Stale(now) {
+			f.labelled[k] = true
+			return
+		}
+	}
+	delete(f.labelled, k)
 }
 
 func key(repo, issue string) string {
@@ -74,6 +103,7 @@ func (f *fakeTracker) Publish(_ context.Context, repo, issue, id, state string) 
 		kept = append(kept, e)
 	}
 	f.claims[k] = append(kept, c)
+	f.relabel(k)
 	return c, nil
 }
 
@@ -92,6 +122,7 @@ func (f *fakeTracker) Release(_ context.Context, repo, issue, id string) error {
 		kept = append(kept, e)
 	}
 	f.claims[k] = kept
+	f.relabel(k)
 	return nil
 }
 
@@ -136,6 +167,7 @@ func (f *fakeTracker) Sweep(_ context.Context, repo, issue string) ([]claim.Clai
 		kept = append(kept, e)
 	}
 	f.claims[k] = kept
+	f.relabel(k)
 	f.swept = append(f.swept, swept...)
 	return swept, nil
 }
