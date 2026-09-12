@@ -546,3 +546,49 @@ func TestAReportsHeadingCarriesTheLaneItsNameDoes(t *testing.T) {
 			filepath.Base(path), first, want)
 	}
 }
+
+// TestACollisionSuffixNamesTheFileAndNotTheReport closes the direction the two
+// heading tests above leave open. Each of those writes one report, so the name
+// and the heading carry the same second and nothing separates an oracle reading
+// the instant from one reading the file name. A collision separates them: the
+// second report's name must take -2 to keep from destroying the first, and its
+// heading must not, because the heading is the second the report was written in
+// and both reports were written in it.
+//
+// The heading is assembled before claimReportPath is called, so the suffix is
+// not in scope where the heading is built and the property holds by
+// construction. That is the reason it needs a test rather than a reason it does
+// not: nothing in reportWrite states it, and a heading rebuilt from the claimed
+// path — the obvious way to make a report name itself — satisfies every other
+// assertion in this file while telling the owner that two reports written in one
+// second were written in two.
+//
+// want is one whole literal used for both reports, so it asserts the second
+// binding as well: the two headings agree with each other, and neither is
+// assembled from the pieces the naming code uses.
+func TestACollisionSuffixNamesTheFileAndNotTheReport(t *testing.T) {
+	_, dir := collisionConfig(t)
+	const id = "report-collision-42"
+
+	first := writeReportAt(t, dir, atSecond(0), reportBody{assignment: id, did: "what the lane established"})
+	second := writeReportAt(t, dir, atSecond(0), reportBody{assignment: id, did: "what the lane did next"})
+
+	if got, want := filepath.Base(first), "20260829-041500-report-collision-42.md"; got != want {
+		t.Fatalf("the first report was named %s, want %s", got, want)
+	}
+	if got, want := filepath.Base(second), "20260829-041500-report-collision-42-2.md"; got != want {
+		t.Fatalf("the second report was named %s, want %s, so no collision suffix was exercised", got, want)
+	}
+
+	const want = "# 2026-08-29 04:15 UTC — report-collision-42"
+	for _, path := range []string{first, second} {
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := strings.SplitN(strings.TrimSpace(string(raw)), "\n", 2)[0]; got != want {
+			t.Errorf("the report named %s carries the heading %q, want %q: the collision suffix is a fact about the file, not about the second the report was written in",
+				filepath.Base(path), got, want)
+		}
+	}
+}
