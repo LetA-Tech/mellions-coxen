@@ -97,7 +97,70 @@ var consumedFlags = map[string]map[string]bool{
 
 // wrappers stand in front of the real command word without changing what it
 // does with its arguments.
-var wrappers = map[string]bool{"sudo": true, "command": true, "builtin": true, "nohup": true, "time": true}
+var wrappers = map[string]bool{"sudo": true, "command": true, "builtin": true, "nohup": true, "time": true, "busybox": true}
+
+// shells take a whole command line as the operand of -c. That operand is one
+// word with spaces in it, so the fragment scan — which stops at whitespace to
+// stay off prose — never looks inside it, and every shape this package refuses
+// is spelled past it by wrapping it in `bash -c '…'`. It is not prose: the
+// operand of -c on a shell is a command line by the shell's own definition, so
+// it is lexed and scanned as one rather than fragmented as text.
+var shells = map[string]bool{
+	"sh": true, "bash": true, "zsh": true, "dash": true, "ksh": true, "ash": true,
+}
+
+// shellCommandFlag reports whether a shell option word carries -c. Bash and
+// its relatives bundle single-letter options, so `-lc` and `-xc` carry it
+// exactly as `-c` does; long options do not.
+func shellCommandFlag(arg string) bool {
+	if !strings.HasPrefix(arg, "-") || strings.HasPrefix(arg, "--") || arg == "-" {
+		return false
+	}
+	return strings.ContainsRune(arg, 'c')
+}
+
+// shellCommandOperand returns the command line a shell will run, or "".
+//
+// It is the first NON-OPTION word after the option word carrying -c, not the
+// word positionally after it. `bash -c -- 'cat .env'` and `bash -c -x 'cat
+// .env'` both run the quoted script, and reading `args[i+1]` finds `--` or
+// `-x` there — a two-character rewrite past the whole rule.
+func shellCommandOperand(args []string) string {
+	seen := false
+	for _, a := range args {
+		if !seen {
+			seen = shellCommandFlag(a)
+			continue
+		}
+		if a == "--" || strings.HasPrefix(a, "-") {
+			continue
+		}
+		return a
+	}
+	return ""
+}
+
+// transcriptSinks are destinations whose bytes land in the transcript. They are
+// what makes a safeReader unsafe: `cp` is on the safe list because copying a
+// file writes its content to another file, which is true of every ordinary use
+// and false of `cp .env /dev/stdout`. The exoneration is a claim about where
+// the bytes go, so it is void wherever the command line says they go here.
+var transcriptSinks = map[string]bool{
+	"/dev/stdout": true, "/dev/stderr": true, "/dev/fd/1": true,
+	"/dev/fd/2": true, "/dev/tty": true, "/dev/console": true,
+	"/proc/self/fd/1": true, "/proc/self/fd/2": true,
+}
+
+// writesToTranscript reports whether any argument names a descriptor that
+// prints. Trailing "/" is trimmed for the same reason basename does it.
+func writesToTranscript(args []string) bool {
+	for _, a := range args {
+		if transcriptSinks[strings.TrimSuffix(a, "/")] {
+			return true
+		}
+	}
+	return false
+}
 
 // prefixOperands reports how many words a prefix command consumes before the
 // real command word begins, for the wrappers that take operands of their own.
@@ -106,6 +169,19 @@ var wrappers = map[string]bool{"sudo": true, "command": true, "builtin": true, "
 // as though a stranger were printing it. Returning the count rather than
 // stripping in place keeps the caller's loop able to see a second wrapper.
 func prefixOperands(base string, rest []string) (int, bool) {
+	// env [OPTION]... [NAME=VALUE]... COMMAND [ARG]...
+	//
+	// It is not in wrappers because its options and assignments stand between
+	// it and the real command word: `env bash -c '…'` resolved the reader to
+	// `env`, and `env -i bash -c '…'` would resolve it to `-i`, so the shell
+	// behind it was never recognised as one.
+	if base == "env" {
+		n := 1
+		for n < len(rest) && (strings.HasPrefix(rest[n], "-") || assignment.MatchString(rest[n])) {
+			n++
+		}
+		return n, true
+	}
 	if base != "timeout" {
 		return 0, false
 	}
@@ -339,6 +415,17 @@ func ScanPath(p string) []Finding {
 // them from the words — so writing a document that discusses a credential file
 // by name is silent, which is what makes the guard survivable.
 func ScanBash(command string) []Finding {
+	return scanBash(command, 0)
+}
+
+// maxShellNesting bounds shell-in-shell operands. Each level scans a strictly
+// shorter string than the one that produced it, so this is a bound on
+// pathological input rather than what makes the recursion terminate.
+const maxShellNesting = 8
+
+// scanBash is ScanBash carrying the nesting depth of the shell -c operands it
+// has descended through.
+func scanBash(command string, depth int) []Finding {
 	var out []Finding
 	// A variable that holds a credential's VALUE, read by a substitution. Using
 	// it is the idiom; printing it is the leak.
@@ -395,6 +482,38 @@ func ScanBash(command string) []Finding {
 			continue
 		}
 
+		// A safeReader is exonerated by where its bytes go, so naming a
+		// descriptor that prints withdraws the exoneration for this command.
+		exonerated := safeReaders[reader] && !writesToTranscript(args)
+
+		// stdin redirected from a credential feeds the file to the command
+		// without ever naming it as an argument.
+		if c.In != "" && !exonerated && IsSecretPath(c.In) {
+			out = append(out, Finding{Path: c.In, Reader: reader})
+		}
+
+		// A shell's operand is a command line, not an argument: scan it as one
+		// so no shape is reachable by quoting it. A heredoc fed to a shell is
+		// the same thing spelled over several lines — bodies are data to every
+		// other reader and a script to this one.
+		if depth < maxShellNesting {
+			if shells[reader] {
+				if op := shellCommandOperand(args); op != "" {
+					out = append(out, scanBash(op, depth+1)...)
+				}
+				for _, h := range c.Heredocs {
+					out = append(out, scanBash(h, depth+1)...)
+				}
+			}
+			// eval takes a command line by the shell's own definition, and
+			// takes it as every operand rather than behind a flag.
+			if reader == "eval" {
+				for _, a := range args {
+					out = append(out, scanBash(a, depth+1)...)
+				}
+			}
+		}
+
 		// A variable holding a credential, printed back out. The capture was
 		// safe; handing it to a printer is the same leak one step later.
 		consumed := consumedFlags[reader]
@@ -405,7 +524,7 @@ func ScanBash(command string) []Finding {
 				}
 			}
 			for name := range holdsPath {
-				if !safeReaders[reader] && names(a, name) {
+				if !exonerated && names(a, name) {
 					out = append(out, Finding{Path: "$" + name, Reader: reader})
 				}
 			}
@@ -416,7 +535,7 @@ func ScanBash(command string) []Finding {
 			if found := secretsInWord(a); len(found) > 0 {
 				// A path, however it is spelled: the command opens the file
 				// itself. Only the enumerated non-emitters are exonerated.
-				if !safeReaders[reader] {
+				if !exonerated {
 					for _, f := range found {
 						out = append(out, Finding{Path: f, Reader: reader})
 					}

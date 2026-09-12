@@ -16,11 +16,18 @@ package shellsplit
 import "strings"
 
 // Command is one command in a compound: its words with quoting removed, the
-// bodies of the heredocs it declares, and the file it redirects stdout to.
+// bodies of the heredocs it declares, and the files it redirects stdout to and
+// stdin from.
+//
+// In is separate from Words because a redirect operand is not an argument and
+// is not the command word. `< .env grep .` puts the operand first on the line,
+// so a lexer that leaves it in Words makes the credential path the word a
+// caller reads as the command — a position an argument scan never looks at.
 type Command struct {
 	Words    []string
 	Heredocs []string
 	Out      string
+	In       string
 }
 
 // pending is a heredoc whose delimiter has been read and whose body has not:
@@ -54,6 +61,7 @@ func lex(command string, i int, stopAtParen bool) ([]*Command, int) {
 
 	var queue []pending
 	redirOut := false
+	redirIn := false
 	heredocNext := 0 // 0 none, 1 <<, 2 <<-
 
 	endWord := func() {
@@ -70,6 +78,9 @@ func lex(command string, i int, stopAtParen bool) ([]*Command, int) {
 		case redirOut:
 			cur.Out = s
 			redirOut = false
+		case redirIn:
+			cur.In = s
+			redirIn = false
 		default:
 			cur.Words = append(cur.Words, s)
 		}
@@ -198,6 +209,15 @@ func lex(command string, i int, stopAtParen bool) ([]*Command, int) {
 				i += 2
 			default:
 				i++
+				// <&3 duplicates a descriptor and names no file.
+				if i < len(command) && command[i] == '&' {
+					i++
+					for i < len(command) && command[i] >= '0' && command[i] <= '9' {
+						i++
+					}
+					break
+				}
+				redirIn = true
 			}
 
 		case c == '>':
