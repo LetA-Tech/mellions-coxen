@@ -252,6 +252,27 @@ func TestDigestStillSeesAReportASameSecondSuccessorWouldHaveDestroyed(t *testing
 	}
 }
 
+// TestDigestSurfacesABlockedReport holds the other arm of the digest's switch.
+// The writer's section heading and the reader's are one literal on each side and
+// nothing binds them, so a writer that renamed its own heading would drop every
+// blocked shift out of the digest with no reader to notice.
+func TestDigestSurfacesABlockedReport(t *testing.T) {
+	cfgPath, dir := collisionConfig(t)
+	const stopped = "the migration needs an owner who holds production credentials"
+
+	writeReportAt(t, dir, atSecond(0), reportBody{blocked: stopped})
+
+	out := captureStdout(t, func() {
+		if err := cmdReport([]string{"digest", "-config", cfgPath}); err != nil {
+			t.Fatal(err)
+		}
+	})
+	if want := "blocked: " + stopped; !strings.Contains(out, want) {
+		t.Errorf("a blocked report did not reach the digest\nwant a line carrying %q\ndigest:\n%s",
+			want, out)
+	}
+}
+
 // TestClaimReportPathNeverReturnsATakenName exercises the claim without a clock
 // at all: the same name asked for repeatedly is what two sessions finishing
 // together produce, and no reachable arrangement of the wall clock changes what
