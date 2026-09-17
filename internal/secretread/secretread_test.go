@@ -353,6 +353,12 @@ func TestScanBash_NarrowingDidNotWiden(t *testing.T) {
 		{"git grep over the whole tree", `git grep -i secret HEAD`},
 		{"a redirect target in the pattern's place", `grep < .env DECOY`},
 		{"an attached redirect target", `grep <.env DECOY`},
+
+		// Each clause holds its own line: an option word between the one that
+		// supplies the pattern and the file keeps the value check from seeing it.
+		{"-e inside a cluster, not adjacent", `grep -iefoo -n .env notes.txt`},
+		{"--regexp abbreviated, not adjacent", `grep --rege=foo -n .env notes.txt`},
+		{"a dash pattern after -- with a second file", `grep -- -v .env notes.txt`},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			if got := ScanBash(tt.cmd); len(got) == 0 {
