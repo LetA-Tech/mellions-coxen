@@ -104,11 +104,9 @@ var grepReaders = map[string]bool{"grep": true, "egrep": true, "fgrep": true, "r
 // patternOperand returns the index in args of the word a grep-family reader
 // takes as its pattern, or -1 when no word can be exempted with certainty.
 //
-// The index is never later than the word the command really takes as its
-// pattern: an option's separate value is never skipped, so it is the value that
-// is exempted, and none of these readers prints an option value's file. Every
-// shape that moves the pattern out of the operands returns -1, which leaves
-// every word classified.
+// It returns -1, leaving every word classified, whenever the word might be
+// something other than the pattern — an option's value, a file the shell
+// expands it into — or the search reads files the command line does not name.
 func patternOperand(reader string, args []string) int {
 	off := 0
 	if reader == "git" {
@@ -552,7 +550,10 @@ func ScanBash(command string) []Finding {
 		// A variable holding a credential, printed back out. The capture was
 		// safe; handing it to a printer is the same leak one step later.
 		consumed := consumedFlags[reader]
-		pattern := patternOperand(reader, args)
+		pattern := -1
+		if !c.In {
+			pattern = patternOperand(reader, args)
+		}
 		for ai, a := range args {
 			for name := range holdsValue {
 				if printers[reader] && names(a, name) {

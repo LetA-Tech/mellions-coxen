@@ -351,6 +351,8 @@ func TestScanBash_NarrowingDidNotWiden(t *testing.T) {
 		{"a recursive search with no operand", `grep -rn secret`},
 		{"rg with no path", `rg -i --hidden secret`},
 		{"git grep over the whole tree", `git grep -i secret HEAD`},
+		{"a redirect target in the pattern's place", `grep < .env DECOY`},
+		{"an attached redirect target", `grep <.env DECOY`},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			if got := ScanBash(tt.cmd); len(got) == 0 {

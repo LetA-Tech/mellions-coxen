@@ -21,6 +21,9 @@ type Command struct {
 	Words    []string
 	Heredocs []string
 	Out      string
+	// In is set when a `<` redirect names a file the command reads on stdin.
+	// That file's name is among Words, indistinguishable from an argument.
+	In bool
 }
 
 // pending is a heredoc whose delimiter has been read and whose body has not:
@@ -197,6 +200,7 @@ func lex(command string, i int, stopAtParen bool) ([]*Command, int) {
 				heredocNext = 1
 				i += 2
 			default:
+				cur.In = true
 				i++
 			}
 
