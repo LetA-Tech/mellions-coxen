@@ -269,6 +269,15 @@ func TestScanBash_FalseDenials(t *testing.T) {
 		// `git` is deliberately not a safe reader — `git show` prints file
 		// content — so this one turns on the name, not on the command word.
 		{"git add on the package directory", `git add internal/secretread/`},
+
+		// A grep-family pattern is matched, never opened. Each was denied
+		// during real work: a coverage grep, and an estate-wide count of
+		// services that build credentials into query strings.
+		{"a grep pattern naming the subject", `grep -rn 'secret' hooks/hooks.json`},
+		{"a git grep pattern behind global options", `git -C repo grep -c -E '"(api_key\|access_token\|client_secret)"' origin/dev -- '*.go'`},
+		{"an rg pattern", `rg -n secret internal/`},
+		{"an egrep pattern behind a wrapper", `sudo egrep -l credentials docs/notes.txt`},
+		{"a pattern read against stdin", `git diff | grep -n secret -`},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			if got := ScanBash(tt.cmd); len(got) != 0 {
@@ -313,6 +322,25 @@ func TestScanBash_NarrowingDidNotWiden(t *testing.T) {
 		// identity file to ssh and an in-place edit to sed, so the exoneration
 		// is keyed by reader and does not travel with the letter.
 		{"the same flag on a printer", `sed -i 's/x/y/' .env`},
+
+		// The pattern exemption covers one word, and only when no option moved
+		// the pattern out of the operands. Each shape below puts a credential
+		// where a "skip the first operand" rule would exempt it.
+		{"the pattern given by -e", `grep -efoo .env`},
+		{"-e inside a cluster", `grep -iefoo .env`},
+		{"-e permuted after the operand", `grep .env -e foo`},
+		{"--regexp attached", `grep --regexp=foo .env`},
+		{"--regexp abbreviated", `grep --rege=foo .env`},
+		{"the pattern file itself", `grep -f .env notes.txt`},
+		{"--file attached", `grep --file=.env notes.txt`},
+		{"rg reading patterns from a credential", `rg -f .env src/`},
+		{"git grep with -e attached", `git grep -efoo .env`},
+		{"a dash pattern after --", `grep -- -v .env`},
+		{"an unquoted glob the shell splits", `grep .env* /dev/null`},
+		{"a brace the shell splits", `grep {x,.env} /dev/null`},
+		{"a substitution in the pattern still runs", `grep "$(cat .env)" notes.txt`},
+		{"the file after the pattern", `rg -n token .env`},
+		{"a word spelled grep that is not the subcommand", `git show grep .env`},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			if got := ScanBash(tt.cmd); len(got) == 0 {

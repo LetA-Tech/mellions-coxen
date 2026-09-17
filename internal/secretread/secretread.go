@@ -95,6 +95,94 @@ var consumedFlags = map[string]map[string]bool{
 	"sftp": {"-i": true},
 }
 
+// grepReaders take their first operand as the pattern to match and open only
+// the operands after it. `grep -rn secret hooks.json` never opens a file named
+// secret, and denying it on that word teaches a session to rephrase around this
+// guard.
+var grepReaders = map[string]bool{"grep": true, "egrep": true, "fgrep": true, "rg": true}
+
+// patternOperand returns the index in args of the word a grep-family reader
+// takes as its pattern, or -1 when no word can be exempted with certainty.
+//
+// The index is never later than the word the command really takes as its
+// pattern: an option's separate value is never skipped, so it is the value that
+// is exempted, and none of these readers prints an option value's file. Every
+// shape that moves the pattern out of the operands returns -1, which leaves
+// every word classified.
+func patternOperand(reader string, args []string) int {
+	off := 0
+	if reader == "git" {
+		n, ok := gitGrepStart(args)
+		if !ok {
+			return -1
+		}
+		off, args = n, args[n:]
+	} else if !grepReaders[reader] {
+		return -1
+	}
+	// GNU grep and rg permute options past operands, so a pattern supplied by
+	// -e or -f anywhere before `--` makes every operand a file.
+	for _, a := range args {
+		if a == "--" {
+			break
+		}
+		if suppliesPattern(a) {
+			return -1
+		}
+	}
+	for j, a := range args {
+		if a == "--" {
+			return -1
+		}
+		if strings.HasPrefix(a, "-") && a != "-" {
+			continue
+		}
+		// An unquoted glob or brace is expanded by the shell into several
+		// words, and the ones after the first are files. The scanner sees the
+		// word after quote removal, so a quoted regex carrying these is not
+		// distinguishable and stays classified.
+		if strings.ContainsAny(a, "*?[{") {
+			return -1
+		}
+		return off + j
+	}
+	return -1
+}
+
+// suppliesPattern reports whether an option word gives the pattern by -e/-f or
+// --regexp/--file. A short cluster carrying either letter counts wherever the
+// letter sits, and a long option counts when its name is any prefix getopt
+// would accept as an abbreviation of either.
+func suppliesPattern(a string) bool {
+	if strings.HasPrefix(a, "--") {
+		name, _, _ := strings.Cut(a[2:], "=")
+		return name != "" && (strings.HasPrefix("regexp", name) || strings.HasPrefix("file", name))
+	}
+	return strings.HasPrefix(a, "-") && strings.ContainsAny(a[1:], "ef")
+}
+
+// gitGrepStart returns the index of the first argument after `grep` when git's
+// arguments are global options this function recognises followed by the grep
+// subcommand. Any other global option makes it decline, because a separate
+// value it does not know about would be misread as the subcommand.
+func gitGrepStart(args []string) (int, bool) {
+	for k := 0; k < len(args); k++ {
+		switch a := args[k]; {
+		case a == "-C" || a == "-c":
+			k++
+		case a == "--no-pager" || a == "--paginate" || a == "-p" || a == "-P" ||
+			a == "--bare" || a == "--no-replace-objects" || a == "--literal-pathspecs" ||
+			a == "--no-optional-locks":
+		case strings.HasPrefix(a, "--") && strings.Contains(a, "="):
+		case a == "grep":
+			return k + 1, true
+		default:
+			return 0, false
+		}
+	}
+	return 0, false
+}
+
 // wrappers stand in front of the real command word without changing what it
 // does with its arguments.
 var wrappers = map[string]bool{"sudo": true, "command": true, "builtin": true, "nohup": true, "time": true}
@@ -398,6 +486,7 @@ func ScanBash(command string) []Finding {
 		// A variable holding a credential, printed back out. The capture was
 		// safe; handing it to a printer is the same leak one step later.
 		consumed := consumedFlags[reader]
+		pattern := patternOperand(reader, args)
 		for ai, a := range args {
 			for name := range holdsValue {
 				if printers[reader] && names(a, name) {
@@ -413,7 +502,9 @@ func ScanBash(command string) []Finding {
 			if ai > 0 && consumed[args[ai-1]] {
 				continue
 			}
-			if found := secretsInWord(a); len(found) > 0 {
+			// The pattern is matched, not opened. A substitution inside it still
+			// runs, so only the path classification is skipped.
+			if found := secretsInWord(a); len(found) > 0 && ai != pattern {
 				// A path, however it is spelled: the command opens the file
 				// itself. Only the enumerated non-emitters are exonerated.
 				if !safeReaders[reader] {
