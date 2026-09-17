@@ -188,12 +188,23 @@ func noValueOption(reader, a string) bool {
 
 var extensionGlob = regexp.MustCompile(`^(?:.*/)?\*(\.[A-Za-z0-9]+)$`)
 
+// fileExtensions are the extensions taken as naming a regular file. A dot is not
+// one: `config.d` and `app.env` are directories a recursive reader walks into,
+// .env included.
+var fileExtensions = map[string]bool{
+	".json": true, ".go": true, ".md": true, ".txt": true, ".yaml": true, ".yml": true,
+	".toml": true, ".sh": true, ".py": true, ".ts": true, ".tsx": true, ".js": true,
+	".jsx": true, ".sql": true, ".log": true, ".csv": true, ".html": true, ".xml": true,
+	".mod": true, ".sum": true, ".tf": true, ".proto": true, ".rs": true, ".java": true,
+	".rb": true, ".c": true, ".h": true, ".cpp": true, ".css": true,
+}
+
 // namesWhatItSearches reports whether the operands after the pattern bound the
 // search to files the command line names. With none, or with a directory, a
 // recursive reader searches files nobody named, .env among them — exempting the
 // pattern there would allow `grep -rn secret deploy` on a word that is not the
-// reason it is safe. A name is taken as a file only when its basename carries
-// an extension; git grep's revisions before `--` bound nothing.
+// reason it is safe. A name is taken as a file only when its extension is a
+// known file type; git grep's revisions before `--` bound nothing.
 func namesWhatItSearches(reader string, rest []string) bool {
 	named, afterDashes := 0, false
 	for _, a := range rest {
@@ -207,16 +218,16 @@ func namesWhatItSearches(reader string, rest []string) bool {
 		if reader == "git" && !afterDashes {
 			continue
 		}
-		if a != "-" && (strings.HasSuffix(a, "/") || strings.LastIndex(path.Base(a), ".") <= 0) {
+		if a == "-" {
+			named++
+			continue
+		}
+		// A glob selects files by pattern; only `*.<ext>` bounds the search.
+		if strings.ContainsAny(a, "*?[{") && !extensionGlob.MatchString(a) {
 			return false
 		}
-		// A glob selects files by pattern; only `*.<ext>` for an extension
-		// that names no credential bounds the search. `*.env` matches .env.
-		if strings.ContainsAny(a, "*?[{") {
-			m := extensionGlob.FindStringSubmatch(a)
-			if m == nil || IsSecretPath(m[1]) || IsSecretPath("x"+m[1]) {
-				return false
-			}
+		if strings.HasSuffix(a, "/") || !fileExtensions[strings.ToLower(path.Ext(a))] {
+			return false
 		}
 		named++
 	}

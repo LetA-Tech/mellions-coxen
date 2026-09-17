@@ -357,6 +357,10 @@ func TestScanBash_NarrowingDidNotWiden(t *testing.T) {
 		{"a pathspec glob that matches .env", `git grep -n secret -- '*.env'`},
 		{"a pathspec glob that matches key files", `git grep -n secret -- 'deploy/*.pem'`},
 		{"a glob that is not an extension", `git grep -n secret -- '*secret*.yaml'`},
+		{"a directory with a dot in its name", `grep -r .env config.d`},
+		{"a glob over dotted directories", `grep -r .env *.d`},
+		{"a dotted directory pathspec", `git grep .env -- config.d`},
+		{"rg into a directory named like a credential", `rg -uu .env app.env`},
 		{"a redirect target in the pattern's place", `grep < .env DECOY`},
 		{"an attached redirect target", `grep <.env DECOY`},
 
