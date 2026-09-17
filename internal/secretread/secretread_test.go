@@ -370,7 +370,7 @@ func TestScanBash_NarrowingDidNotWiden(t *testing.T) {
 		{"--regexp abbreviated, not adjacent", `grep --rege=foo -n .env notes.txt`},
 		{"a dash pattern after -- with a second file", `grep -- -v .env notes.txt`},
 		{"an unquoted glob before a named file", `grep .env* notes.txt`},
-		{"a redirect target read through -", `grep < .env -v x.y -`},
+		{"a redirect target read through -", `grep < .env -v x.txt -`},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			if got := ScanBash(tt.cmd); len(got) == 0 {
