@@ -33,8 +33,7 @@ A clone may carry a fetch refspec restricted to one branch, in which case
 `git branch -a` shows nothing else and it looks deleted. `git ls-remote --heads
 origin` is what the remote actually has.
 
-A repository absent from the filesystem can usually be cloned; absence is not
-evidence that it does not exist.
+A repository absent from the filesystem can usually be cloned.
 
 ## Whether the sandbox needs a word first is the owner's to say
 
@@ -79,9 +78,7 @@ same turn and say what remains: a stopped container still holds disk, a running
 one still holds memory.
 
 "Containers you did not start are not yours" needs something to read ownership
-off, and it is not the clock: two sessions in one night each reasoned from an
-unexplained container's creation time, each concluded it was the other's, and
-neither inspected it.
+off, and it is not the clock: a creation time says when, never whose.
 
 Inspect it. Three facts, in order, and none of them alone is an answer:
 
@@ -115,13 +112,14 @@ survivors. A timed-out teardown is not a completed one.
 
 ## Limits worth knowing before promising something
 
-Core count bounds parallelism, and several builds each assuming the whole
-machine will thrash. Cap per-session concurrency rather than discovering it
-under load.
+Concurrency is bounded by whichever runs out first: cores, where several builds
+each assuming the whole machine thrash, or a metered model quota, which several
+sessions on a large model exhaust long before the RAM. Cap it per session.
 
-On a metered model subscription, the quota binds before the hardware does.
-Several concurrent sessions on a large model exhaust the pool long before they
-exhaust the RAM; treat concurrency as bounded by whichever runs out first.
+The Bash tool's shell is not `bash -c`: its snapshot can define functions over
+ordinary names. There `grep` is Claude Code's bundled ugrep with `--hidden`,
+which searches a directory operand without `-r`; a script gets `/usr/bin/grep`.
+Establish what a session's command does in that shell, after `type <name>`.
 
 `/tmp` here is a small tmpfs under a per-user quota, where Go's build and
 `-race` scratch and any `mktemp`ing suite land by default. Full, writes fail
