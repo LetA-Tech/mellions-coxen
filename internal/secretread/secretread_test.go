@@ -275,7 +275,7 @@ func TestScanBash_FalseDenials(t *testing.T) {
 		// services that build credentials into query strings.
 		{"a grep pattern naming the subject", `grep -rn 'secret' hooks/hooks.json`},
 		{"a git grep pattern behind global options", `git -C repo grep -c -E '"(api_key\|access_token\|client_secret)"' origin/dev -- '*.go'`},
-		{"an rg pattern", `rg -n secret internal/`},
+		{"an rg pattern", `rg -n secret internal/secretread/secretread.go`},
 		{"an egrep pattern behind a wrapper", `sudo egrep -l credentials docs/notes.txt`},
 		{"a pattern read against stdin", `git diff | grep -n secret -`},
 	} {
@@ -351,6 +351,12 @@ func TestScanBash_NarrowingDidNotWiden(t *testing.T) {
 		{"a recursive search with no operand", `grep -rn secret`},
 		{"rg with no path", `rg -i --hidden secret`},
 		{"git grep over the whole tree", `git grep -i secret HEAD`},
+		{"a recursive search of a named directory", `grep -rn secret deploy`},
+		{"rg into a directory with a trailing slash", `rg -n secret deploy/`},
+		{"git grep with a directory pathspec", `git grep -n secret -- deploy`},
+		{"a pathspec glob that matches .env", `git grep -n secret -- '*.env'`},
+		{"a pathspec glob that matches key files", `git grep -n secret -- 'deploy/*.pem'`},
+		{"a glob that is not an extension", `git grep -n secret -- '*secret*.yaml'`},
 		{"a redirect target in the pattern's place", `grep < .env DECOY`},
 		{"an attached redirect target", `grep <.env DECOY`},
 

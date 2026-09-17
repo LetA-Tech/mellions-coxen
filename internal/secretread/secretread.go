@@ -186,14 +186,15 @@ func noValueOption(reader, a string) bool {
 	return letters != ""
 }
 
+var extensionGlob = regexp.MustCompile(`^(?:.*/)?\*(\.[A-Za-z0-9]+)$`)
+
 // namesWhatItSearches reports whether the operands after the pattern bound the
-// search to what the command line names. With none, or with the working
-// directory itself, the reader searches files nobody named, .env among them —
-// exempting the pattern there would allow `grep -rn secret .` on a word that
-// is not the reason it is safe. git grep searches the whole tree unless a
-// pathspec follows `--`.
+// search to files the command line names. With none, or with a directory, a
+// recursive reader searches files nobody named, .env among them — exempting the
+// pattern there would allow `grep -rn secret deploy` on a word that is not the
+// reason it is safe. A name is taken as a file only when its basename carries
+// an extension; git grep's revisions before `--` bound nothing.
 func namesWhatItSearches(reader string, rest []string) bool {
-	unbounded := map[string]bool{".": true, "./": true, "..": true, "../": true, "*": true, ":/": true}
 	named, afterDashes := 0, false
 	for _, a := range rest {
 		if a == "--" && !afterDashes {
@@ -203,12 +204,21 @@ func namesWhatItSearches(reader string, rest []string) bool {
 		if !afterDashes && strings.HasPrefix(a, "-") && a != "-" {
 			continue
 		}
-		if unbounded[a] {
+		if reader == "git" && !afterDashes {
+			continue
+		}
+		if a != "-" && (strings.HasSuffix(a, "/") || strings.LastIndex(path.Base(a), ".") <= 0) {
 			return false
 		}
-		if reader != "git" || afterDashes {
-			named++
+		// A glob selects files by pattern; only `*.<ext>` for an extension
+		// that names no credential bounds the search. `*.env` matches .env.
+		if strings.ContainsAny(a, "*?[{") {
+			m := extensionGlob.FindStringSubmatch(a)
+			if m == nil || IsSecretPath(m[1]) || IsSecretPath("x"+m[1]) {
+				return false
+			}
 		}
+		named++
 	}
 	return named > 0
 }
