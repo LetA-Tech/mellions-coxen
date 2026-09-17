@@ -552,16 +552,16 @@ func TestAReportsHeadingCarriesTheLaneItsNameDoes(t *testing.T) {
 // and the heading carry the same second and nothing separates an oracle reading
 // the instant from one reading the file name. A collision separates them: the
 // second report's name must take -2 to keep from destroying the first, and its
-// heading must not, because the heading is the second the report was written in
-// and both reports were written in it.
+// heading must not, because the heading states the second and the lane the
+// report was written in, and both reports share both.
 //
 // The heading is assembled before claimReportPath is called, so the suffix is
 // not in scope where the heading is built and the property holds by
 // construction. That is the reason it needs a test rather than a reason it does
 // not: nothing in reportWrite states it, and a heading rebuilt from the claimed
 // path — the obvious way to make a report name itself — satisfies every other
-// assertion in this file while telling the owner that two reports written in one
-// second were written in two.
+// assertion in this file while telling the owner that the second report came
+// from a lane named after the file, report-collision-42-2, which does not exist.
 //
 // want is one whole literal used for both reports, so it asserts the second
 // binding as well: the two headings agree with each other, and neither is
@@ -587,7 +587,7 @@ func TestACollisionSuffixNamesTheFileAndNotTheReport(t *testing.T) {
 			t.Fatal(err)
 		}
 		if got := strings.SplitN(strings.TrimSpace(string(raw)), "\n", 2)[0]; got != want {
-			t.Errorf("the report named %s carries the heading %q, want %q: the collision suffix is a fact about the file, not about the second the report was written in",
+			t.Errorf("the report named %s carries the heading %q, want %q: the collision suffix is a fact about the file, not about the lane the report came from",
 				filepath.Base(path), got, want)
 		}
 	}
