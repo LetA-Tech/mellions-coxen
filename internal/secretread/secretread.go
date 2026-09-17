@@ -144,9 +144,75 @@ func patternOperand(reader string, args []string) int {
 		if strings.ContainsAny(a, "*?[{") {
 			return -1
 		}
+		// `rg -g .env DECOY` hands .env to -g, which selects the files the
+		// search prints. Only an option known to take no value may stand
+		// directly before the word exempted.
+		if j > 0 && !noValueOption(reader, args[j-1]) {
+			return -1
+		}
+		if !namesWhatItSearches(reader, args[j+1:]) {
+			return -1
+		}
 		return off + j
 	}
 	return -1
+}
+
+// noValueShort is, per reader, the short option letters that take no value.
+// An option not listed is treated as one that may own the word after it.
+var noValueShort = map[string]string{
+	"grep": "EFGPiyvwxcoqsbHhnTlLaIUrR",
+	"rg":   "inlcvwxFSsuHNoLUzPaqpIb",
+	"git":  "inlcvwxFEGPhHoqaILWp",
+}
+
+var noValueLong = map[string]bool{
+	"--hidden": true, "--ignore-case": true, "--line-number": true, "--count": true,
+	"--files-with-matches": true, "--fixed-strings": true, "--extended-regexp": true,
+	"--word-regexp": true, "--recursive": true, "--smart-case": true, "--only-matching": true,
+}
+
+func noValueOption(reader, a string) bool {
+	if strings.HasPrefix(a, "--") {
+		return noValueLong[a] || strings.Contains(a, "=")
+	}
+	if reader == "egrep" || reader == "fgrep" {
+		reader = "grep"
+	}
+	letters := noValueShort[reader]
+	for _, r := range a[1:] {
+		if !strings.ContainsRune(letters, r) {
+			return false
+		}
+	}
+	return letters != ""
+}
+
+// namesWhatItSearches reports whether the operands after the pattern bound the
+// search to what the command line names. With none, or with the working
+// directory itself, the reader searches files nobody named, .env among them —
+// exempting the pattern there would allow `grep -rn secret .` on a word that
+// is not the reason it is safe. git grep searches the whole tree unless a
+// pathspec follows `--`.
+func namesWhatItSearches(reader string, rest []string) bool {
+	unbounded := map[string]bool{".": true, "./": true, "..": true, "../": true, "*": true, ":/": true}
+	named, afterDashes := 0, false
+	for _, a := range rest {
+		if a == "--" && !afterDashes {
+			afterDashes = true
+			continue
+		}
+		if !afterDashes && strings.HasPrefix(a, "-") && a != "-" {
+			continue
+		}
+		if unbounded[a] {
+			return false
+		}
+		if reader != "git" || afterDashes {
+			named++
+		}
+	}
+	return named > 0
 }
 
 // suppliesPattern reports whether an option word gives the pattern by -e/-f or

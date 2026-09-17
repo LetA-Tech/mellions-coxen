@@ -341,6 +341,16 @@ func TestScanBash_NarrowingDidNotWiden(t *testing.T) {
 		{"a substitution in the pattern still runs", `grep "$(cat .env)" notes.txt`},
 		{"the file after the pattern", `rg -n token .env`},
 		{"a word spelled grep that is not the subcommand", `git show grep .env`},
+
+		// Exempting the pattern must not exempt the files the search reads.
+		// These print a credential through an option value or a search the
+		// command line does not bound, and were denied before.
+		{"an option value selecting the files", `rg --hidden -g .env DECOY`},
+		{"git grep opening matches in a pager", `git grep -Ocat -i secret_key`},
+		{"a recursive search of the working directory", `grep -rn secret .`},
+		{"a recursive search with no operand", `grep -rn secret`},
+		{"rg with no path", `rg -i --hidden secret`},
+		{"git grep over the whole tree", `git grep -i secret HEAD`},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			if got := ScanBash(tt.cmd); len(got) == 0 {
