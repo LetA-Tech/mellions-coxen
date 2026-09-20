@@ -51,7 +51,7 @@ go red.
 
 With two or more arms, read which named tests reddened under which arm. An arm
 that must be green and reds condemns the batch, not itself: the cause is
-usually shared—a column every insert omits, a header every request lacks—no
+usually shared—a column every insert omits, a header every request lacks—so no
 red beside it counts until the accepted case is green. A test cited as proof
 that reds under no arm is not evidence for it. An arm that reds nothing
 neutralised nothing a test can see: the neutralisation did not land, the tests
@@ -94,7 +94,7 @@ lock, a reservation, a unique constraint, an idempotency key—a test in one
 process establishes what the operation does, not the invariant: what would
 break it was never there. Run the arm with two real processes on one store.
 Where no seam makes them deterministic, N concurrent processes in a tight loop
-asserting N survivors is probabilistic and still not vacuous—the same loop on
+asserting N survivors is probabilistic and still not vacuous—and the same loop on
 the unfixed tree must lose some, or N survivors is what a loop that never
 collided also gives.
 
@@ -126,7 +126,7 @@ competence. The case both arms run must be one the untreated arm can fail, so
 neither state the conclusion the change exists to produce nor hand the command
 cold, which an unpressured model declines anyway; build it from the conditions
 the change will meet—the reason accepted, the objections answered, the work
-under way—unless being handed it cold is the condition, and the untreated arm
+under way—unless being handed it cold is the condition, and then the untreated arm
 must still be shown failing. A null is a fact about the case, not the change.
 Decide what counts as a difference before reading either arm; the claim is only
 what the difference shows.
