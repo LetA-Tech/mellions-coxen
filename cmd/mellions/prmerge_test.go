@@ -34,6 +34,7 @@ func TestMergeStateOverlapIsContentNotNames(t *testing.T) {
 
 	for _, tc := range []struct {
 		name   string
+		atBase string // head...base, defaulting to atBase above
 		atHead string // base...head, or "" to make that read fail
 		want   []string
 	}{
@@ -58,15 +59,28 @@ func TestMergeStateOverlapIsContentNotNames(t *testing.T) {
 			want:   []string{"a.go"},
 		},
 		{
+			// Two absent shas are not a matching sha. Without this the
+			// comparison of what neither side established reads as
+			// agreement, and the file leaves the overlap on no evidence.
+			name:   "a sha absent on both sides is not agreement",
+			atBase: `{"ahead":3,"files":[{"name":"a.go","sha":""},{"name":"b.go","sha":"bbb"}]}`,
+			atHead: `[{"name":"a.go","sha":""},{"name":"b.go","sha":"bbb"}]`,
+			want:   []string{"a.go"},
+		},
+		{
 			name:   "the read failing keeps every name",
 			atHead: "",
 			want:   []string{"a.go", "b.go"},
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			base3 := atBase
+			if tc.atBase != "" {
+				base3 = tc.atBase
+			}
 			state, err := mergeStateFrom(context.Background(), t.TempDir(),
 				prmerge.Call{Selector: "97", Repo: repo},
-				stubLook(t, prView, atBase, tc.atHead, head, base, repo))
+				stubLook(t, prView, base3, tc.atHead, head, base, repo))
 			if err != nil {
 				t.Fatalf("mergeStateFrom: %v", err)
 			}
