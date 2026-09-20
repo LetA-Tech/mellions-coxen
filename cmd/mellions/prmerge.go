@@ -37,7 +37,8 @@ func cmdPRMergeCheck(ctx context.Context, args []string) error {
 	payload := readPayload(os.Stdin)
 	if len(payload) == 0 {
 		guardUsage("pr-merge-check", "It denies a `gh pr merge` whose mergeability GitHub has "+
-			"not computed, or whose branch is behind its base in files the pull request also changes.")
+			"not computed, or whose branch is behind its base in files the pull request also "+
+			"changes and whose content differs at the two tips.")
 		return nil
 	}
 	// The escape hatch is the same shape cite-check has: a session that has
