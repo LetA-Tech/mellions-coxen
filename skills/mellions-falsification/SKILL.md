@@ -58,14 +58,23 @@ request lacks — so no red beside it counts until the accepted case is green.
 A test cited as this fix's proof that is red under no arm is not evidence
 for it. An arm that reds nothing neutralised nothing a
 test can see: the neutralisation did not land, the tests did not run (a
-skip, a build tag, a `-run` filter), the code is dead, or the test is missing
+skip, a build tag, a `-run` filter, or a cache that did not track what you
+changed — a test whose inputs sit outside what the tool fingerprints replays
+its last verdict), the code is dead, or the test is missing
 — except an arm that neutralises an optimisation, whose zero is legitimate; a
 timing assertion added to red it is a worse test than none.
 
 ## What a red or a green can still hide
 
-A status belongs to the last thing that produced it. A pipeline's exit is its
-last stage's — `make check | tail` reports `tail` unless `pipefail` is set — and
+A status belongs to the last thing that produced it, and a green can be a
+verdict nobody computed this time.
+
+A control that inherits the suspected cause settles nothing: rerunning a
+failure in a second copy that carries the same PATH, environment, working
+directory or cache reproduces the environment, not the tree, and reads exactly
+like "it fails at base too". Vary the one thing the claim is about.
+
+A pipeline's exit is its last stage's — `make check | tail` reports `tail` unless `pipefail` is set — and
 a backgrounded command's can be the launcher's, so "completed, exit 0" may
 attest only that the spawn succeeded. Read the check's own output: a non-zero
 exit falsifies a green claim on its own, a zero exit never establishes one.
