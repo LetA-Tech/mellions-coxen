@@ -59,10 +59,12 @@ func TestMergeStateOverlapIsContentNotNames(t *testing.T) {
 			want:   []string{"a.go"},
 		},
 		{
-			// Two absent shas are not a matching sha. Without this the
-			// comparison of what neither side established reads as
-			// agreement, and the file leaves the overlap on no evidence.
-			name:   "a sha absent on both sides is not agreement",
+			// An empty sha is not a matching sha. The base side always
+			// has an entry — named is built from that same list — so
+			// what this reaches is the head side being empty while the
+			// base side is too, which without the guard compares equal
+			// and clears the file on no evidence.
+			name:   "an empty sha on the head side is not agreement",
 			atBase: `{"ahead":3,"files":[{"name":"a.go","sha":""},{"name":"b.go","sha":"bbb"}]}`,
 			atHead: `[{"name":"a.go","sha":""},{"name":"b.go","sha":"bbb"}]`,
 			want:   []string{"a.go"},

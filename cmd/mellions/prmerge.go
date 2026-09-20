@@ -68,9 +68,17 @@ func cmdPRMergeCheck(ctx context.Context, args []string) error {
 type look func(ctx context.Context, dir, name string, args ...string) (string, error)
 
 // comparedFile is one file in a comparison. sha is the file's blob at the head
-// side of that comparison — the side written second in `compare/A...B` — so two
-// comparisons run in opposite directions carry the same file's content at each
-// of the two tips, and equal shas are the same blob.
+// side — the side written second in `compare/A...B` — for every status but
+// `removed`, where it is the pre-image instead: the blob the file had before
+// the deletion, which is the merge base's, not either tip's. Verified against
+// the blobs themselves for modified, added, renamed and removed.
+//
+// So two comparisons run in opposite directions carry the same file's content
+// at each of the two tips, and equal shas are the same blob — except where one
+// side removed the file. There the equality can only hold if the other side's
+// change left the content at the merge base, which is a mode-only change, and
+// a mode change against a deletion is a modify/delete conflict git refuses
+// before this guard is consulted. Narrow, and resting on git rather than here.
 type comparedFile struct {
 	Name string `json:"name"`
 	SHA  string `json:"sha"`
