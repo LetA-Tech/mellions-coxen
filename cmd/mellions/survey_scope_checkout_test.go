@@ -154,6 +154,79 @@ func quote(s string) string {
 	return string(b)
 }
 
+// Scoping a run must not shrink the map stale resolves citations against.
+//
+// The map is the set of checkouts issuegate searches for a cited path. A
+// repository missing from it turns a file that lives one directory over into
+// "no such path", and stale then reports a premise moved that never moved —
+// inventing exactly the findings the source exists to avoid. Gating the
+// discovery fallback on the widened set is how that happens: a scoped name
+// makes the set non-empty, discovery never runs, and every sibling disappears
+// from the table.
+func TestScopingARunDoesNotShrinkWhatStaleCanResolveAgainst(t *testing.T) {
+	root := t.TempDir()
+	work := filepath.Join(root, "work")
+	commitRepo(t, filepath.Join(work, "in-scope"))
+	commitRepo(t, filepath.Join(work, "sibling"))
+
+	// The documented "name the work root once" shape: no repos list, so the
+	// resolved set is empty and discovery is what fills the table.
+	cfg := &Config{Owner: "acme", WorkRoot: work, Sources: []string{"stale"}}
+
+	unscoped, err := cfg.staleCheckouts(nil)
+	if err != nil {
+		t.Fatalf("staleCheckouts(nil): %v", err)
+	}
+	if len(unscoped) != 2 {
+		t.Fatalf("discovery found %d checkouts, want 2 — the fixture is wrong, so what follows proves nothing", len(unscoped))
+	}
+
+	scoped, err := cfg.staleCheckouts([]string{"in-scope"})
+	if err != nil {
+		t.Fatalf("staleCheckouts(scope): %v", err)
+	}
+	for repo := range unscoped {
+		if _, ok := scoped[repo]; !ok {
+			t.Errorf("scoping the run to one repository dropped %q from the citation table; "+
+				"a citation into it now resolves nowhere and reads as a stale premise", repo)
+		}
+	}
+}
+
+// Naming where a repository is must not enrol it where nothing named a scope.
+//
+// The assertion needs a config with no repos list: that is the only shape where
+// gitsrc enumerates the resolved set instead of a named list, so it is the only
+// one where a wider set silently becomes a different estate. A config that does
+// name repos cannot fail this way, which is why asserting it there proves
+// nothing about the widening.
+func TestAnUnscopedRunWithNoReposListCollectsWhatItDiscovers(t *testing.T) {
+	root := t.TempDir()
+	work := filepath.Join(root, "work")
+	commitRepo(t, filepath.Join(work, "in-scope"))
+	commitRepo(t, filepath.Join(work, "sibling"))
+	own := commitRepo(t, filepath.Join(root, "elsewhere", "mellions-coxen"))
+
+	cfg := &Config{
+		Owner: "acme", WorkRoot: work,
+		CheckoutAt: map[string]string{"mellions-coxen": own},
+		Sources:    []string{"git"},
+	}
+
+	res := collect(t, cfg, nil)
+	for _, f := range res.Failures {
+		t.Errorf("an unscoped survey of a discovered work root failed: %s: %v", f.Source, f.Err)
+	}
+	for _, want := range []string{"in-scope", "sibling"} {
+		if !hasRepo(res, want) {
+			t.Errorf("discovery no longer collects %q; naming one checkout has replaced the estate", want)
+		}
+	}
+	if hasRepo(res, "mellions-coxen") {
+		t.Error("a repository named only in \"checkouts\" was enrolled into a run nothing scoped")
+	}
+}
+
 // A scoped name the configuration cannot place is still an error, not silence.
 //
 // The set is widened by the scope, so a typed name that resolves nowhere must

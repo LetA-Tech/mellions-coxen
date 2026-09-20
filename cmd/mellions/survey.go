@@ -28,6 +28,30 @@ import (
 	"github.com/LetA-Tech/mellions-coxen/internal/survey"
 )
 
+// staleCheckouts is the map the stale source resolves citations against.
+//
+// It is not only a location table. issuegate resolves a cited path against
+// every checkout in it, so a repository missing from the map turns a file that
+// lives one directory over into "no such path" — a premise reported stale that
+// never moved. That is why the discovery fallback is decided by the unwidened
+// set and the scope is overlaid on top of whatever it produced: a scoped name
+// must add a location, never suppress the discovery that supplies the rest.
+// Gating the fallback on the widened set instead makes `-repos X` invent
+// findings the same run without it does not.
+func (c *Config) staleCheckouts(scope []string) (map[string]string, error) {
+	out := map[string]string(c.checkouts())
+	if len(out) == 0 {
+		var err error
+		if out, err = stale.DiscoverCheckouts(c.WorkRoot); err != nil {
+			return nil, err
+		}
+	}
+	for repo, dir := range c.checkoutsFor(scope) {
+		out[repo] = dir
+	}
+	return out, nil
+}
+
 // build wires the configured sources into a registry. This is the only place a
 // provider package is named; everything above it works through signal.Source.
 //
@@ -82,12 +106,9 @@ func (c *Config) build(scope []string) (*sig.Registry, error) {
 		if len(c.roots()) == 0 && len(c.CheckoutAt) == 0 {
 			return nil, errors.New("source stale needs \"work_root\" or \"work_roots\" in config: a claim cannot be checked without the code")
 		}
-		checkouts := map[string]string(c.checkoutsFor(scope))
-		if len(checkouts) == 0 {
-			var err error
-			if checkouts, err = stale.DiscoverCheckouts(c.WorkRoot); err != nil {
-				return nil, err
-			}
+		checkouts, err := c.staleCheckouts(scope)
+		if err != nil {
+			return nil, err
 		}
 		if err := reg.Register(stale.New(stale.Options{
 			Owner: c.Owner, Repos: c.Repos, Checkouts: checkouts,
