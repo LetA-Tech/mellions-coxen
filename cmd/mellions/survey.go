@@ -30,7 +30,13 @@ import (
 
 // build wires the configured sources into a registry. This is the only place a
 // provider package is named; everything above it works through signal.Source.
-func (c *Config) build() (*sig.Registry, error) {
+//
+// scope is the repositories this run will collect, which is "repos" unless the
+// caller named others. The sources that read a checkout are given a set that
+// locates those too: a source re-reads the scope at collect time and would
+// otherwise be asked to collect a repository the set it was built with cannot
+// place. Passing nil builds the set from "repos" alone.
+func (c *Config) build(scope []string) (*sig.Registry, error) {
 	reg := sig.NewRegistry()
 	want := map[string]bool{}
 	for _, n := range c.Sources {
@@ -66,7 +72,7 @@ func (c *Config) build() (*sig.Registry, error) {
 			return nil, errors.New("source git needs \"work_root\" or \"work_roots\" in config")
 		}
 		if err := reg.Register(gitsrc.New(gitsrc.Options{
-			WorkRoot: c.WorkRoot, Repos: c.Repos, Checkouts: c.checkouts(),
+			WorkRoot: c.WorkRoot, Repos: c.Repos, Checkouts: c.checkoutsFor(scope),
 			Since: time.Duration(c.GitSinceHours) * time.Hour,
 		})); err != nil {
 			return nil, err
@@ -76,7 +82,7 @@ func (c *Config) build() (*sig.Registry, error) {
 		if len(c.roots()) == 0 && len(c.CheckoutAt) == 0 {
 			return nil, errors.New("source stale needs \"work_root\" or \"work_roots\" in config: a claim cannot be checked without the code")
 		}
-		checkouts := map[string]string(c.checkouts())
+		checkouts := map[string]string(c.checkoutsFor(scope))
 		if len(checkouts) == 0 {
 			var err error
 			if checkouts, err = stale.DiscoverCheckouts(c.WorkRoot); err != nil {
@@ -129,7 +135,19 @@ func cmdSurvey(ctx context.Context, args []string) error {
 	if *sources != "" {
 		cfg.Sources = splitList(*sources)
 	}
-	reg, err := cfg.build()
+
+	// The scope is settled before the sources are wired: a source that reads a
+	// checkout needs a set that can place every repository this run will ask it
+	// for, and -repos is what decides that list.
+	scope := sig.Scope{Repos: cfg.Repos, Limit: *limit}
+	if *repos != "" {
+		scope.Repos = splitList(*repos)
+	}
+	if *since > 0 {
+		scope.Since = time.Now().Add(-*since)
+	}
+
+	reg, err := cfg.build(scope.Repos)
 	if err != nil {
 		return err
 	}
@@ -138,14 +156,6 @@ func cmdSurvey(ctx context.Context, args []string) error {
 		return err
 	}
 	runner.Timeout = *timeout
-
-	scope := sig.Scope{Repos: cfg.Repos, Limit: *limit}
-	if *repos != "" {
-		scope.Repos = splitList(*repos)
-	}
-	if *since > 0 {
-		scope.Since = time.Now().Add(-*since)
-	}
 
 	res := runner.Run(ctx, scope)
 
@@ -327,7 +337,7 @@ func cmdSources(args []string) error {
 	fmt.Printf("config: %s\n", cfg.path)
 	fmt.Printf("owner:  %s\n", cfg.Owner)
 	fmt.Printf("repos:  %s\n", strings.Join(cfg.Repos, ", "))
-	reg, err := cfg.build()
+	reg, err := cfg.build(nil)
 	if err != nil {
 		return err
 	}
