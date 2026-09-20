@@ -229,9 +229,9 @@ func overwritten(ctx context.Context, dir string, read look, repo, base, head st
 	return kept
 }
 
-// blobs indexes a comparison's files by path. A file named twice keeps the
-// first sha rather than the last, so a repeat cannot turn a differing file
-// into an identical one.
+// blobs indexes a comparison's files by path, keeping the first sha where a
+// path is named twice, so the index does not depend on the order the answer
+// arrived in.
 func blobs(files []comparedFile) map[string]string {
 	out := make(map[string]string, len(files))
 	for _, f := range files {
