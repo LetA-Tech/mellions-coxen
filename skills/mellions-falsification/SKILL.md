@@ -11,8 +11,8 @@ been red.
 
 ## The copy you falsify in
 
-One copy per arm: a neutralisation left from the previous arm masks the next,
-which passes while testing nothing. `git archive <rev>` carries that commit,
+One copy per arm: a neutralisation left from the previous arm can mask the
+next, which then passes while testing nothing. `git archive <rev>` carries that commit,
 not the index — a test staged but not committed is as absent as an untracked
 one. Never falsify by restoring a working tree: it discards uncommitted work,
 yours or another session's in a shared tree. With one arm and nothing
@@ -36,9 +36,9 @@ disk, since an edit that no-ops (a `sed` that matched nothing, an unexpanded
 variable) reads exactly like a real pass; the tests never reach the fix; the
 fix is idle, so delete the test; or a part of the same revert removed the
 condition the test needs — where one half of a fix creates the state the other
-half's defect lives in, each half wants its own arm, and a half reverted alone
-leaves the other standing, holding the test green and proving nothing about
-either.
+half's defect lives in, each half wants its own arm. Revert half of a
+fix on its own and the half left standing can hold the test green, proving
+nothing about either.
 
 Read the red: a wide revert can fail short of the assertion — a build break, a
 panic in a helper — or trip it by a mechanism you did not test. The red that
@@ -49,15 +49,16 @@ allow-list entry — the complete revert restores it and is green on purpose.
 Keep the exemption gone and revert only the code that now satisfies the check:
 it must go red.
 
-With more than one arm, read which named tests reddened under which. An arm
+With more than one arm, read which named tests reddened under which arm. An arm
 that must be green and reds condemns the batch, not itself: the cause is
 usually shared — a column every insert omits, a header every request lacks — so
 no red beside it counts until the accepted case is green. A test cited as proof
 that is red under no arm is not evidence for it. An arm that reds nothing
-neutralised nothing a test can see: the tests did not run (a skip, a build tag,
+neutralised nothing a test can see: the neutralisation did not land, the tests
+did not run (a skip, a build tag,
 a `-run` filter, or a cache that did not track what you changed — inputs
-outside what the tool fingerprints replay the last verdict), or the test is
-missing — except an arm that neutralises an optimisation, whose zero is
+outside what the tool fingerprints replay the last verdict), the code is dead, or
+the test is missing — except an arm that neutralises an optimisation, whose zero is
 legitimate; a timing assertion added to red it is a worse test than none.
 
 ## What a red or a green can still hide
@@ -67,8 +68,8 @@ verdict nobody computed this time.
 
 A control that inherits the suspected cause settles nothing: rerunning a
 failure in a second copy with the same PATH, environment, working directory or
-cache reproduces the environment, not the tree, and reads like "it fails at
-base too". Vary the one thing the claim is about.
+cache reproduces the environment, not the tree, and reads exactly like "it
+fails at base too". Vary the one thing the claim is about.
 
 A pipeline's exit is its last stage's — `make check | tail` reports `tail`
 unless `pipefail` is set — and a backgrounded command's can be the launcher's,
@@ -88,11 +89,11 @@ stopped catching. Enumerate what the narrow form caught and the wide one lets
 through, remove only the clause meant to hold them back, and watch those go
 red. A widening whose guard reds nothing is not guarded.
 
-Where something other than this process settles a race — a lock, a unique
-constraint, an idempotency key — a test in one process establishes what the
+Where the claim is that something other than this process settles a race — a
+lock, a reservation, a unique constraint, an idempotency key — a test in one process establishes what the
 operation does, not the invariant: the thing that would break it was never
 there. Run the arm with two real processes on one store. Where no seam
-makes them deterministic, N processes in a tight loop asserting N survivors is
+makes them deterministic, N concurrent processes in a tight loop asserting N survivors is
 probabilistic and still not vacuous — and the same loop on the unfixed tree
 must lose some, or N survivors is what a loop that never collided also gives.
 
@@ -112,7 +113,7 @@ drives, read again, drive it again.
 Where what you measure is emitted once — a note said once per session, an
 at-most-once delivery, a lock taken by whoever asks first — the measurement is
 a consumable: a consumer you did not account for takes it and your instrument
-records nothing, like the arm producing nothing. Read the durable
+records nothing, exactly like the arm producing nothing. Read the durable
 record the emission leaves (the ledger of what was said, the offset, the
 holder), not the stream somebody else may have drained; a second reader on it
 is the same defect, now yours.
