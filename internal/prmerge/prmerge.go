@@ -25,9 +25,12 @@
 //     appears for seconds after a push, which is when a session is most likely
 //     to be looking.
 //   - a branch behind its base where the base's commits since the divergence
-//     touch files this pull request also changes. That intersection is the
-//     hazard stated concretely: those are the files where one side is about to
-//     be written over the other.
+//     touch files this pull request also changes, and the two tips disagree
+//     about their content. Both sides naming a file is not that: a promotion
+//     copies commits, so the copies name the files they came from and hold the
+//     same bytes, and identical content cannot be written over. What is left is
+//     the hazard stated concretely — the files where one side is about to be
+//     written over the other.
 //
 // Being behind on its own is not refused. It is ordinary, usually harmless, and
 // a guard that fires on correct work is turned off and then protects nothing.
@@ -81,7 +84,9 @@ type State struct {
 	// branch to be current, so that field is silent on most repositories.
 	BehindBy int
 	// Overlap is the files changed both by this pull request and by the base
-	// since the divergence, sorted.
+	// since the divergence whose content differs at the two tips, sorted. A
+	// file the caller could not establish the content of at either tip is
+	// here, because an overlap cleared on a gap is a false clean.
 	Overlap []string
 	// Truncated says the comparison could not enumerate every base-side file,
 	// so an empty Overlap does not establish that there is none.

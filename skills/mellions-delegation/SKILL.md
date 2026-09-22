@@ -93,9 +93,9 @@ comment is not what another host sees; the claim is.
 **Read the requirement at the base commit before the diff.** The body is the
 author's account, and a reviewer who starts there can no longer produce a first
 judgment — `mellions-reasoning`. Take that reading from a subagent that has not
-seen the diff where being wrong is expensive, and wherever the case rests on a
-count of what it drops, a claimed zero included: a reviewer handed a count
-checks it; one who has not seen it counts for themselves. Give it paths you never
+seen the diff where being wrong is expensive, and give it the claim as written:
+a count it may take on trust, a claimed zero included, or a citation tidied on
+the way, comes back verified about your version. Give it paths you never
 write to — an extraction, not the lane tree nor review scratch — and the issue
 body without comments, where the lane states its fix's shape. The base
 commit is the merge base — `git merge-base <target> <head>` — not the tip the
