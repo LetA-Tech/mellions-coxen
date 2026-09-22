@@ -106,6 +106,31 @@ grep -q '"permissionDecision":"deny"' <<<"$out" ||
 note "the head-side read answering nothing: still denied"
 export GH_HEAD_JSON='[{"name":"internal/a.go","sha":"head1"}]'
 
+# 2d. A file both sides deleted. A deletion's sha is the pre-image — the blob
+#     from before the delete — so the shas match for a reason that is not about
+#     either tip. Both tips lack the file, which is agreement, and a promotion
+#     that carried a deletion across is the ordinary way this arrives.
+export GH_COMPARE_JSON='{"ahead":10,"files":[{"name":"internal/a.go","sha":"gone","status":"removed"}]}'
+export GH_HEAD_JSON='[{"name":"internal/a.go","sha":"gone","status":"removed"}]'
+out=$(payload 'gh pr merge 42' | runhook)
+[[ -z "$out" ]] || bad "a file both sides deleted was refused: $out"
+note "a deletion carried across by the promotion: silent"
+
+# 2e. The same pre-image sha with the deletion on one side only: the base
+#     deleted the file, the head left its content where the merge base had it.
+#     The shas match and the tips differ by the whole file. Git refuses this as
+#     a modify/delete first; the guard does not rely on it doing so.
+export GH_HEAD_JSON='[{"name":"internal/a.go","sha":"gone","status":"modified"}]'
+out=$(payload 'gh pr merge 42' | runhook)
+grep -q '"permissionDecision":"deny"' <<<"$out" ||
+  bad "a file deleted on the base and kept on the head was cleared by its pre-image sha: $out"
+grep -q 'internal/a.go' <<<"$out" ||
+  bad "the refusal does not name the deleted file: $out"
+note "a deletion on one side only: denied"
+
+export GH_COMPARE_JSON='{"ahead":10,"files":[{"name":"internal/a.go","sha":"base1"},{"name":"docs/x.md","sha":"base2"}]}'
+export GH_HEAD_JSON='[{"name":"internal/a.go","sha":"head1"}]'
+
 # 3. Behind in no shared file. The negative that keeps the guard alive: this is
 #    ordinary, and a guard that fires here is turned off and then protects
 #    nothing at all.

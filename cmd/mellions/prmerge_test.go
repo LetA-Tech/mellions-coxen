@@ -7,6 +7,8 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -68,6 +70,32 @@ func TestMergeStateOverlapIsContentNotNames(t *testing.T) {
 			atBase: `{"ahead":3,"files":[{"name":"a.go","sha":""},{"name":"b.go","sha":"bbb"}]}`,
 			atHead: `[{"name":"a.go","sha":""},{"name":"b.go","sha":"bbb"}]`,
 			want:   []string{"a.go"},
+		},
+		{
+			// A deletion's sha is the pre-image, so both sides carrying the
+			// same sha for a removed file says they agree about the blob
+			// before the deletion. What makes this agreement is the deletion
+			// being on both sides: neither tip has the file.
+			name: "a file both sides removed is not an overlap",
+			atBase: `{"ahead":3,"files":[{"name":"a.go","sha":"aaa","status":"modified"},` +
+				`{"name":"b.go","sha":"bbb","status":"removed"}]}`,
+			atHead: `[{"name":"a.go","sha":"aaa","status":"modified"},` +
+				`{"name":"b.go","sha":"bbb","status":"removed"}]`,
+			want: nil,
+		},
+		{
+			// The case the independent read found: the base deletes the file,
+			// the head leaves its content at the merge base (a mode-only
+			// change), so the pre-image sha on one side equals the unchanged
+			// blob on the other while the tips differ by the whole file. Git
+			// refuses this as a modify/delete before the guard is consulted;
+			// the decision no longer rests on git doing so.
+			name: "a file removed on one side only is kept",
+			atBase: `{"ahead":3,"files":[{"name":"a.go","sha":"aaa","status":"modified"},` +
+				`{"name":"b.go","sha":"bbb","status":"removed"}]}`,
+			atHead: `[{"name":"a.go","sha":"aaa","status":"modified"},` +
+				`{"name":"b.go","sha":"bbb","status":"modified"}]`,
+			want: []string{"b.go"},
 		},
 		{
 			name:   "the read failing keeps every name",
@@ -187,4 +215,53 @@ func sameSet(got, want []string) bool {
 		}
 	}
 	return true
+}
+
+// A comparison GitHub truncated at its page size is refused on the truncation
+// itself, and an overlap narrowed against a list that is not the whole list
+// would establish nothing either way. The three reads share one budget, so the
+// read that cannot change the answer is not made at all.
+func TestMergeStateTruncatedDoesNotSpendTheNarrowingRead(t *testing.T) {
+	const (
+		repo = "LetA-Tech/mellions-coxen"
+		head = "0123456789abcdef0123456789abcdef01234567"
+		base = "main"
+	)
+	var prFiles, cmpFiles []string
+	for i := 0; i < compareFileCap; i++ {
+		name := fmt.Sprintf("f%03d.go", i)
+		prFiles = append(prFiles, `{"path":"`+name+`"}`)
+		cmpFiles = append(cmpFiles, `{"name":"`+name+`","sha":"s`+strconv.Itoa(i)+`","status":"modified"}`)
+	}
+	prView := `{"number":97,"url":"u","baseRefName":"` + base + `","headRefOid":"` + head + `",` +
+		`"mergeStateStatus":"CLEAN","state":"OPEN","files":[` + strings.Join(prFiles, ",") + `]}`
+	atBase := `{"ahead":3,"files":[` + strings.Join(cmpFiles, ",") + `]}`
+
+	read := func(_ context.Context, _, name string, args ...string) (string, error) {
+		joined := strings.Join(args, " ")
+		switch {
+		case name == "gh" && len(args) > 1 && args[0] == "pr" && args[1] == "view":
+			return prView, nil
+		case strings.Contains(joined, "compare/"+head+"..."+base):
+			return atBase, nil
+		case strings.Contains(joined, "compare/"+base+"..."+head):
+			t.Error("the narrowing read was made on a comparison that is not the whole list")
+			return "[]", nil
+		}
+		t.Errorf("unexpected read: %s %s", name, joined)
+		return "", context.Canceled
+	}
+
+	state, err := mergeStateFrom(context.Background(), t.TempDir(),
+		prmerge.Call{Selector: "97", Repo: repo}, read)
+	if err != nil {
+		t.Fatalf("mergeStateFrom: %v", err)
+	}
+	if !state.Truncated {
+		t.Fatalf("a comparison at the page size is not marked truncated")
+	}
+	if len(state.Overlap) != compareFileCap {
+		t.Errorf("Overlap holds %d files, want every one of the %d named",
+			len(state.Overlap), compareFileCap)
+	}
 }

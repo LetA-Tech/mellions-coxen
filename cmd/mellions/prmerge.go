@@ -15,16 +15,24 @@ import (
 	"github.com/LetA-Tech/mellions-coxen/internal/prmerge"
 )
 
-// mergeLookBudget is the whole answer's budget, not one command's. The hook
-// that calls this has a few seconds before the runtime kills it, and a decision
-// that arrives after that is no decision, so a slow tracker means silence
-// rather than a late deny.
+// mergeLookBudget is the whole answer's budget, not one command's: up to three
+// reads of the tracker share it. It is not what bounds a hooked run — the hook
+// is declared with a 5s timeout in hooks/hooks.json, under this, so the runtime
+// kills the hook first and a tracker slower than that is silence rather than a
+// late deny. What this bounds is a run with no runtime over it, and the reads
+// after a slow one. A read that fails rather than expires still keeps the whole
+// overlap, so a tracker erroring at the narrowing read returns the refusal this
+// guard exists to stop giving.
 const mergeLookBudget = 6 * time.Second
 
 // compareFileCap is GitHub's own page size for the files in a comparison. At
 // the cap the list is not the whole list, and an empty overlap computed from a
 // truncated list would be a false clean.
 const compareFileCap = 300
+
+// removedStatus is GitHub's status for a file the head side of a comparison no
+// longer has. It is the one status whose sha is not a tip's blob.
+const removedStatus = "removed"
 
 // cmdPRMergeCheck reads a PreToolUse payload on stdin and denies a `gh pr
 // merge` whose state cannot support the decision. Everything else is silence.
@@ -74,14 +82,12 @@ type look func(ctx context.Context, dir, name string, args ...string) (string, e
 // the blobs themselves for modified, added, renamed and removed.
 //
 // So two comparisons run in opposite directions carry the same file's content
-// at each of the two tips, and equal shas are the same blob — except where one
-// side removed the file. There the equality can only hold if the other side's
-// change left the content at the merge base, which is a mode-only change, and
-// a mode change against a deletion is a modify/delete conflict git refuses
-// before this guard is consulted. Narrow, and resting on git rather than here.
+// at each of the two tips, and equal shas are the same blob — everywhere the
+// status is not `removed`, which is why the status is read alongside the sha.
 type comparedFile struct {
-	Name string `json:"name"`
-	SHA  string `json:"sha"`
+	Name   string `json:"name"`
+	SHA    string `json:"sha"`
+	Status string `json:"status"`
 }
 
 // mergeState asks the tracker what it says about the pull request a call names.
@@ -167,7 +173,7 @@ func mergeStateFrom(ctx context.Context, cwd string, call prmerge.Call, read loo
 	// to both "behind" and the overlap.
 	cmp, err := read(ctx, dir, "gh", "api",
 		"repos/"+repo+"/compare/"+pr.Head+"..."+pr.Base,
-		"--jq", `{ahead: .ahead_by, files: [.files[]? | {name: .filename, sha: .sha}]}`)
+		"--jq", `{ahead: .ahead_by, files: [.files[]? | {name: .filename, sha: .sha, status: .status}]}`)
 	if err != nil {
 		return state, nil
 	}
@@ -191,6 +197,13 @@ func mergeStateFrom(ctx context.Context, cwd string, call prmerge.Call, read loo
 			named = append(named, f.Name)
 		}
 	}
+	// A comparison truncated at the page size refuses on its own, and an
+	// overlap narrowed against a list that is not the whole list establishes
+	// nothing either way, so the third read is not spent on it.
+	if state.Truncated {
+		state.Overlap = named
+		return state, nil
+	}
 	state.Overlap = overwritten(ctx, dir, read, repo, pr.Base, pr.Head, named, comparison.Files)
 	return state, nil
 }
@@ -201,12 +214,12 @@ func mergeStateFrom(ctx context.Context, cwd string, call prmerge.Call, read loo
 // commits leaves every copied file named on both sides and identical at both
 // tips, and identical content cannot be written over.
 //
-// atBase is the head...base comparison already read, so its per-file sha is the
-// file's blob at the base tip. The read here runs the comparison the other way,
-// giving the same file's blob at the head tip.
+// atBase is the head...base comparison already read, so it carries each file as
+// the base tip has it. The read here runs the comparison the other way, giving
+// the same file as the head tip has it, and agree decides.
 //
 // A file whose content at either tip this cannot establish stays in the overlap:
-// the read failing, the file list truncated at GitHub's page size, a sha absent.
+// the read failing, the answer unreadable, a sha absent, a deletion on one side.
 // A clean answer computed from a gap is the one answer a merge guard must not
 // give, and the cost of keeping a file is a refusal the session can read and
 // argue with.
@@ -216,7 +229,7 @@ func overwritten(ctx context.Context, dir string, read look, repo, base, head st
 	}
 	out, err := read(ctx, dir, "gh", "api",
 		"repos/"+repo+"/compare/"+base+"..."+head,
-		"--jq", `[.files[]? | {name: .filename, sha: .sha}]`)
+		"--jq", `[.files[]? | {name: .filename, sha: .sha, status: .status}]`)
 	if err != nil {
 		return named
 	}
@@ -224,13 +237,11 @@ func overwritten(ctx context.Context, dir string, read look, repo, base, head st
 	if err := json.Unmarshal([]byte(out), &atHead); err != nil {
 		return named
 	}
-	headSHA := blobs(atHead)
-	baseSHA := blobs(atBase)
+	atH := index(atHead)
+	atB := index(atBase)
 	var kept []string
 	for _, f := range named {
-		h, atH := headSHA[f]
-		b, atB := baseSHA[f]
-		if atH && atB && h != "" && h == b {
+		if agree(atB[f], atH[f]) {
 			continue
 		}
 		kept = append(kept, f)
@@ -238,14 +249,31 @@ func overwritten(ctx context.Context, dir string, read look, repo, base, head st
 	return kept
 }
 
-// blobs indexes a comparison's files by path, keeping the first sha where a
-// path is named twice, so the index does not depend on the order the answer
-// arrived in.
-func blobs(files []comparedFile) map[string]string {
-	out := make(map[string]string, len(files))
+// agree says the two tips hold the same thing for one file.
+//
+// A deletion's sha is the pre-image — the blob the file had before it was
+// removed, which is the merge base's and neither tip's — so equal shas across a
+// deletion are agreement about the past, not about now. Removed on both sides
+// is the only agreement a deletion carries: both tips lack the file. Removed on
+// one side and the tips differ by the whole file, whatever the shas say.
+//
+// A file the comparison never named indexes to the zero value here, whose empty
+// sha agrees with nothing.
+func agree(b, h comparedFile) bool {
+	if b.Status == removedStatus || h.Status == removedStatus {
+		return b.Status == removedStatus && h.Status == removedStatus
+	}
+	return b.SHA != "" && b.SHA == h.SHA
+}
+
+// index maps a comparison's files by path, keeping the first entry where a path
+// is named twice, so the index does not depend on the order the answer arrived
+// in.
+func index(files []comparedFile) map[string]comparedFile {
+	out := make(map[string]comparedFile, len(files))
 	for _, f := range files {
 		if _, seen := out[f.Name]; !seen {
-			out[f.Name] = f.SHA
+			out[f.Name] = f
 		}
 	}
 	return out
