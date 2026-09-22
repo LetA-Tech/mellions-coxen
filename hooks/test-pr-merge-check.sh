@@ -46,7 +46,15 @@ case "$1 $2" in
   "repo view")
     printf 'o/r\n' ;;
   "api "*|"api")
-    printf '%s\n' "$GH_COMPARE_JSON" ;;
+    # Two comparisons, opposite directions, and they must not answer each
+    # other: head...base is what the base gained and carries each file's blob
+    # at the base tip, base...head carries the same file's blob at the head
+    # tip. A stub that served one answer to both would hide the difference the
+    # guard now decides on.
+    case "$2" in
+      *"...dev") printf '%s\n' "$GH_COMPARE_JSON" ;;
+      *"...abc") printf '%s\n' "$GH_HEAD_JSON" ;;
+    esac ;;
 esac
 exit 0
 STUB
@@ -59,6 +67,7 @@ runhook() { MELLIONS_BIN="$bin" CLAUDE_PLUGIN_ROOT="$root" bash "$hook"; }
 # 1. Mergeability GitHub has not computed. The failure this was written for.
 export GH_PR_JSON='{"number":177,"url":"https://github.com/o/r/pull/177","baseRefName":"dev","headRefOid":"abc","mergeStateStatus":"UNKNOWN","state":"OPEN","files":[]}'
 export GH_COMPARE_JSON='{"ahead":0,"files":[]}'
+export GH_HEAD_JSON='[]'
 out=$(payload 'gh pr merge 177 --squash' | runhook)
 grep -q '"permissionDecision":"deny"' <<<"$out" ||
   bad "a merge with mergeability UNKNOWN was not denied: $out"
@@ -68,7 +77,8 @@ note "UNKNOWN mergeability: denied, one line of JSON"
 
 # 2. Behind the base in a file the pull request also changes.
 export GH_PR_JSON='{"number":42,"url":"https://github.com/o/r/pull/42","baseRefName":"dev","headRefOid":"abc","mergeStateStatus":"CLEAN","state":"OPEN","files":[{"path":"internal/a.go"},{"path":"internal/b.go"}]}'
-export GH_COMPARE_JSON='{"ahead":10,"files":["internal/a.go","docs/x.md"]}'
+export GH_COMPARE_JSON='{"ahead":10,"files":[{"name":"internal/a.go","sha":"base1"},{"name":"docs/x.md","sha":"base2"}]}'
+export GH_HEAD_JSON='[{"name":"internal/a.go","sha":"head1"},{"name":"internal/b.go","sha":"head2"}]'
 out=$(payload 'gh pr merge 42' | runhook)
 grep -q '"permissionDecision":"deny"' <<<"$out" ||
   bad "a stale merge overlapping newer work on the base was not denied: $out"
@@ -76,12 +86,55 @@ grep -q 'internal/a.go' <<<"$out" ||
   bad "the refusal does not name the overlapping file: $out"
 grep -q 'docs/x.md' <<<"$out" &&
   bad "the refusal names a base-side file the pull request does not touch: $out"
-note "behind in a shared file: denied, and only the shared file named"
+note "behind in a shared file that differs at the two tips: denied, and only that file named"
+
+# 2b. The same names on both sides, the same bytes at both tips. This is every
+#     promotion of dev to main: the promotion copies dev's commits onto main,
+#     so main's side of each file is a copy of this branch's and nothing can be
+#     written over. #97 was refused here on 28 such files.
+export GH_HEAD_JSON='[{"name":"internal/a.go","sha":"base1"},{"name":"internal/b.go","sha":"head2"}]'
+out=$(payload 'gh pr merge 42' | runhook)
+[[ -z "$out" ]] || bad "a merge that overwrites nothing was refused: $out"
+note "behind in a shared file identical at both tips: silent"
+
+# 2c. The content at the head tip unreadable. An overlap cannot be cleared by a
+#     read that did not answer, so the refusal stands.
+export GH_HEAD_JSON=''
+out=$(payload 'gh pr merge 42' | runhook)
+grep -q '"permissionDecision":"deny"' <<<"$out" ||
+  bad "an overlap was cleared by a read that answered nothing: $out"
+note "the head-side read answering nothing: still denied"
+export GH_HEAD_JSON='[{"name":"internal/a.go","sha":"head1"}]'
+
+# 2d. A file both sides deleted. A deletion's sha is the pre-image — the blob
+#     from before the delete — so the shas match for a reason that is not about
+#     either tip. Both tips lack the file, which is agreement, and a promotion
+#     that carried a deletion across is the ordinary way this arrives.
+export GH_COMPARE_JSON='{"ahead":10,"files":[{"name":"internal/a.go","sha":"gone","status":"removed"}]}'
+export GH_HEAD_JSON='[{"name":"internal/a.go","sha":"gone","status":"removed"}]'
+out=$(payload 'gh pr merge 42' | runhook)
+[[ -z "$out" ]] || bad "a file both sides deleted was refused: $out"
+note "a deletion carried across by the promotion: silent"
+
+# 2e. The same pre-image sha with the deletion on one side only: the base
+#     deleted the file, the head left its content where the merge base had it.
+#     The shas match and the tips differ by the whole file. Git refuses this as
+#     a modify/delete first; the guard does not rely on it doing so.
+export GH_HEAD_JSON='[{"name":"internal/a.go","sha":"gone","status":"modified"}]'
+out=$(payload 'gh pr merge 42' | runhook)
+grep -q '"permissionDecision":"deny"' <<<"$out" ||
+  bad "a file deleted on the base and kept on the head was cleared by its pre-image sha: $out"
+grep -q 'internal/a.go' <<<"$out" ||
+  bad "the refusal does not name the deleted file: $out"
+note "a deletion on one side only: denied"
+
+export GH_COMPARE_JSON='{"ahead":10,"files":[{"name":"internal/a.go","sha":"base1"},{"name":"docs/x.md","sha":"base2"}]}'
+export GH_HEAD_JSON='[{"name":"internal/a.go","sha":"head1"}]'
 
 # 3. Behind in no shared file. The negative that keeps the guard alive: this is
 #    ordinary, and a guard that fires here is turned off and then protects
 #    nothing at all.
-export GH_COMPARE_JSON='{"ahead":10,"files":["docs/x.md"]}'
+export GH_COMPARE_JSON='{"ahead":10,"files":[{"name":"docs/x.md","sha":"base2"}]}'
 out=$(payload 'gh pr merge 42' | runhook)
 [[ -z "$out" ]] || bad "a branch behind its base in no shared file was refused: $out"
 note "behind in no shared file: silent"
