@@ -108,14 +108,9 @@ catching. Enumerate the cases the narrow form caught and the wide one lets
 through, remove only the clause meant to hold them back, and watch those go red.
 A widening whose guard reds nothing is not guarded.
 
-
 Where the claim is placement — a write inside another operation's
 transaction, lock or publish order — removing the write proves the write, not
-its place. Displace it one step outside the boundary and read what only an
-escaped write leaves once the outer operation aborts *after* it: a counter
-that moved, a row that outlived a rollback. Drive the outer operation as
-production does; a transaction the test wraps around it rolls the escaped
-write back too, and the arm stays green with the property gone.
+its place: read `references/placement-arms.md`.
 
 Where the fix is to persisted state — a store, a table, a cache, a file — a
 reading taken the moment a new binary is in place measures state nothing has

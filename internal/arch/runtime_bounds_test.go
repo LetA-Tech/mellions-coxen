@@ -144,7 +144,6 @@ var skillsInReserve = map[string]int{
 	"mellions-issue-remediation": 7976,
 	"mellions-reasoning":         7973,
 	"mellions-bug-audit":         7821,
-	"mellions-falsification":     7728,
 	"mellions-deep-research":     7884,
 	"mellions-issue-closure":     7573,
 	"mellions-issue-creation":    7730,
@@ -179,6 +178,11 @@ func TestNoSkillSpendsItsLastBytesUnnoticed(t *testing.T) {
 				t.Errorf("skills/%s/SKILL.md is %d bytes, above its recorded %d and inside the %d-byte "+
 					"reserve below the %d cap — a Skill carrying this much debt may not take on more; "+
 					"restore headroom in it rather than raising the baseline", name, len(raw), baseline, skillReserveBytes, codexSkillBytes)
+			}
+			if len(raw) <= band {
+				t.Errorf("skills/%s/SKILL.md is %d bytes, below the %d-byte reserve, and skillsInReserve still "+
+					"records it at %d — the entry would let it grow back into the band unnoticed; remove it",
+					name, len(raw), skillReserveBytes, baseline)
 			}
 			continue
 		}
