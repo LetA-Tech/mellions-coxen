@@ -8,6 +8,7 @@ import ipaddress
 import os
 import pathlib
 import re
+import subprocess
 
 
 USER_PATH = re.compile(r"/(Users|home)/([A-Za-z0-9._-]+)")
@@ -28,6 +29,10 @@ def arguments() -> argparse.Namespace:
     parser.add_argument("--root", required=True)
     parser.add_argument("--private-term", action="append", default=[])
     parser.add_argument("--terms-file", action="append", default=[])
+    # A working tree also holds what .gitignore keeps out of every commit:
+    # build output, and files tools running from the checkout write there.
+    # --git scans what git would publish, tracked or not yet added.
+    parser.add_argument("--git", action="store_true")
     return parser.parse_args()
 
 
@@ -42,10 +47,18 @@ def private_terms(args: argparse.Namespace) -> list[str]:
     return sorted(set(terms), key=str.casefold)
 
 
-def text_files(root: pathlib.Path):
-    for path in sorted(root.rglob("*")):
-        if ".git" in path.parts:
-            continue
+def candidates(root: pathlib.Path, git: bool):
+    if not git:
+        return sorted(p for p in root.rglob("*") if ".git" not in p.parts)
+    listed = subprocess.run(
+        ["git", "-C", str(root), "ls-files", "-z", "--cached", "--others", "--exclude-standard"],
+        check=True, capture_output=True,
+    ).stdout
+    return sorted({root / name.decode() for name in listed.split(b"\0") if name})
+
+
+def text_files(root: pathlib.Path, git: bool = False):
+    for path in candidates(root, git):
         if path.is_symlink():
             raw = os.readlink(path).encode()
         elif path.is_file():
@@ -69,9 +82,9 @@ def is_ssh_remote(line: str, match: re.Match[str]) -> bool:
     return line[match.end() : match.end() + 1] in {":", "/"}
 
 
-def findings(root: pathlib.Path, terms: list[str]) -> list[str]:
+def findings(root: pathlib.Path, terms: list[str], git: bool = False) -> list[str]:
     found = []
-    for path, body in text_files(root):
+    for path, body in text_files(root, git):
         relative = path.relative_to(root)
         lines = body.splitlines()
         for number, line in enumerate(lines, 1):
@@ -104,11 +117,11 @@ def main() -> int:
     root = pathlib.Path(args.root).resolve()
     if not root.is_dir():
         raise SystemExit(f"check-public-privacy: not a directory: {root}")
-    found = findings(root, private_terms(args))
+    found = findings(root, private_terms(args), args.git)
     if found:
         print("\n".join(found))
         return 1
-    print(f"public privacy scan passed: {sum(1 for _ in text_files(root))} text files")
+    print(f"public privacy scan passed: {sum(1 for _ in text_files(root, args.git))} text files")
     return 0
 
 
