@@ -144,6 +144,14 @@ func (s *Source) Collect(ctx context.Context, scope signal.Scope) ([]signal.Sign
 			continue
 		}
 		out = append(out, runs...)
+
+		// Last, and without continue: an alert endpoint this token cannot read
+		// is a fact about alerts, never grounds to drop what was collected above.
+		alerts, err := s.securityAlerts(ctx, full)
+		if err != nil {
+			unreachable = append(unreachable, fmt.Sprintf("%s: security alerts: %v", repo, err))
+		}
+		out = append(out, alerts...)
 	}
 	if len(unreachable) > 0 {
 		// Both: what was collected, and what could not be. The reader is told
@@ -568,4 +576,90 @@ func shortName(full string) string {
 func firstLine(s string) string {
 	line, _, _ := strings.Cut(s, "\n")
 	return line
+}
+
+// securityAlertsPath is the open Dependabot alerts of one repository.
+const securityAlertsPath = "/dependabot/alerts?state=open&per_page=100"
+
+type ghSecurityAlert struct {
+	Number     int       `json:"number"`
+	HTMLURL    string    `json:"html_url"`
+	CreatedAt  time.Time `json:"created_at"`
+	UpdatedAt  time.Time `json:"updated_at"`
+	Dependency struct {
+		Package struct {
+			Ecosystem string `json:"ecosystem"`
+			Name      string `json:"name"`
+		} `json:"package"`
+		ManifestPath string `json:"manifest_path"`
+	} `json:"dependency"`
+	Advisory struct {
+		GHSAID   string `json:"ghsa_id"`
+		Severity string `json:"severity"`
+		Summary  string `json:"summary"`
+	} `json:"security_advisory"`
+	Vulnerability struct {
+		Range        string `json:"vulnerable_version_range"`
+		FirstPatched *struct {
+			Identifier string `json:"identifier"`
+		} `json:"first_patched_version"`
+	} `json:"security_vulnerability"`
+}
+
+// securityAlerts reports each open Dependabot alert as an alert signal.
+//
+// The alert is GitHub's reading of the default branch at its last scan, not of
+// the working branch: a fix merged to dev leaves it open until the release. The
+// signal says which manifest and range it is about so a reader can check the
+// tree rather than trust the alert.
+func (s *Source) securityAlerts(ctx context.Context, full string) ([]signal.Signal, error) {
+	raw, err := s.opts.Run(ctx, "api", "--paginate", "repos/"+full+securityAlertsPath)
+	if err != nil {
+		return nil, err
+	}
+	// --paginate writes one JSON array per page, back to back.
+	var items []ghSecurityAlert
+	dec := json.NewDecoder(strings.NewReader(string(raw)))
+	for dec.More() {
+		var page []ghSecurityAlert
+		if err := dec.Decode(&page); err != nil {
+			return nil, fmt.Errorf("githubsrc: decode security alerts for %s: %w", full, err)
+		}
+		items = append(items, page...)
+	}
+	out := make([]signal.Signal, 0, len(items))
+	for _, a := range items {
+		patched := ""
+		if a.Vulnerability.FirstPatched != nil {
+			patched = a.Vulnerability.FirstPatched.Identifier
+		}
+		out = append(out, signal.Signal{
+			Kind: signal.KindAlert, Source: "github",
+			ID:   "dependabot-" + strconv.Itoa(a.Number),
+			Repo: shortName(full), URL: a.HTMLURL,
+			Created: a.CreatedAt, Updated: a.UpdatedAt,
+			Title: fmt.Sprintf("security %s: %s %s in %s (%s, patched in %s) — %s",
+				a.Advisory.Severity, a.Dependency.Package.Name, a.Vulnerability.Range,
+				a.Dependency.ManifestPath, a.Advisory.GHSAID, orNone(patched), a.Advisory.Summary),
+			Attrs: map[string]string{
+				"type":          "security_alert",
+				"severity":      a.Advisory.Severity,
+				"package":       a.Dependency.Package.Name,
+				"ecosystem":     a.Dependency.Package.Ecosystem,
+				"manifest":      a.Dependency.ManifestPath,
+				"vulnerable":    a.Vulnerability.Range,
+				"first_patched": patched,
+				"advisory":      a.Advisory.GHSAID,
+				"scanned":       "default branch",
+			},
+		})
+	}
+	return out, nil
+}
+
+func orNone(v string) string {
+	if v == "" {
+		return "no release"
+	}
+	return v
 }

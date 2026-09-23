@@ -41,7 +41,7 @@ const (
 	KindChangeSet Kind = "change_set"
 	// KindBuild is the result of an automated check.
 	KindBuild Kind = "build"
-	// KindAlert is a runtime alarm or measured anomaly.
+	// KindAlert is a runtime alarm, a measured anomaly, or an open security advisory.
 	KindAlert Kind = "alert"
 	// KindCommit is a repository change.
 	KindCommit Kind = "commit"
