@@ -502,6 +502,11 @@ func (c *Config) checkouts() checkout.Set {
 func (c *Config) checkoutsFor(scope []string) checkout.Set {
 	names := slices.Clone(c.Repos)
 	for _, r := range scope {
+		// A checkout is named for the repository, never its owner: -repos
+		// acme/x is located where x is.
+		if _, short, ok := strings.Cut(r, "/"); ok {
+			r = short
+		}
 		if r != "" && !slices.Contains(names, r) {
 			names = append(names, r)
 		}

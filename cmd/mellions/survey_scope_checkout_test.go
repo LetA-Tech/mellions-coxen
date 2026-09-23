@@ -247,3 +247,39 @@ func TestSurveyScopedByAnUnknownNameStillFails(t *testing.T) {
 		t.Error("a survey scoped to a repository this installation cannot locate reported success")
 	}
 }
+
+// -repos accepts owner/name, as the github and stale sources already do; a
+// checkout is named for the repository alone, so the owner must not be what
+// the location is looked up by, in the resolved set or in the git source.
+func TestSurveyScopedByOwnerAndNameLocatesTheCheckout(t *testing.T) {
+	root := t.TempDir()
+	work := filepath.Join(root, "work")
+	commitRepo(t, filepath.Join(work, "in-scope"))
+	own := commitRepo(t, filepath.Join(root, "elsewhere", "mellions-coxen"))
+
+	cfg := &Config{
+		Owner:      "acme",
+		Repos:      []string{"in-scope"},
+		WorkRoot:   work,
+		CheckoutAt: map[string]string{"mellions-coxen": own},
+		Sources:    []string{"git"},
+	}
+
+	for _, scope := range [][]string{{"acme/mellions-coxen"}, {"acme/in-scope"}} {
+		res := collect(t, cfg, scope)
+		for _, f := range res.Failures {
+			t.Errorf("-repos %s failed: %s: %v", scope[0], f.Source, f.Err)
+		}
+		if len(res.Signals) == 0 {
+			t.Errorf("-repos %s collected nothing", scope[0])
+		}
+	}
+
+	table, err := cfg.staleCheckouts([]string{"acme/mellions-coxen"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if table["mellions-coxen"] != own {
+		t.Errorf("stale cannot place -repos acme/mellions-coxen: table %v", table)
+	}
+}

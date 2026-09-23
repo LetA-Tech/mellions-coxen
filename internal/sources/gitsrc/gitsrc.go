@@ -114,9 +114,13 @@ func (s *Source) Collect(ctx context.Context, scope signal.Scope) ([]signal.Sign
 
 	var out []signal.Signal
 	for _, repo := range repos {
-		dir, ok := set.Dir(repo)
+		name := repo
+		if _, short, ok := strings.Cut(repo, "/"); ok {
+			name = short
+		}
+		dir, ok := set.Dir(name)
 		if !ok {
-			dir = filepath.Join(s.opts.WorkRoot, repo)
+			dir = filepath.Join(s.opts.WorkRoot, name)
 		}
 		if fi, err := os.Stat(dir); err != nil || !fi.IsDir() {
 			return nil, fmt.Errorf("gitsrc: no checkout of %s at %s", repo, dir)
