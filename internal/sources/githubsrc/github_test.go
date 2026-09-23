@@ -28,6 +28,15 @@ func fakeGH(t *testing.T, byVerb map[string]string) (Runner, *[]string) {
 		// it means. Actions permissions answers enabled unless a test says
 		// otherwise: defaulting the other way would silently route every test
 		// about something else down the ungated-repository path.
+		if verb == "api" && strings.Contains(args[len(args)-1], "/dependabot/alerts") {
+			if body, ok := byVerb["alerts"]; ok {
+				if body == "403" {
+					return nil, errors.New("HTTP 403: Resource not accessible by integration")
+				}
+				return []byte(body), nil
+			}
+			return []byte("[]"), nil
+		}
 		if verb == "api" && strings.HasSuffix(args[len(args)-1], "/actions/permissions") {
 			if body, ok := byVerb["permissions"]; ok {
 				return []byte(body), nil
@@ -49,6 +58,14 @@ func keyed(t *testing.T, byRepoVerb map[string]string) Runner {
 	t.Helper()
 	return func(_ context.Context, args ...string) ([]byte, error) {
 		joined := strings.Join(args, " ")
+		if args[0] == "api" && strings.Contains(args[len(args)-1], "/dependabot/alerts") {
+			for k, v := range byRepoVerb {
+				if strings.HasPrefix(k, "alerts:") && strings.Contains(joined, strings.TrimPrefix(k, "alerts:")) {
+					return []byte(v), nil
+				}
+			}
+			return []byte("[]"), nil
+		}
 		if args[0] == "api" && strings.HasSuffix(args[len(args)-1], "/actions/permissions") {
 			for k, v := range byRepoVerb {
 				if strings.HasPrefix(k, "permissions:") &&
