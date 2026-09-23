@@ -63,7 +63,9 @@ half registers the plugin into the invoking user's home and escalated that is
 root's. `sudo make install PREFIX=/usr/local` is not refused: an operator who
 says where it goes has not left it to be guessed.
 
-`make install` builds `bin/mellions`, copies it onto PATH, then runs
+`make install` builds `bin/mellions`, runs `make check` (the same gate the shift
+runner holds every update to, so nothing is installed that it would refuse),
+copies the binary onto PATH, then runs
 `mellions install -from .`, which registers this checkout with every runtime it
 finds on the machine:
 
