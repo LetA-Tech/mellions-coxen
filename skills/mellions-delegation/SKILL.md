@@ -83,8 +83,7 @@ work waiting is the remedy it named, not a second opinion.
 `CLAIMED`; read the claim before deciding anything. An active lane is still on
 it and merging is not yours. A handed-off one waits on what its handoff —
 posted on the change set itself — names, so read that next. A claim unrestated
-for a day is stale: swept, not obeyed. Draft state separates none of these — a
-peer merged a draft with a review in flight because it could not.
+for a day is stale: swept, not obeyed. Draft state separates none of these.
 
 **A lane that dispatches a review of its own draft claims it first** —
 `mellions assign claim <lane> -pr <n>` — before sending the review. A
@@ -104,8 +103,9 @@ everything landed since it was cut, and the phantom deletion reads exactly like
 the change dropping production behaviour.
 
 **Then argue on the record.** Say what you established and what you could not.
-Re-run their falsification rather than trusting output pasted in the body: a
-body quoting a test the tree lacks is an account, not the artifact.
+Re-run their gate and falsification locally, on the head merged into the
+target's tip: a stale branch can pass alone and break merged with no file in
+common. A cited test the tree lacks is an account, not evidence.
 
 Then one of two, never a third:
 
