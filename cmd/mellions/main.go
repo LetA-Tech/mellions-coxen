@@ -485,6 +485,35 @@ func (c *Config) checkouts() checkout.Set {
 	return checkout.Resolve(c.roots(), c.CheckoutAt, c.Repos)
 }
 
+// checkoutsFor locates the repositories in "repos" and the ones a run was
+// scoped to by name.
+//
+// Locating is not enrolling. A source decides what to collect from the scope it
+// is handed; it decides where each one is from the set resolved here. Those two
+// lists are the same only for an unscoped run, so a set built from "repos"
+// alone cannot say where a scoped repository is — the caller named it, the
+// configuration can reach it, and the source falls back to work_root/<name> and
+// reports a checkout that was never meant to be there.
+//
+// The scope is added to what is located and to nothing else: "repos" is still
+// the only thing that decides what an unscoped survey collects, and a
+// repository this installation works in without surveying — Mellions' own
+// source among them — stays out of that default.
+func (c *Config) checkoutsFor(scope []string) checkout.Set {
+	names := slices.Clone(c.Repos)
+	for _, r := range scope {
+		// A checkout is named for the repository, never its owner: -repos
+		// acme/x is located where x is.
+		if _, short, ok := strings.Cut(r, "/"); ok {
+			r = short
+		}
+		if r != "" && !slices.Contains(names, r) {
+			names = append(names, r)
+		}
+	}
+	return checkout.Resolve(c.roots(), c.CheckoutAt, names)
+}
+
 // checkout resolves a repository name to its local checkout.
 //
 // An explicit "checkouts" entry answers on its own, without the repository also

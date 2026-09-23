@@ -31,7 +31,7 @@ func TestAConfiguredSourcesListGainsTheRunner(t *testing.T) {
 			}
 			t.Setenv("MELLIONS_HOME", t.TempDir())
 			c.Sources = []string{"runner"}
-			reg, err := c.build()
+			reg, err := c.build(nil)
 			if err != nil {
 				t.Fatal(err)
 			}

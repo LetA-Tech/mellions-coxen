@@ -29,9 +29,39 @@ import (
 	"github.com/LetA-Tech/mellions-coxen/internal/survey"
 )
 
+// staleCheckouts is the map the stale source resolves citations against.
+//
+// It is not only a location table. issuegate resolves a cited path against
+// every checkout in it, so a repository missing from the map turns a file that
+// lives one directory over into "no such path" — a premise reported stale that
+// never moved. That is why the discovery fallback is decided by the unwidened
+// set and the scope is overlaid on top of whatever it produced: a scoped name
+// must add a location, never suppress the discovery that supplies the rest.
+// Gating the fallback on the widened set instead makes `-repos X` invent
+// findings the same run without it does not.
+func (c *Config) staleCheckouts(scope []string) (map[string]string, error) {
+	out := map[string]string(c.checkouts())
+	if len(out) == 0 {
+		var err error
+		if out, err = stale.DiscoverCheckouts(c.WorkRoot); err != nil {
+			return nil, err
+		}
+	}
+	for repo, dir := range c.checkoutsFor(scope) {
+		out[repo] = dir
+	}
+	return out, nil
+}
+
 // build wires the configured sources into a registry. This is the only place a
 // provider package is named; everything above it works through signal.Source.
-func (c *Config) build() (*sig.Registry, error) {
+//
+// scope is the repositories this run will collect, which is "repos" unless the
+// caller named others. The sources that read a checkout are given a set that
+// locates those too: a source re-reads the scope at collect time and would
+// otherwise be asked to collect a repository the set it was built with cannot
+// place. Passing nil builds the set from "repos" alone.
+func (c *Config) build(scope []string) (*sig.Registry, error) {
 	reg := sig.NewRegistry()
 	want := map[string]bool{}
 	for _, n := range c.Sources {
@@ -67,7 +97,7 @@ func (c *Config) build() (*sig.Registry, error) {
 			return nil, errors.New("source git needs \"work_root\" or \"work_roots\" in config")
 		}
 		if err := reg.Register(gitsrc.New(gitsrc.Options{
-			WorkRoot: c.WorkRoot, Repos: c.Repos, Checkouts: c.checkouts(),
+			WorkRoot: c.WorkRoot, Repos: c.Repos, Checkouts: c.checkoutsFor(scope),
 			Since: time.Duration(c.GitSinceHours) * time.Hour,
 		})); err != nil {
 			return nil, err
@@ -77,12 +107,9 @@ func (c *Config) build() (*sig.Registry, error) {
 		if len(c.roots()) == 0 && len(c.CheckoutAt) == 0 {
 			return nil, errors.New("source stale needs \"work_root\" or \"work_roots\" in config: a claim cannot be checked without the code")
 		}
-		checkouts := map[string]string(c.checkouts())
-		if len(checkouts) == 0 {
-			var err error
-			if checkouts, err = stale.DiscoverCheckouts(c.WorkRoot); err != nil {
-				return nil, err
-			}
+		checkouts, err := c.staleCheckouts(scope)
+		if err != nil {
+			return nil, err
 		}
 		if err := reg.Register(stale.New(stale.Options{
 			Owner: c.Owner, Repos: c.Repos, Checkouts: checkouts,
@@ -135,7 +162,19 @@ func cmdSurvey(ctx context.Context, args []string) error {
 	if *sources != "" {
 		cfg.Sources = splitList(*sources)
 	}
-	reg, err := cfg.build()
+
+	// The scope is settled before the sources are wired: a source that reads a
+	// checkout needs a set that can place every repository this run will ask it
+	// for, and -repos is what decides that list.
+	scope := sig.Scope{Repos: cfg.Repos, Limit: *limit}
+	if *repos != "" {
+		scope.Repos = splitList(*repos)
+	}
+	if *since > 0 {
+		scope.Since = time.Now().Add(-*since)
+	}
+
+	reg, err := cfg.build(scope.Repos)
 	if err != nil {
 		return err
 	}
@@ -144,14 +183,6 @@ func cmdSurvey(ctx context.Context, args []string) error {
 		return err
 	}
 	runner.Timeout = *timeout
-
-	scope := sig.Scope{Repos: cfg.Repos, Limit: *limit}
-	if *repos != "" {
-		scope.Repos = splitList(*repos)
-	}
-	if *since > 0 {
-		scope.Since = time.Now().Add(-*since)
-	}
 
 	res := runner.Run(ctx, scope)
 
@@ -333,7 +364,7 @@ func cmdSources(args []string) error {
 	fmt.Printf("config: %s\n", cfg.path)
 	fmt.Printf("owner:  %s\n", cfg.Owner)
 	fmt.Printf("repos:  %s\n", strings.Join(cfg.Repos, ", "))
-	reg, err := cfg.build()
+	reg, err := cfg.build(nil)
 	if err != nil {
 		return err
 	}
