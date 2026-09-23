@@ -550,7 +550,7 @@ func kindHeading(k signal.Kind) string {
 	case signal.KindStalePremise:
 		return "Stale premises — recorded claims the current tree contradicts"
 	case signal.KindAlert:
-		return "Runtime alerts"
+		return "Alerts — runtime and security"
 	case signal.KindBuild:
 		return "Failing checks"
 	case signal.KindBlocked:
