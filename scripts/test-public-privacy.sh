@@ -52,4 +52,32 @@ if python3 "$root/scripts/check-public-privacy.py" \
 fi
 python3 "$root/scripts/check-public-privacy.py" \
   --root "$scratch/good" --terms-file "$scratch/terms" >/dev/null
-python3 "$root/scripts/check-public-privacy.py" --root "$root"
+# --git scans what git would publish. An ignored file is never in a commit, so
+# it is not a finding; an untracked file not yet ignored could be, so it is.
+repo="$scratch/repo"
+mkdir -p "$repo/ignored"
+git -C "$repo" init -q
+printf 'ignored/\n' > "$repo/.gitignore"
+printf 'clean\n' > "$repo/tracked.txt"
+git -C "$repo" add .gitignore tracked.txt
+printf '/home/%s/leak\n' private-user > "$repo/ignored/leak.txt"
+if python3 "$root/scripts/check-public-privacy.py" --root "$repo" >/dev/null 2>&1; then
+  echo "public privacy detector's walk did not reach the ignored control file" >&2
+  exit 1
+fi
+if ! python3 "$root/scripts/check-public-privacy.py" --git --root "$repo" >/dev/null 2>&1; then
+  echo "public privacy detector --git reported a file .gitignore keeps out of every commit" >&2
+  exit 1
+fi
+printf '/home/%s/leak\n' private-user > "$repo/untracked.txt"
+if python3 "$root/scripts/check-public-privacy.py" --git --root "$repo" >/dev/null 2>&1; then
+  echo "public privacy detector --git missed an untracked file git would add" >&2
+  exit 1
+fi
+mv "$repo/untracked.txt" "$repo/tracked.txt"
+if python3 "$root/scripts/check-public-privacy.py" --git --root "$repo" >/dev/null 2>&1; then
+  echo "public privacy detector --git missed a tracked file" >&2
+  exit 1
+fi
+
+python3 "$root/scripts/check-public-privacy.py" --git --root "$root"
