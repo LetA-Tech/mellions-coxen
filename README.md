@@ -117,7 +117,7 @@ Today:
 | **Claude Code** | **First-class and production-used.** Native plugin, Skills, slash commands, lifecycle hooks, awareness hooks, recovery/renewal, and unattended runner support. |
 | **Codex** | **Implemented and interactive.** Plugin, Skills, commands, and hook manifest are present; Codex must explicitly trust the hooks. Current unattended runner is Claude-only. |
 | **Opus 5** | Supported when selected through an integrated runtime such as Claude Code. Mellions does not require a separate Opus-specific adapter. |
-| **Fable 5** | Used in evaluation/review contexts, but **no dedicated first-class runtime adapter is shipped today**. |
+| **Fable 5** | **Not used.** No dedicated first-class runtime adapter is shipped today. |
 | **Kimi 3** | **Future/community integration target.** No dedicated first-class adapter is shipped today. |
 | **Other capable coding-agent runtimes** | The architecture is designed to accept runtime adapters, but automatic lifecycle support must be implemented and verified per runtime. |
 
