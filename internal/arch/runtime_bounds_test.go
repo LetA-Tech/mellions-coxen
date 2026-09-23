@@ -180,9 +180,9 @@ func TestNoSkillSpendsItsLastBytesUnnoticed(t *testing.T) {
 					"restore headroom in it rather than raising the baseline", name, len(raw), baseline, skillReserveBytes, codexSkillBytes)
 			}
 			if len(raw) <= band {
-				t.Errorf("skills/%s/SKILL.md is %d bytes, below the %d-byte reserve, and skillsInReserve still "+
+				t.Errorf("skills/%s/SKILL.md is %d bytes, at or below the %d-byte band, and skillsInReserve still "+
 					"records it at %d — the entry would let it grow back into the band unnoticed; remove it",
-					name, len(raw), skillReserveBytes, baseline)
+					name, len(raw), band, baseline)
 			}
 			continue
 		}

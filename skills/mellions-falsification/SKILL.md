@@ -110,7 +110,8 @@ A widening whose guard reds nothing is not guarded.
 
 Where the claim is placement — a write inside another operation's
 transaction, lock or publish order — removing the write proves the write, not
-its place: read `references/placement-arms.md`.
+its place: displace it, abort the outer operation after it, wrap no test
+transaction; read `references/placement-arms.md`.
 
 Where the fix is to persisted state — a store, a table, a cache, a file — a
 reading taken the moment a new binary is in place measures state nothing has
