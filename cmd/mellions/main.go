@@ -28,6 +28,7 @@ import (
 	"syscall"
 
 	"github.com/LetA-Tech/mellions-coxen/internal/checkout"
+	"github.com/LetA-Tech/mellions-coxen/internal/sources/runnersrc"
 )
 
 // Version and Commit are set at build time.
@@ -386,6 +387,12 @@ func loadConfig(explicit string) (*Config, error) {
 		c.path = p
 		if len(c.Sources) == 0 {
 			c.Sources = []string{"programs", "assignments", "github", "git", "stale"}
+		}
+		// The runner source reads this host's own deploy record and needs no
+		// configuration, so a sources list written before it existed must not
+		// hide a deploy that has stopped landing. -sources still narrows.
+		if !slices.Contains(c.Sources, runnersrc.Name) {
+			c.Sources = append(c.Sources, runnersrc.Name)
 		}
 		return &c, nil
 	}

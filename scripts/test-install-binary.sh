@@ -144,19 +144,24 @@ else
 fi
 
 # 6. A destination directory this user cannot write: say so and how, rather
-#    than leaving the operator a bare cp error.
-mkdir -p "$tmp/case6/bin"
-chmod 555 "$tmp/case6/bin"
-run "$tmp/case6/bin:/usr/bin:/bin" BIN="$tmp/case6/bin/mellions"
-chmod 755 "$tmp/case6/bin"
-if [ "$rc" -eq 0 ]; then
-	bad "an unwritable destination was accepted"
-elif ! printf '%s' "$err" | grep -q "not writable by"; then
-	bad "the refusal does not name the unwritable directory: $err"
-elif ! printf '%s' "$err" | grep -q "PREFIX="; then
-	bad "the refusal offers no way out: $err"
+#    than leaving the operator a bare cp error. Root writes a 555 directory, so
+#    under `sudo make install`, whose check runs this, the case cannot arise.
+if [ "$(id -u)" -eq 0 ]; then
+	note "an unwritable destination: not exercised as root"
 else
-	note "an unwritable destination is refused with a way out"
+	mkdir -p "$tmp/case6/bin"
+	chmod 555 "$tmp/case6/bin"
+	run "$tmp/case6/bin:/usr/bin:/bin" BIN="$tmp/case6/bin/mellions"
+	chmod 755 "$tmp/case6/bin"
+	if [ "$rc" -eq 0 ]; then
+		bad "an unwritable destination was accepted"
+	elif ! printf '%s' "$err" | grep -q "not writable by"; then
+		bad "the refusal does not name the unwritable directory: $err"
+	elif ! printf '%s' "$err" | grep -q "PREFIX="; then
+		bad "the refusal offers no way out: $err"
+	else
+		note "an unwritable destination is refused with a way out"
+	fi
 fi
 
 [ "$fail" -eq 0 ] && printf 'ok install-binary\n'

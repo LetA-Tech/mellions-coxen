@@ -96,7 +96,7 @@ func configInit(at string) error {
 		return fmt.Errorf("%s already exists; read it with `mellions config show`", path)
 	}
 	c := Config{
-		Sources:          []string{"programs", "assignments", "github", "git", "stale"},
+		Sources:          []string{"programs", "assignments", "github", "git", "stale", "runner"},
 		OwnerLabels:      []string{"needs-owner", "pending-owner-decision"},
 		StaleMinAgeHours: 168,
 		PerRepoLimit:     50,

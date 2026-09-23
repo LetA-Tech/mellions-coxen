@@ -24,6 +24,7 @@ import (
 	"github.com/LetA-Tech/mellions-coxen/internal/sources/githubsrc"
 	"github.com/LetA-Tech/mellions-coxen/internal/sources/gitsrc"
 	"github.com/LetA-Tech/mellions-coxen/internal/sources/programs"
+	"github.com/LetA-Tech/mellions-coxen/internal/sources/runnersrc"
 	"github.com/LetA-Tech/mellions-coxen/internal/sources/stale"
 	"github.com/LetA-Tech/mellions-coxen/internal/survey"
 )
@@ -87,6 +88,11 @@ func (c *Config) build() (*sig.Registry, error) {
 			Owner: c.Owner, Repos: c.Repos, Checkouts: checkouts,
 			MinAge: time.Duration(c.StaleMinAgeHours) * time.Hour,
 		})); err != nil {
+			return nil, err
+		}
+	}
+	if want[runnersrc.Name] {
+		if err := reg.Register(runnersrc.New(c.home(), Commit)); err != nil {
 			return nil, err
 		}
 	}

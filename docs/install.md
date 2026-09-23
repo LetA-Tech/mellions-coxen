@@ -34,8 +34,9 @@ is Mellions. `make install` does both.
 - Claude Code, Codex, or both, already installed and signed in.
 - macOS or Linux. The hooks are bash and the binary shells out to `git` and
   `gh`; there is no Windows build.
-- `python3` on the host that will run unattended shifts (the shift follower is
-  Python; interactive use needs none).
+- `python3` and a C compiler (`cc`, for `go test -race`): `make install` runs
+  `make check` first, and its hook tests and race tests need both. The shift
+  follower is Python too.
 
 ## 1. Install
 
@@ -63,7 +64,9 @@ half registers the plugin into the invoking user's home and escalated that is
 root's. `sudo make install PREFIX=/usr/local` is not refused: an operator who
 says where it goes has not left it to be guessed.
 
-`make install` builds `bin/mellions`, copies it onto PATH, then runs
+`make install` builds `bin/mellions`, runs `make check` (the same gate the shift
+runner holds every update to, so nothing is installed that it would refuse),
+copies the binary onto PATH, then runs
 `mellions install -from .`, which registers this checkout with every runtime it
 finds on the machine:
 
