@@ -17,7 +17,7 @@ help:
 	@echo "  make build-linux    CGO_ENABLED=0 linux/amd64 → bin/mellions-linux-amd64"
 	@echo "  make release        dist/ tarballs for every supported platform"
 	@echo "  make check          vet + race tests + the hooks and Skills"
-	@echo "  make install        build, put the binary on PATH, register with the runtimes here"
+	@echo "  make install        build and check, put the binary on PATH, register with the runtimes here"
 	@echo "  make clean"
 
 .PHONY: build
@@ -98,7 +98,8 @@ check-hooks:
 check: fmt-check vet test check-hooks
 
 # Install for this machine: the binary on PATH, then the plugin into whichever
-# runtimes are here, from this checkout.
+# runtimes are here, from this checkout. check is the gate scripts/shifts.sh
+# holds every runner update to, so a hand install cannot land what it refuses.
 #
 # Where the binary goes, and whether it landed somewhere a shell will run, is
 # scripts/install-binary.sh — it prints the path it installed to. BIN= installs
@@ -111,7 +112,7 @@ ifeq ($(origin PREFIX),command line)
 BIN := $(PREFIX)/bin/mellions
 endif
 .PHONY: install
-install: build
+install: build check
 	@target=$$(SRC=bin/mellions PREFIX='$(PREFIX)' BIN='$(BIN)' scripts/install-binary.sh) && \
 		"$$target" install -from .
 
