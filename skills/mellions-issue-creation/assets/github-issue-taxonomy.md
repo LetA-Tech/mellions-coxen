@@ -204,13 +204,13 @@ never an instruction to a specific session.
 executor:opus     complex work needing strong reasoning and long-context understanding
 executor:sonnet   medium-complexity and minor work, where the logic, architecture and mechanism
                   are already established
-executor:fable    exceptionally complex reasoning, research or technical analysis
 executor:codex    exceptionally complex reasoning, research or technical analysis
 executor:kimi     as registered in the target repo's registry
 executor:manual   must not run autonomously
 ```
 
-**Haiku is never used** — not at any complexity. There is no `executor:haiku`.
+**Haiku and Fable are never used** — not at any complexity. There is no `executor:haiku` and no
+`executor:fable`.
 
 ### Site governance
 

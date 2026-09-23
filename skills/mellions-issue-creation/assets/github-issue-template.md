@@ -27,8 +27,8 @@ non-conformant. Look the cell up; do not estimate it. `risk-area:<category>` (e.
 `impact-area:member-experience`, `impact-area:legal`) are separate, optional, additional families:
 zero or more, as many as the work item actually spans, never counted toward the ten.
 `priority:<rung>` is `priority:p0` … `priority:p3`. `executor:*` is a model
-(`opus` | `sonnet` | `fable` | `codex` | `kimi` | `manual`), never a skill name; there is no
-`executor:haiku`. Labels carry the routing metadata — never restate them in the body.
+(`opus` | `sonnet` | `codex` | `kimi` | `manual`), never a skill name; there is no
+`executor:haiku` and no `executor:fable`. Labels carry the routing metadata — never restate them in the body.
 
 Read `gh label list --repo <repo>` before choosing. Taxonomy §5 governs a family the registry does
 not carry: apply what exists, record what does not in the one permitted `Labels unavailable`
