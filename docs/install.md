@@ -34,8 +34,9 @@ is Mellions. `make install` does both.
 - Claude Code, Codex, or both, already installed and signed in.
 - macOS or Linux. The hooks are bash and the binary shells out to `git` and
   `gh`; there is no Windows build.
-- `python3` on the host that will run unattended shifts (the shift follower is
-  Python; interactive use needs none).
+- `python3` and a C compiler (`cc`, for `go test -race`): `make install` runs
+  `make check` first, and its hook tests and race tests need both. The shift
+  follower is Python too.
 
 ## 1. Install
 
