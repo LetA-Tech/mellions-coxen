@@ -190,10 +190,26 @@ type ClaimState struct {
 	// It is not a failure to act on: an unreleased claim goes stale and is
 	// swept by whoever next reads the issue.
 	Stranded string `json:"stranded,omitempty"`
+	// Refs are the references an unpublished lane did publish a claim on, such
+	// as a pull request claimed from a lane whose work unit lives in a register.
+	// A published lane holds every reference it names and leaves this empty.
+	Refs []string `json:"refs,omitempty"`
 }
 
 // Published reports whether other machines can see this lane's hold.
 func (c *ClaimState) Published() bool { return c != nil && c.Unpublished == "" }
+
+// heldRefs are the references this lane has a claim on the tracker for, which
+// are the ones it restates and the ones it releases.
+func (a *Assignment) heldRefs() []string {
+	if a.Claim == nil {
+		return nil
+	}
+	if a.Claim.Published() {
+		return a.claimRefs()
+	}
+	return a.Claim.Refs
+}
 
 // Tracker publishes a lane's hold on an issue where every machine can see it.
 //
@@ -647,6 +663,12 @@ func (s *Store) ClaimPullRequest(ctx context.Context, id, pr string) error {
 		if a.Claim == nil {
 			a.Claim = &ClaimState{Host: c.Host}
 		}
+		if a.Claim.Host == "" {
+			a.Claim.Host = c.Host
+		}
+		if !a.Claim.Published() && !slices.Contains(a.Claim.Refs, ref) {
+			a.Claim.Refs = append(a.Claim.Refs, ref)
+		}
 		a.Claim.At = c.At
 		return nil
 	})
@@ -663,10 +685,13 @@ func (s *Store) ClaimPullRequest(ctx context.Context, id, pr string) error {
 // swept — which is the designed behaviour, not a defect.
 func (s *Store) restateClaim(a *Assignment) {
 	refs := a.claimRefs()
-	// A lane that already said its claim is local-only is left alone. A lane
-	// with refs and no ClaimState yet is one that just acquired a pull request:
-	// it gets one here rather than waiting for a claim it will never have.
-	if s.Tracker == nil || len(refs) == 0 || (a.Claim != nil && a.Claim.Unpublished != "") {
+	// A local-only lane restates only what it did publish. A lane with refs
+	// and no ClaimState yet is one that just acquired a pull request: it gets
+	// one here rather than waiting for a claim it will never have.
+	if a.Claim != nil {
+		refs = a.heldRefs()
+	}
+	if s.Tracker == nil || len(refs) == 0 {
 		return
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -690,8 +715,8 @@ func (s *Store) restateClaim(a *Assignment) {
 // refusing to close a finished lane because GitHub was briefly unreachable
 // would trade a self-healing residue for a stuck one.
 func (s *Store) releaseClaim(a *Assignment) {
-	refs := a.claimRefs()
-	if len(refs) == 0 || a.Claim == nil || !a.Claim.Published() {
+	refs := a.heldRefs()
+	if len(refs) == 0 {
 		return
 	}
 	if s.Tracker == nil {
@@ -702,14 +727,21 @@ func (s *Store) releaseClaim(a *Assignment) {
 	defer cancel()
 	// Every ref is attempted even after one fails: a lane that let go of its
 	// issue and kept its pull request would leave a draft looking held.
-	stranded := ""
+	var stranded []string
 	for _, ref := range refs {
 		if err := s.Tracker.Release(ctx, a.Repo, ref, a.ID); err != nil {
-			stranded = ref + ": " + err.Error()
+			stranded = append(stranded, ref+": "+err.Error())
 		}
 	}
-	if stranded != "" {
-		a.Claim.Stranded = stranded
+	if len(stranded) > 0 {
+		a.Claim.Stranded = strings.Join(stranded, "; ")
+		return
+	}
+	// A local-only lane keeps saying why its work unit never reached the
+	// tracker; only what it published is withdrawn.
+	if !a.Claim.Published() {
+		a.Claim.Refs = nil
+		a.Claim.Stranded = ""
 		return
 	}
 	a.Claim = nil
