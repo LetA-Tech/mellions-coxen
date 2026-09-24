@@ -29,6 +29,50 @@ type Finding struct {
 	// Reader is the command word that would print it — "cat", "awk" — or
 	// "" when the tool reads the file directly rather than through a shell.
 	Reader string
+	// Value is true when Path names a variable that holds a credential's
+	// content rather than a credential's path.
+	Value bool
+	// Substituted is true when a command substitution in the reader's
+	// arguments reads Path, and the reader prints what it returns.
+	Substituted bool
+}
+
+// argumentEchoers are printers that write their arguments, not the files
+// those arguments name.
+var argumentEchoers = map[string]bool{"echo": true, "printf": true, "print": true}
+
+// Reason is the sentence a denial gives for f. It asserts a program's
+// behaviour only where the program is known to have it; every other denial is
+// made on the argument's name alone, and says so.
+func (f Finding) Reason() string {
+	switch {
+	case f.Reader == "":
+		return "`" + f.Path + "` is named like a credential-bearing file, and this tool " +
+			"prints the content of the file it reads."
+	case f.Value:
+		return "`" + f.Path + "` holds a value read from a credential file earlier on this " +
+			"command line, and `" + f.Reader + "` writes its arguments out."
+	case f.Substituted:
+		return "a command substitution reads `" + f.Path + "`, and `" + f.Reader +
+			"` writes what it returns to stdout."
+	}
+	what := "`" + f.Reader + " … " + f.Path + "` — `" + f.Path + "` is named like a credential file"
+	if strings.HasPrefix(f.Path, "$") {
+		what = "`" + f.Path + "` holds a path named like a credential file, assigned earlier " +
+			"on this command line"
+	}
+	if printers[f.Reader] && !argumentEchoers[f.Reader] {
+		return what + ", and `" + f.Reader + "` writes a file's content to stdout."
+	}
+	return what + ". `" + f.Reader + "` is not among the programs this guard knows never " +
+		"print a file's content, so the denial rests on that name alone; the guard has not " +
+		"established that this command opens or prints the file."
+}
+
+// Definite reports whether f's Reason asserts that the command prints a
+// credential rather than denying on a name alone.
+func (f Finding) Definite() bool {
+	return f.Reader == "" || f.Value || f.Substituted || (printers[f.Reader] && !argumentEchoers[f.Reader])
 }
 
 // safeReaders are the command words that take a path and never write its
@@ -401,7 +445,7 @@ func ScanBash(command string) []Finding {
 		for ai, a := range args {
 			for name := range holdsValue {
 				if printers[reader] && names(a, name) {
-					out = append(out, Finding{Path: "$" + name, Reader: reader})
+					out = append(out, Finding{Path: "$" + name, Reader: reader, Value: true})
 				}
 			}
 			for name := range holdsPath {
@@ -424,7 +468,7 @@ func ScanBash(command string) []Finding {
 				continue
 			}
 			if containsSecretRead(a) && printers[reader] {
-				out = append(out, Finding{Path: secretInside(a), Reader: reader})
+				out = append(out, Finding{Path: secretInside(a), Reader: reader, Substituted: true})
 			}
 		}
 	}
