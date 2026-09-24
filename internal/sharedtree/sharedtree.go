@@ -92,6 +92,14 @@ type Estate struct {
 	// is somebody else's tree — the refusal would then name, as the place to
 	// work, the exact kind of tree it exists to keep sessions out of.
 	Lane func(repo, session, cwd string) string
+	// OtherTree reports that git resolves dir into a linked worktree of the
+	// checkout's repository other than the checkout itself, or false where it
+	// cannot tell. Nil is the same as cannot tell.
+	//
+	// A path under a checkout is not thereby in it: a repository can require
+	// its worktrees to live inside the checkout, and a write there reaches
+	// neither the checkout's index nor its files.
+	OtherTree func(dir, checkout string) bool
 }
 
 // Deny returns the reason to refuse a PreToolUse payload, or "" to stay
@@ -394,7 +402,8 @@ func subcommand(args []string) (string, []string) {
 // tree stays its own even where the configuration puts it under a work root.
 //
 // The longest matching checkout wins, so a checkout nested inside another
-// answers for its own paths rather than its parent's.
+// answers for its own paths rather than its parent's. A path git places in a
+// different working tree is not the checkout's, wherever it sits.
 func shared(dir string, e Estate) (string, string, bool) {
 	for _, lane := range e.Lanes {
 		if under(dir, lane) {
@@ -406,6 +415,9 @@ func shared(dir string, e Estate) (string, string, bool) {
 		if c.Dir != "" && under(dir, c.Dir) && len(c.Dir) > len(at) {
 			repo, at = c.Repo, c.Dir
 		}
+	}
+	if at != "" && e.OtherTree != nil && e.OtherTree(dir, at) {
+		return "", "", false
 	}
 	return repo, at, at != ""
 }
