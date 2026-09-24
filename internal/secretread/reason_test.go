@@ -52,6 +52,12 @@ func TestReasonClaimsOnlyWhatTheScanKnows(t *testing.T) {
 				"opens or prints the file.",
 		},
 		{
+			"a literal path that begins with an expansion",
+			`cat $HOME/.env`, true,
+			"`cat … $HOME/.env` — `$HOME/.env` is named like a credential file, " +
+				"and `cat` writes a file's content to stdout.",
+		},
+		{
 			"a variable holding a credential's path",
 			`F=.db_connection; frob "$F"`, false,
 			"`$F` holds a path named like a credential file, assigned earlier on this " +

@@ -35,6 +35,9 @@ type Finding struct {
 	// Substituted is true when a command substitution in the reader's
 	// arguments reads Path, and the reader prints what it returns.
 	Substituted bool
+	// Held is true when Path names a variable assigned a credential's path
+	// earlier on the same command line.
+	Held bool
 }
 
 // argumentEchoers are printers that write their arguments, not the files
@@ -57,7 +60,7 @@ func (f Finding) Reason() string {
 			"` writes what it returns to stdout."
 	}
 	what := "`" + f.Reader + " … " + f.Path + "` — `" + f.Path + "` is named like a credential file"
-	if strings.HasPrefix(f.Path, "$") {
+	if f.Held {
 		what = "`" + f.Path + "` holds a path named like a credential file, assigned earlier " +
 			"on this command line"
 	}
@@ -450,7 +453,7 @@ func ScanBash(command string) []Finding {
 			}
 			for name := range holdsPath {
 				if !safeReaders[reader] && names(a, name) {
-					out = append(out, Finding{Path: "$" + name, Reader: reader})
+					out = append(out, Finding{Path: "$" + name, Reader: reader, Held: true})
 				}
 			}
 			// An option operand the reader consumes rather than prints.
