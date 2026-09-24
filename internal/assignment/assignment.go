@@ -208,7 +208,13 @@ func (a *Assignment) heldRefs() []string {
 	if a.Claim.Published() {
 		return a.claimRefs()
 	}
-	return a.Claim.Refs
+	refs := slices.Clone(a.Claim.Refs)
+	// The pull request is on the tracker whatever the work unit is, including
+	// one recorded at handoff or before Refs existed.
+	if r := strings.TrimSpace(a.PullRequest); r != "" && !slices.Contains(refs, r) {
+		refs = append(refs, r)
+	}
+	return refs
 }
 
 // Tracker publishes a lane's hold on an issue where every machine can see it.
@@ -703,6 +709,9 @@ func (s *Store) restateClaim(a *Assignment) {
 		}
 		if a.Claim == nil {
 			a.Claim = &ClaimState{Host: c.Host}
+		}
+		if a.Claim.Host == "" {
+			a.Claim.Host = c.Host
 		}
 		a.Claim.At = c.At
 	}

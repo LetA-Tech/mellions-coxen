@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/LetA-Tech/mellions-coxen/internal/claim"
 )
 
 // Not every repository's work register is the tracker. Where the rows live in
@@ -194,5 +196,77 @@ func TestARegisterLaneKeepsItsPullRequestClaimFresh(t *testing.T) {
 	}
 	if got := f.claims[key("svc", "IMP-016")]; len(got) != 0 {
 		t.Fatalf("restating published the register row to the tracker: %+v", got)
+	}
+}
+
+// Handoff records the lane's open pull request and says the claim goes on it
+// in the same act. On a register lane the pull request is on the tracker like
+// any other, so it is held while the lane lives and released when it closes.
+func TestARegisterLaneHoldsThePullRequestItsHandoffFound(t *testing.T) {
+	src := gitFixture(t)
+	s, err := newStoreT(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.Registers = map[string]string{"svc": "docs/tracker.md"}
+	f := trackerOf(t, s)
+
+	a, err := s.Open(OpenOptions{
+		ID: "svc-imp16", Repo: "svc", Issue: "IMP-016", Source: src,
+		Objective: "implement the work unit", Because: "the register says it is ready",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.prs[a.Branch] = []claim.PullRequest{{Number: 178, State: "OPEN"}}
+	if err := s.Handoff("svc-imp16", "done and pushed"); err != nil {
+		t.Fatal(err)
+	}
+	if !f.label("svc", "PR #178") {
+		t.Fatal("the pull request the handoff found is not held on the tracker")
+	}
+	if err := s.Close("svc-imp16"); err != nil {
+		t.Fatal(err)
+	}
+	if f.label("svc", "PR #178") {
+		t.Fatal("closing left the pull request the handoff found labelled mellions:claimed")
+	}
+	if slices.Contains(f.released, key("svc", "IMP-016")) {
+		t.Errorf("the register row was sent to the tracker to release: %v", f.released)
+	}
+}
+
+// A record written before per-reference state existed names its pull request
+// and carries no Refs; the claim on that pull request is still released.
+func TestARegisterLaneRecordedBeforeRefsReleasesItsPullRequest(t *testing.T) {
+	src := gitFixture(t)
+	s, err := newStoreT(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.Registers = map[string]string{"svc": "docs/tracker.md"}
+	f := trackerOf(t, s)
+
+	a, err := s.Open(OpenOptions{
+		ID: "svc-imp16", Repo: "svc", Issue: "IMP-016", Source: src,
+		Objective: "implement the work unit", Because: "the register says it is ready",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.Publish(context.Background(), "svc", "PR #178", a.ID, StateActive); err != nil {
+		t.Fatal(err)
+	}
+	a.PullRequest = "PR #178"
+	a.Claim.At = time.Now()
+	a.Handoff = "done and pushed"
+	if err := s.save(a); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Close("svc-imp16"); err != nil {
+		t.Fatal(err)
+	}
+	if f.label("svc", "PR #178") {
+		t.Fatal("closing a record from before Refs left its pull request labelled mellions:claimed")
 	}
 }
