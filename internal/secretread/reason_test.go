@@ -33,10 +33,10 @@ func TestReasonStatesTheNamesItMatched(t *testing.T) {
 		{"a variable assigned a credential's path", `F=.db_connection; frob "$F"`,
 			"`$F` was assigned a path named like a credential file earlier on this command line, and `frob` " + notOnSafeList},
 		{"a variable assigned a substitution naming a credential", `U="$(tail -1 .db_connection)"; echo "$U"`,
-			"`$U` was assigned, earlier on this command line, a word containing a command substitution " +
+			"`$U` was assigned, earlier on this command line, a word containing `$(` or a backtick " +
 				"and a credential file's name, and `echo` " + onPrinterList},
 		{"a substitution beside a credential name", `echo "$(date) .env"`,
-			"an argument to `echo` contains a command substitution and the credential file name `.env`, and `echo` " + onPrinterList},
+			"an argument to `echo` contains `$(` or a backtick and the credential file name `.env`, and `echo` " + onPrinterList},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -83,7 +83,7 @@ func TestReasonAssertsNoBehaviour(t *testing.T) {
 		}
 		for _, f := range got {
 			r := f.Reason()
-			for _, claim := range []string{"writes", "would", "reads `", "holds a value", "prints the"} {
+			for _, claim := range []string{"writes", "would", "reads `", "holds a value", "prints the", "substitution"} {
 				if strings.Contains(r, claim) {
 					t.Errorf("ScanBash(%q) reason claims %q: %s", cmd, claim, r)
 				}

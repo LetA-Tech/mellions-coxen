@@ -30,10 +30,10 @@ type Finding struct {
 	// "" when the tool reads the file directly rather than through a shell.
 	Reader string
 	// Value is true when Path names a variable assigned a word that contains
-	// a command substitution and a credential file's name.
+	// `$(` or a backtick and a credential file's name.
 	Value bool
-	// Substituted is true when one of the reader's arguments contains a command
-	// substitution and the credential file name in Path.
+	// Substituted is true when one of the reader's arguments contains `$(` or a
+	// backtick and the credential file name in Path.
 	Substituted bool
 	// Held is true when Path names a variable assigned a credential's path
 	// earlier on the same command line.
@@ -50,10 +50,10 @@ func (f Finding) Reason() string {
 			"can return a file's content."
 	case f.Value:
 		return "`" + f.Path + "` was assigned, earlier on this command line, a word " +
-			"containing a command substitution and a credential file's name, and `" + f.Reader + "` is on the " +
+			"containing `$(` or a backtick and a credential file's name, and `" + f.Reader + "` is on the " +
 			"guard's list of programs that can print what they are given."
 	case f.Substituted:
-		return "an argument to `" + f.Reader + "` contains a command substitution and the " +
+		return "an argument to `" + f.Reader + "` contains `$(` or a backtick and the " +
 			"credential file name `" + f.Path + "`, and `" + f.Reader + "` is on the guard's list of programs that can " +
 			"print what they are given."
 	case f.Held:
