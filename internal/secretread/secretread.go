@@ -29,6 +29,41 @@ type Finding struct {
 	// Reader is the command word that would print it — "cat", "awk" — or
 	// "" when the tool reads the file directly rather than through a shell.
 	Reader string
+	// Value is true when Path names a variable assigned a word that contains
+	// `$(` or a backtick and a credential file's name.
+	Value bool
+	// Substituted is true when one of the reader's arguments contains `$(` or a
+	// backtick and the credential file name in Path.
+	Substituted bool
+	// Held is true when Path names a variable assigned a credential's path
+	// earlier on the same command line.
+	Held bool
+}
+
+// Reason is the sentence a denial gives for f. The scan matches names — of
+// files, of programs, of variables — and never models what a command does with
+// an argument, so the sentence states the names it matched and no more.
+func (f Finding) Reason() string {
+	switch {
+	case f.Reader == "":
+		return "`" + f.Path + "` is named like a credential-bearing file, and this tool " +
+			"can return a file's content."
+	case f.Value:
+		return "`" + f.Path + "` was assigned, earlier on this command line, a word " +
+			"containing `$(` or a backtick and a credential file's name, and `" + f.Reader + "` is on the " +
+			"guard's list of programs that can print what they are given."
+	case f.Substituted:
+		return "an argument to `" + f.Reader + "` contains `$(` or a backtick and the " +
+			"credential file name `" + f.Path + "`, and `" + f.Reader + "` is on the guard's list of programs that can " +
+			"print what they are given."
+	case f.Held:
+		return "`" + f.Path + "` was assigned a path named like a credential file earlier on " +
+			"this command line, and `" + f.Reader + "` is not on the guard's list of programs " +
+			"that never print a file's content."
+	}
+	return "`" + f.Reader + " … " + f.Path + "` — `" + f.Path + "` is named like a " +
+		"credential file, and `" + f.Reader + "` is not on the guard's list of programs " +
+		"that never print a file's content."
 }
 
 // safeReaders are the command words that take a path and never write its
@@ -401,12 +436,12 @@ func ScanBash(command string) []Finding {
 		for ai, a := range args {
 			for name := range holdsValue {
 				if printers[reader] && names(a, name) {
-					out = append(out, Finding{Path: "$" + name, Reader: reader})
+					out = append(out, Finding{Path: "$" + name, Reader: reader, Value: true})
 				}
 			}
 			for name := range holdsPath {
 				if !safeReaders[reader] && names(a, name) {
-					out = append(out, Finding{Path: "$" + name, Reader: reader})
+					out = append(out, Finding{Path: "$" + name, Reader: reader, Held: true})
 				}
 			}
 			// An option operand the reader consumes rather than prints.
@@ -424,7 +459,7 @@ func ScanBash(command string) []Finding {
 				continue
 			}
 			if containsSecretRead(a) && printers[reader] {
-				out = append(out, Finding{Path: secretInside(a), Reader: reader})
+				out = append(out, Finding{Path: secretInside(a), Reader: reader, Substituted: true})
 			}
 		}
 	}
@@ -459,13 +494,15 @@ func names(arg, v string) bool {
 }
 
 func dedupe(in []Finding) []Finding {
-	seen := map[Finding]bool{}
+	type key struct{ path, reader string }
+	seen := map[key]bool{}
 	var out []Finding
 	for _, f := range in {
-		if f.Path == "" || seen[f] {
+		k := key{f.Path, f.Reader}
+		if f.Path == "" || seen[k] {
 			continue
 		}
-		seen[f] = true
+		seen[k] = true
 		out = append(out, f)
 	}
 	return out
