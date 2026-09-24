@@ -40,7 +40,7 @@ func cmdSecret(args []string) error {
 		return nil
 	}
 	for _, f := range findings {
-		fmt.Println("  " + reason(f))
+		fmt.Println("  " + f.Reason())
 	}
 	return fmt.Errorf("%d credential read(s)", len(findings))
 }
@@ -95,7 +95,7 @@ func cmdSecretCheck(args []string) error {
 
 	var reasons []string
 	for _, f := range findings {
-		reasons = append(reasons, "  "+reason(f))
+		reasons = append(reasons, "  "+f.Reason())
 	}
 	if n := len(reasons); n > 6 {
 		reasons = append(reasons[:6], "  … and "+strconv.Itoa(n-6)+" more.")
@@ -104,7 +104,9 @@ func cmdSecretCheck(args []string) error {
 	var d decision
 	d.Output.Event = preToolUseEvent
 	d.Output.Decide = "deny"
-	d.Output.Reason = "This would read a credential into the transcript:\n\n" +
+	d.Output.Reason = "This command may read a credential into the transcript. The guard " +
+		"judges by names and denies what it cannot show does not print; it has not run or " +
+		"modelled this command:\n\n" +
 		strings.Join(reasons, "\n") + "\n\n" +
 		"A transcript is sent as it is written, so a credential printed here is " +
 		"disclosed before it can be unprinted, and the fix afterwards is a rotation " +
@@ -118,16 +120,4 @@ func cmdSecretCheck(args []string) error {
 	enc := json.NewEncoder(os.Stdout)
 	enc.SetEscapeHTML(false)
 	return enc.Encode(d)
-}
-
-func reason(f secretread.Finding) string {
-	if f.Reader == "" {
-		return f.Path + " is a credential-bearing file; reading it prints its content."
-	}
-	if strings.HasPrefix(f.Path, "$") {
-		return f.Path + " holds a credential read earlier on this command line, and `" +
-			f.Reader + "` writes its argument out."
-	}
-	return "`" + f.Reader + " … " + f.Path + "` — " + f.Reader +
-		" writes the file's content to stdout."
 }

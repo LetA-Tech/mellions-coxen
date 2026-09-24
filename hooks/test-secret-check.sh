@@ -39,6 +39,24 @@ esac
 case "$out" in
   *AVNS_*|*postgresql://*) bad "the denial itself carried a credential" ;;
 esac
+case "$out" in
+  *'This command may read a credential into the transcript'*) ;;
+  *) bad "the denial did not carry its heading: $out" ;;
+esac
+
+# A denial made on a name alone says so, and asserts nothing about a program
+# the guard does not know.
+out=$(run '{"tool_name":"Bash","tool_input":{"command":"gh release view v1 -R aws-actions/configure-aws-credentials"}}')
+case "$out" in
+  *'"permissionDecision":"deny"'*) ;;
+  *) bad "the name-only shape was not denied, so this case proves nothing: ${out:-<silence>}" ;;
+esac
+case "$out" in
+  *'This would read'*|*'writes the file'*|*"writes a file's content"*)
+    bad "a denial on a name alone asserted a read: $out" ;;
+  *'This command may read a credential'*"is not on the guard's list of programs that never print"*) ;;
+  *) bad "a denial on a name alone did not say so: $out" ;;
+esac
 
 # Read reaches the same file without a shell in between.
 out=$(run '{"tool_name":"Read","tool_input":{"file_path":"/etc/payments/.env"}}')
