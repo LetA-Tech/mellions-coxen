@@ -9,102 +9,100 @@ import (
 	"testing"
 )
 
-// A denial states a program's behaviour only where the scan knows it. Every
-// other denial is made on an argument's name, and a sentence claiming that an
-// unknown program prints file content is a false fact the session reading it
-// cannot check.
-func TestReasonClaimsOnlyWhatTheScanKnows(t *testing.T) {
+// The scan matches names and never models what a command does with an
+// argument, so a denial states the names it matched. A sentence claiming a
+// program prints a file is a fact the session reading it cannot check, and on
+// `gh -R aws-actions/configure-aws-credentials` or `jq .credentials` it is false.
+func TestReasonStatesTheNamesItMatched(t *testing.T) {
+	notOnSafeList := "is not on the guard's list of programs that never print a file's content."
+	onPrinterList := "is on the guard's list of programs that can print what they are given."
 	tests := []struct {
-		name     string
-		cmd      string
-		definite bool
-		want     string
+		name string
+		cmd  string
+		want string
 	}{
-		{
-			"a known printer on a credential path",
-			`cat .db_connection`, true,
-			"`cat … .db_connection` — `.db_connection` is named like a credential file, " +
-				"and `cat` writes a file's content to stdout.",
-		},
-		{
-			"the guard's own subcommand name",
-			`./bin/mellions secret-check`, false,
-			"`mellions … secret-check` — `secret-check` is named like a credential file. " +
-				"`mellions` is not among the programs this guard knows never print a file's " +
-				"content, so the denial rests on that name alone; the guard has not " +
-				"established that this command opens or prints the file.",
-		},
-		{
-			"a repository name argument",
-			`gh release view v6.2.4 -R aws-actions/configure-aws-credentials --json body`, false,
-			"`gh … aws-actions/configure-aws-credentials` — " +
-				"`aws-actions/configure-aws-credentials` is named like a credential file. " +
-				"`gh` is not among the programs this guard knows never print a file's " +
-				"content, so the denial rests on that name alone; the guard has not " +
-				"established that this command opens or prints the file.",
-		},
-		{
-			"echo prints the name, not the file",
-			`echo .env`, false,
-			"`echo … .env` — `.env` is named like a credential file. `echo` is not among " +
-				"the programs this guard knows never print a file's content, so the denial " +
-				"rests on that name alone; the guard has not established that this command " +
-				"opens or prints the file.",
-		},
-		{
-			"a literal path that begins with an expansion",
-			`cat $HOME/.env`, true,
-			"`cat … $HOME/.env` — `$HOME/.env` is named like a credential file, " +
-				"and `cat` writes a file's content to stdout.",
-		},
-		{
-			"a variable holding a credential's path",
-			`F=.db_connection; frob "$F"`, false,
-			"`$F` holds a path named like a credential file, assigned earlier on this " +
-				"command line. `frob` is not among the programs this guard knows never print " +
-				"a file's content, so the denial rests on that name alone; the guard has not " +
-				"established that this command opens or prints the file.",
-		},
-		{
-			"a variable holding a credential's value, printed",
-			`U="$(tail -1 .db_connection)"; echo "$U"`, true,
-			"`$U` holds a value read from a credential file earlier on this command line, " +
-				"and `echo` writes its arguments out.",
-		},
-		{
-			"a substitution reading a credential, printed",
-			`echo "$(tail -1 .db_connection)"`, true,
-			"a command substitution reads `.db_connection`, and `echo` writes what it " +
-				"returns to stdout.",
-		},
+		{"a known printer on a credential path", `cat .db_connection`,
+			"`cat … .db_connection` — `.db_connection` is named like a credential file, and `cat` " + notOnSafeList},
+		{"the guard's own subcommand name", `./bin/mellions secret-check`,
+			"`mellions … secret-check` — `secret-check` is named like a credential file, and `mellions` " + notOnSafeList},
+		{"a repository name argument", `gh release view v6.2.4 -R aws-actions/configure-aws-credentials --json body`,
+			"`gh … aws-actions/configure-aws-credentials` — `aws-actions/configure-aws-credentials` is " +
+				"named like a credential file, and `gh` " + notOnSafeList},
+		{"a literal path that begins with an expansion", `cat $HOME/.env`,
+			"`cat … $HOME/.env` — `$HOME/.env` is named like a credential file, and `cat` " + notOnSafeList},
+		{"a variable assigned a credential's path", `F=.db_connection; frob "$F"`,
+			"`$F` was assigned a path named like a credential file earlier on this command line, and `frob` " + notOnSafeList},
+		{"a variable assigned a substitution naming a credential", `U="$(tail -1 .db_connection)"; echo "$U"`,
+			"`$U` was assigned, earlier on this command line, a word containing a command substitution " +
+				"and a credential file's name, and `echo` " + onPrinterList},
+		{"a substitution beside a credential name", `echo "$(date) .env"`,
+			"an argument to `echo` contains a command substitution and the credential file name `.env`, and `echo` " + onPrinterList},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got := ScanBash(tt.cmd)
-			var match *Finding
-			for i := range got {
-				if got[i].Reason() == tt.want {
-					match = &got[i]
+			var rs []string
+			for _, f := range got {
+				rs = append(rs, f.Reason())
+			}
+			for _, r := range rs {
+				if r == tt.want {
+					return
 				}
 			}
-			if match == nil {
-				var rs []string
-				for _, f := range got {
-					rs = append(rs, f.Reason())
-				}
-				t.Fatalf("ScanBash(%q) gave no finding with reason\n  %s\ngot:\n  %s",
-					tt.cmd, tt.want, strings.Join(rs, "\n  "))
-			}
-			if match.Definite() != tt.definite {
-				t.Errorf("Definite() = %v, want %v", match.Definite(), tt.definite)
-			}
+			t.Fatalf("ScanBash(%q) gave no finding with reason\n  %s\ngot:\n  %s",
+				tt.cmd, tt.want, strings.Join(rs, "\n  "))
 		})
 	}
 
 	direct := ScanPath("/etc/payments/.env")
-	if len(direct) != 1 || !direct[0].Definite() || direct[0].Reason() !=
-		"`/etc/payments/.env` is named like a credential-bearing file, and this tool "+
-			"prints the content of the file it reads." {
+	if len(direct) != 1 || direct[0].Reason() !=
+		"`/etc/payments/.env` is named like a credential-bearing file, and this tool can return a file's content." {
 		t.Errorf("ScanPath(/etc/payments/.env) = %+v", direct)
+	}
+}
+
+// Every shape here is denied and prints no credential, or is denied on a word
+// the scan cannot tell is a file operand. None of their sentences may state
+// what a program does with the file.
+func TestReasonAssertsNoBehaviour(t *testing.T) {
+	for _, cmd := range []string{
+		`jq -r .credentials config.json`,
+		`grep -rn credentials docs/`,
+		`echo hi | tee .env`,
+		`sort -o .env input.txt`,
+		`grep -c "$(cat .env)" log.txt`,
+		`X="$(echo .env)"; echo "$X"`,
+		`X="$(cat .env)"; X=foo; echo "$X"`,
+		`echo "$(date) .env"`,
+		`for s in check-publish-credential-scope; do bash scripts/$s.sh; done`,
+	} {
+		got := ScanBash(cmd)
+		if len(got) == 0 {
+			t.Errorf("ScanBash(%q) found nothing, so this case proves nothing about its sentence", cmd)
+		}
+		for _, f := range got {
+			r := f.Reason()
+			for _, claim := range []string{"writes", "would", "reads `", "holds a value", "prints the"} {
+				if strings.Contains(r, claim) {
+					t.Errorf("ScanBash(%q) reason claims %q: %s", cmd, claim, r)
+				}
+			}
+		}
+	}
+}
+
+// A path and the program reading it are one finding however the scan reached
+// it, so the count a denial and `mellions secret check` report is the count of
+// distinct reads.
+func TestFindingsCountDistinctReads(t *testing.T) {
+	for cmd, want := range map[string]int{
+		`cat .env "$(cat .env)"`:             1,
+		`X=.env; X="$(cat .env)"; echo "$X"`: 1,
+		`X="$(cat .env)"; X=.env; cat "$X"`:  1,
+	} {
+		if got := ScanBash(cmd); len(got) != want {
+			t.Errorf("ScanBash(%q) = %d findings, want %d: %+v", cmd, len(got), want, got)
+		}
 	}
 }

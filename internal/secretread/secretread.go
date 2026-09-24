@@ -29,53 +29,41 @@ type Finding struct {
 	// Reader is the command word that would print it — "cat", "awk" — or
 	// "" when the tool reads the file directly rather than through a shell.
 	Reader string
-	// Value is true when Path names a variable that holds a credential's
-	// content rather than a credential's path.
+	// Value is true when Path names a variable assigned a word that contains
+	// a command substitution and a credential file's name.
 	Value bool
-	// Substituted is true when a command substitution in the reader's
-	// arguments reads Path, and the reader prints what it returns.
+	// Substituted is true when one of the reader's arguments contains a command
+	// substitution and the credential file name in Path.
 	Substituted bool
 	// Held is true when Path names a variable assigned a credential's path
 	// earlier on the same command line.
 	Held bool
 }
 
-// argumentEchoers are printers that write their arguments, not the files
-// those arguments name.
-var argumentEchoers = map[string]bool{"echo": true, "printf": true, "print": true}
-
-// Reason is the sentence a denial gives for f. It asserts a program's
-// behaviour only where the program is known to have it; every other denial is
-// made on the argument's name alone, and says so.
+// Reason is the sentence a denial gives for f. The scan matches names — of
+// files, of programs, of variables — and never models what a command does with
+// an argument, so the sentence states the names it matched and no more.
 func (f Finding) Reason() string {
 	switch {
 	case f.Reader == "":
 		return "`" + f.Path + "` is named like a credential-bearing file, and this tool " +
-			"prints the content of the file it reads."
+			"can return a file's content."
 	case f.Value:
-		return "`" + f.Path + "` holds a value read from a credential file earlier on this " +
-			"command line, and `" + f.Reader + "` writes its arguments out."
+		return "`" + f.Path + "` was assigned, earlier on this command line, a word " +
+			"containing a command substitution and a credential file's name, and `" + f.Reader + "` is on the " +
+			"guard's list of programs that can print what they are given."
 	case f.Substituted:
-		return "a command substitution reads `" + f.Path + "`, and `" + f.Reader +
-			"` writes what it returns to stdout."
+		return "an argument to `" + f.Reader + "` contains a command substitution and the " +
+			"credential file name `" + f.Path + "`, and `" + f.Reader + "` is on the guard's list of programs that can " +
+			"print what they are given."
+	case f.Held:
+		return "`" + f.Path + "` was assigned a path named like a credential file earlier on " +
+			"this command line, and `" + f.Reader + "` is not on the guard's list of programs " +
+			"that never print a file's content."
 	}
-	what := "`" + f.Reader + " … " + f.Path + "` — `" + f.Path + "` is named like a credential file"
-	if f.Held {
-		what = "`" + f.Path + "` holds a path named like a credential file, assigned earlier " +
-			"on this command line"
-	}
-	if printers[f.Reader] && !argumentEchoers[f.Reader] {
-		return what + ", and `" + f.Reader + "` writes a file's content to stdout."
-	}
-	return what + ". `" + f.Reader + "` is not among the programs this guard knows never " +
-		"print a file's content, so the denial rests on that name alone; the guard has not " +
-		"established that this command opens or prints the file."
-}
-
-// Definite reports whether f's Reason asserts that the command prints a
-// credential rather than denying on a name alone.
-func (f Finding) Definite() bool {
-	return f.Reader == "" || f.Value || f.Substituted || (printers[f.Reader] && !argumentEchoers[f.Reader])
+	return "`" + f.Reader + " … " + f.Path + "` — `" + f.Path + "` is named like a " +
+		"credential file, and `" + f.Reader + "` is not on the guard's list of programs " +
+		"that never print a file's content."
 }
 
 // safeReaders are the command words that take a path and never write its
@@ -506,13 +494,15 @@ func names(arg, v string) bool {
 }
 
 func dedupe(in []Finding) []Finding {
-	seen := map[Finding]bool{}
+	type key struct{ path, reader string }
+	seen := map[key]bool{}
 	var out []Finding
 	for _, f := range in {
-		if f.Path == "" || seen[f] {
+		k := key{f.Path, f.Reader}
+		if f.Path == "" || seen[k] {
 			continue
 		}
-		seen[f] = true
+		seen[k] = true
 		out = append(out, f)
 	}
 	return out

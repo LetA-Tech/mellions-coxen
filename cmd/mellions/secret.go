@@ -94,13 +94,8 @@ func cmdSecretCheck(args []string) error {
 	}
 
 	var reasons []string
-	heading := "This command may read a credential into the transcript. The guard denies " +
-		"a command it cannot prove non-printing, and here it is judging by names:"
 	for _, f := range findings {
 		reasons = append(reasons, "  "+f.Reason())
-		if f.Definite() {
-			heading = "This would read a credential into the transcript:"
-		}
 	}
 	if n := len(reasons); n > 6 {
 		reasons = append(reasons[:6], "  … and "+strconv.Itoa(n-6)+" more.")
@@ -109,7 +104,9 @@ func cmdSecretCheck(args []string) error {
 	var d decision
 	d.Output.Event = preToolUseEvent
 	d.Output.Decide = "deny"
-	d.Output.Reason = heading + "\n\n" +
+	d.Output.Reason = "This command may read a credential into the transcript. The guard " +
+		"judges by names and denies what it cannot show does not print; it has not run or " +
+		"modelled this command:\n\n" +
 		strings.Join(reasons, "\n") + "\n\n" +
 		"A transcript is sent as it is written, so a credential printed here is " +
 		"disclosed before it can be unprinted, and the fix afterwards is a rotation " +
