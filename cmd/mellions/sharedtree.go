@@ -67,8 +67,9 @@ func sharedEstate(cfg *Config) sharedtree.Estate {
 		// Landing a Mellions fix is `git pull --ff-only` here. Read from the
 		// registry rather than assumed, so an installation that loads from
 		// somewhere else exempts that tree and not this one.
-		LoadPath: pluginRoot(pluginreg.Read(home(), pluginreg.ID)),
-		Dirty:    treeIsDirty,
+		LoadPath:  pluginRoot(pluginreg.Read(home(), pluginreg.ID)),
+		Dirty:     treeIsDirty,
+		OtherTree: inOtherTree,
 	}
 	for _, name := range set.Names() {
 		dir, _ := set.Dir(name)
@@ -122,6 +123,111 @@ func treeIsDirty(dir string) bool {
 		return false
 	}
 	return len(strings.TrimSpace(string(out))) > 0
+}
+
+// inOtherTree reports that dir is in a linked worktree of the checkout's own
+// repository — same object store, its own working tree AND its own git
+// directory, so its own index — such as one a repository requires under
+// `.claude/worktrees/`.
+//
+// Git answers rather than a search for `.git`, because which tree owns a path
+// is git's discovery rule and a reimplementation drifts from it. dir may not
+// exist yet — the target of a `cd` into a new directory — so the question is
+// asked of its nearest existing ancestor.
+//
+// Linked worktrees only. A submodule or an unrelated clone under the checkout
+// is a different repository whose files are still part of the checkout's
+// directory, and nothing establishes that it is a lane; it stays refused. So
+// does a `.git` file that points back at the checkout's own git directory, or
+// at a lane's that git registered somewhere else: git gives either a top level
+// of its own, but a write through it reaches the checkout's index or files.
+// Either side that git cannot resolve is "cannot tell", which answers false
+// and leaves the checkout protected.
+func inOtherTree(dir, checkout string) bool {
+	for dir != "" {
+		if fi, err := os.Stat(dir); err == nil && fi.IsDir() {
+			break
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return false
+		}
+		dir = parent
+	}
+	if !gitEntryBelow(dir, checkout) {
+		return false
+	}
+	mine, theirs := gitTree(dir), gitTree(checkout)
+	if mine.top == "" || theirs.top == "" {
+		return false
+	}
+	return mine.top != theirs.top && mine.gitDir != theirs.gitDir &&
+		mine.common == theirs.common && registeredAt(mine.gitDir, mine.top)
+}
+
+// registeredAt reports that git registered the worktree whose git directory is
+// gitDir at top: its `gitdir` file names top's `.git`. Without that binding a
+// stray `.git` file anywhere in the checkout can borrow a lane's git directory,
+// and a write through it lands in the checkout's files.
+func registeredAt(gitDir, top string) bool {
+	raw, err := os.ReadFile(filepath.Join(gitDir, "gitdir"))
+	if err != nil {
+		return false
+	}
+	back := strings.TrimSpace(string(raw))
+	if back == "" {
+		return false
+	}
+	if !filepath.IsAbs(back) {
+		back = filepath.Join(gitDir, back)
+	}
+	return realPath(filepath.Dir(back)) == top
+}
+
+// gitEntryBelow reports that some directory from dir up to, but not including,
+// checkout holds a `.git` entry. Git cannot resolve dir into a tree other than
+// the checkout's without one, so its absence answers without running git — the
+// common case, since every command run inside a shared checkout is asked.
+func gitEntryBelow(dir, checkout string) bool {
+	checkout = filepath.Clean(checkout)
+	for d := filepath.Clean(dir); d != checkout; {
+		if _, err := os.Lstat(filepath.Join(d, ".git")); err == nil {
+			return true
+		}
+		parent := filepath.Dir(d)
+		if parent == d {
+			return false
+		}
+		d = parent
+	}
+	return false
+}
+
+type gitPaths struct{ top, gitDir, common string }
+
+// gitTree is where git resolves dir to: the working tree's root, its git
+// directory and the repository's common directory, symlinks resolved, or the
+// zero value where git does not answer.
+func gitTree(dir string) gitPaths {
+	cmd := exec.Command("git", "-C", dir, "rev-parse", "--path-format=absolute",
+		"--show-toplevel", "--git-dir", "--git-common-dir")
+	cmd.Env = append(withoutGitEnv(os.Environ()), "GIT_OPTIONAL_LOCKS=0")
+	out, err := cmd.Output()
+	if err != nil {
+		return gitPaths{}
+	}
+	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
+	if len(lines) != 3 || lines[0] == "" || lines[1] == "" || lines[2] == "" {
+		return gitPaths{}
+	}
+	return gitPaths{realPath(lines[0]), realPath(lines[1]), realPath(lines[2])}
+}
+
+func realPath(p string) string {
+	if real, err := filepath.EvalSymlinks(p); err == nil {
+		return real
+	}
+	return filepath.Clean(p)
 }
 
 // withoutGitEnv drops the variables that would make `git -C <dir>` answer for a

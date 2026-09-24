@@ -265,6 +265,44 @@ func TestALaneInsideTheCheckoutIsStillTheSessionsOwn(t *testing.T) {
 	}
 }
 
+// A linked worktree the repository requires inside the checkout is decided by
+// the OtherTree probe, which is asked about the path and the checkout it sits
+// in; without a probe the path is the checkout's, as containment says.
+func TestALinkedWorktreeInsideTheCheckoutIsNotTheCheckout(t *testing.T) {
+	const checkout = "/home/you/workspace/data-service"
+	const wt = checkout + "/.claude/worktrees/42-fix"
+	var asked [][2]string
+	e := sharedtree.Estate{
+		Shared: []sharedtree.Checkout{{Repo: "data-service", Dir: checkout}},
+		Home:   "/home/you",
+		OtherTree: func(dir, at string) bool {
+			asked = append(asked, [2]string{dir, at})
+			return at == checkout && (dir == wt || strings.HasPrefix(dir, wt+"/"))
+		},
+	}
+	for _, cmd := range []struct{ cwd, command string }{
+		{wt, "git add -- ."},
+		{wt + "/pkg", "git add -- ."},
+		{checkout, "git -C " + wt + " add -- ."},
+	} {
+		if got := sharedtree.Deny(payload("Bash", cmd.cwd, cmd.command), e); got != "" {
+			t.Errorf("%q in %s was refused its own worktree:\n%s", cmd.command, cmd.cwd, got)
+		}
+	}
+	if got := sharedtree.Deny(payload("Bash", wt, "git -C "+checkout+" add -- ."), e); got == "" {
+		t.Error("the checkout around the worktree was not protected")
+	}
+	for _, q := range asked {
+		if q[1] != checkout {
+			t.Errorf("the probe was asked about %s against %s, not the checkout it sits in", q[0], q[1])
+		}
+	}
+	e.OtherTree = nil
+	if got := sharedtree.Deny(payload("Bash", wt, "git add -- ."), e); got == "" {
+		t.Error("with no probe, a path inside the checkout was not protected")
+	}
+}
+
 // Repairing a shared checkout is a write to it, so it is refused like any
 // other — and the refusal has to say so, because a session told only "no"
 // about a tree it can see is wrong will look for a way round.
