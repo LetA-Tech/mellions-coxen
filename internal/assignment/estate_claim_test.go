@@ -40,6 +40,9 @@ type fakeTracker struct {
 	// live claim is left — modelling the comment alone would let a test prove
 	// a claim entry went away while the label a survey prints stayed on.
 	labelled map[string]bool
+	// released is every ref Release was called on, so a test can assert a ref
+	// the lane never published was never sent to the tracker.
+	released []string
 }
 
 func newFakeTracker() *fakeTracker {
@@ -113,6 +116,7 @@ func (f *fakeTracker) Release(_ context.Context, repo, issue, id string) error {
 	if f.fail != nil {
 		return f.fail
 	}
+	f.released = append(f.released, key(repo, issue))
 	k := key(repo, issue)
 	kept := f.claims[k][:0:0]
 	for _, e := range f.claims[k] {
