@@ -486,3 +486,95 @@ func TestCheck_AResolvedCitationIsNeverUnresolved(t *testing.T) {
 			len(unresolved))
 	}
 }
+
+// A bare `:N` is shorthand for line N of the file the citation before it
+// names, and is checked as that citation: a body written with shorthand was
+// passing every shorthand line unread.
+func TestCheck_AContinuationIsCheckedAgainstThePrecedingFile(t *testing.T) {
+	read := func(path string) ([]string, error) {
+		switch path {
+		case "a/one.go":
+			return []string{"package one", "func A() {}", "func B() {}"}, nil
+		case "b/two.go":
+			return []string{"package two", "func C() {}"}, nil
+		}
+		return nil, errors.New("not a file in this checkout")
+	}
+	backed := "See `a/one.go:2`:\n```go\nfunc A() {}\n```\n`:3`:\n```go\nfunc B() {}\n```\n"
+	if findings, _ := Check(backed, read); len(findings) != 0 {
+		t.Fatalf("a backed continuation reported %v", findings)
+	}
+	wrongFile := "See `a/one.go:2`:\n```go\nfunc A() {}\n```\nThen `b/two.go:1` `package two`. `:2`:\n```go\nfunc B() {}\n```\n"
+	findings, _ := Check(wrongFile, read)
+	if len(findings) != 1 || findings[0].Raw != "b/two.go:2" {
+		t.Fatalf("a continuation after another file resolved to %v, want b/two.go:2 reported", findings)
+	}
+	afterRange := "Lines `a/one.go:1-2` and `:3`:\n```go\nfunc B() {}\n```\n"
+	if findings, _ := Check(afterRange, read); len(findings) != 0 {
+		t.Fatalf("a continuation after a range reported %v", findings)
+	}
+	if got := Extract("`:3` with nothing before it"); len(got) != 0 {
+		t.Fatalf("a continuation with no file before it extracted %v", got)
+	}
+}
+
+// A bare `:N` is also how a port is written. Only a continuation that is part
+// of a citation run or introduces a quotation is read as a citation, so a
+// body that mentions ports after a citation is not refused.
+func TestCheck_APortAfterACitationIsNotAContinuation(t *testing.T) {
+	read := func(path string) ([]string, error) {
+		if path == "a/one.go" {
+			return []string{"package one", "func A() {}"}, nil
+		}
+		return nil, errors.New("not a file in this checkout")
+	}
+	for _, body := range []string{
+		"See `a/one.go:2` `func A() {}`. The tunnel listens on `:8428` and `:9428`.\n",
+		"See `a/one.go:2` `func A() {}`. Ports `:8428` `:9428` and `:10428`; PG on `:5432`.\n",
+		"See `a/one.go:2` `func A() {}`.\n\nThe harness binds `:5432`:\nnothing quoted here.\n",
+	} {
+		if findings, _ := Check(body, read); len(findings) != 0 {
+			t.Errorf("ports read as citations in %q: %v", body, findings)
+		}
+	}
+}
+
+// The shape that escaped: continuations after a citation of another file,
+// each introducing a quotation of a third. It must be caught; and a run joined
+// to a citation is checked.
+func TestCheck_ContinuationShapesThatAreCitations(t *testing.T) {
+	read := func(path string) ([]string, error) {
+		switch path {
+		case "types.go":
+			return []string{"package x", "NextPageToken string", "LiabilityType string"}, nil
+		case "doc.md":
+			return []string{"# doc", "status is:", "when they differ"}, nil
+		}
+		return nil, errors.New("not a file in this checkout")
+	}
+	escaped := "The type `types.go:2`:\n```go\nNextPageToken string\n```\nIt says what dated it. `:3`:\n```\nstatus is:\n```\n"
+	if findings, _ := Check(escaped, read); len(findings) != 1 || findings[0].Raw != "types.go:3" {
+		t.Errorf("the #1339 shape: findings %v, want types.go:3 reported for the continuation", findings)
+	}
+	run := "Lines `doc.md:2`, `:3` and `:9` say it.\n```\nstatus is:\nwhen they differ\n```\n"
+	got := map[string]bool{}
+	for _, c := range Extract(run) {
+		got[c.Raw] = true
+	}
+	if !got["doc.md:3"] || !got["doc.md:9"] {
+		t.Errorf("a joined run extracted %v, want doc.md:3 and doc.md:9", got)
+	}
+	missing := false
+	for _, f := range mustFindings(Check(run, read)) {
+		missing = missing || (f.Raw == "doc.md:9" && f.Kind == Missing)
+	}
+	if !missing {
+		t.Errorf("a joined run past the end of the file was not reported")
+	}
+	inline := "Line `doc.md:2` `status is:` and `:3` `when they differ`.\n"
+	if findings, _ := Check(inline, read); len(findings) != 0 {
+		t.Errorf("an inline-quoted continuation: %v", findings)
+	}
+}
+
+func mustFindings(f []Finding, _ []Citation) []Finding { return f }
