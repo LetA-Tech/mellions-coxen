@@ -133,8 +133,13 @@ func (f Finding) Reason() string {
 var citation = regexp.MustCompile(`(^|[^\w/.:-])((?:[\w.+-]*/)*[\w+-]+\.[\w+-]+|(?:[\w.+-]+/)+[\w.+-]+):(\d+)([-–—]\d+)?`)
 
 // continuation is a bare `:N` code span: shorthand for line N of the file the
-// nearest citation before it names.
+// nearest citation before it names. A bare `:N` is also how a port is written,
+// so one counts only where it is unambiguous (see continues).
 var continuation = regexp.MustCompile("`:(\\d+)`")
+
+// joined is the text allowed between members of a citation run:
+// "`a.go:3`, `:5` and `:9`".
+var joined = regexp.MustCompile(`^(?:,\s*|,?\s+(?:and|or)\s+)$`)
 
 // Extract returns every citation a document makes, in the order written.
 //
@@ -166,11 +171,12 @@ func Extract(doc string) []Citation {
 // it was written in decides whether the document backs it.
 func occurrences(doc string) []Citation {
 	type found struct {
-		pos int
-		c   Citation
+		pos, end int
+		c        Citation
 	}
 	var all []found
 	claimed := prose(doc)
+	lines := strings.Split(doc, "\n")
 	for _, m := range citation.FindAllStringSubmatchIndex(claimed, -1) {
 		path := claimed[m[4]:m[5]]
 		n, err := strconv.Atoi(claimed[m[6]:m[7]])
@@ -178,7 +184,11 @@ func occurrences(doc string) []Citation {
 			continue
 		}
 		// A range still names its file for a continuation after it.
-		all = append(all, found{m[4], Citation{
+		end := m[1]
+		if end < len(claimed) && claimed[end] == '`' {
+			end++
+		}
+		all = append(all, found{m[4], end, Citation{
 			Raw:  path + ":" + strconv.Itoa(n),
 			Path: path,
 			Line: n,
@@ -195,29 +205,57 @@ func occurrences(doc string) []Citation {
 		if err != nil || n < 1 {
 			continue
 		}
-		all = append(all, found{m[0], Citation{Line: n, At: strings.Count(claimed[:m[0]], "\n")}})
+		all = append(all, found{m[0], m[1], Citation{Line: n, At: strings.Count(claimed[:m[0]], "\n")}})
 	}
 	sort.SliceStable(all, func(i, j int) bool { return all[i].pos < all[j].pos })
 
 	var out []Citation
 	path := ""
+	prevEnd := -1
 	for _, f := range all {
 		if f.c.Path != "" {
 			path = f.c.Path
+			prevEnd = f.end
 			if f.c.Line > 0 {
 				out = append(out, f.c)
 			}
 			continue
 		}
 		// A continuation with no citation before it names no file.
-		if path == "" {
+		inRun := prevEnd >= 0 && joined.MatchString(claimed[prevEnd:f.pos])
+		if path == "" || !(inRun || introducesQuote(claimed[f.end:], lines, f.c.At)) {
 			continue
 		}
+		prevEnd = f.end
 		f.c.Path = path
 		f.c.Raw = path + ":" + strconv.Itoa(f.c.Line)
 		out = append(out, f.c)
 	}
 	return out
+}
+
+// introducesQuote reports whether a bare `:N` presents a quotation: an inline
+// code span straight after it on its line, or a colon ending its line with a
+// fenced block opening the next non-blank one. A port in prose does neither.
+func introducesQuote(after string, lines []string, at int) bool {
+	rest := after
+	if i := strings.IndexByte(rest, '\n'); i >= 0 {
+		rest = rest[:i]
+	}
+	rest = strings.TrimSpace(rest)
+	if q := strings.TrimPrefix(strings.TrimPrefix(rest, ":"), " "); strings.HasPrefix(q, "`") {
+		// Another bare `:N` beside it is a second port, not a quotation.
+		return !continuation.MatchString(q[:min(len(q), strings.IndexByte(q[1:], '`')+2)])
+	}
+	if rest != ":" {
+		return false
+	}
+	for _, l := range lines[min(at+1, len(lines)):] {
+		if t := strings.TrimSpace(l); t != "" {
+			return strings.HasPrefix(t, "```")
+		}
+	}
+	return false
 }
 
 // ErrPathClaimsTree is what a resolver returns for a path whose leading segment
