@@ -43,8 +43,7 @@ says, and it is the whole of what the session may write.
 
 A boundary written as a prohibition — *never touch `<path>`* — is not a
 boundary: it breaks when a failed `cd` leaves the rest of a compound command
-running in the tree it was told to stay out of. `cd <dir>; <command>` runs
-wherever the shell already was; `cd <dir> && <command>` does not run at all.
+running in the tree it was told to stay out of.
 
 Keep it around two kilobytes; its own `CLAUDE.md` and the skills it names
 supply the rest. Tier is the runtime's, from the operator's standing
@@ -60,8 +59,7 @@ The failure to watch for is a session that says a thing is fixed because the
 diff exists. Ask what it ran, and what it saw.
 
 When a report is thin, say what is missing rather than accepting it and
-discovering the gap later. That conversation is the point of holding the session
-open.
+discovering the gap later.
 
 ## Reviewing a peer's change set
 
@@ -105,7 +103,10 @@ the change dropping production behaviour.
 **Then argue on the record.** Say what you established and what you could not.
 Re-run their gate and falsification locally, on the head merged into the
 target's tip: a stale branch can pass alone and break merged with no file in
-common. A cited test the tree lacks is an account, not evidence.
+common. The tip is the one at publishing: fetch target and head again, and a
+new commit that could reach what you ran is a merge you have not verified —
+re-run it, or name the commits the verdict holds for. A cited test the tree
+lacks is an account, not evidence.
 
 Then one of two, never a third:
 
@@ -149,8 +150,7 @@ host, or a hypothesis worth separating from everything else. Name
 Close when the objective is met, or when the work has moved somewhere a fresh
 session would serve better than this one's accumulated context.
 
-A session left open holds a model context and several hundred megabytes. Idle
-ones are reaped, but reaping is a backstop.
+An idle session holds a model context and memory; the reaper is a backstop.
 
 Record what was learned before closing. The session's context dies with it; your
 record is what survives.
