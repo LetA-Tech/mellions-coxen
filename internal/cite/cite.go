@@ -134,7 +134,8 @@ var citation = regexp.MustCompile(`(^|[^\w/.:-])((?:[\w.+-]*/)*[\w+-]+\.[\w+-]+|
 
 // continuation is a bare `:N` code span: shorthand for line N of the file the
 // nearest citation before it names. A bare `:N` is also how a port is written,
-// so one counts only where it is unambiguous (see continues).
+// so one counts only where it is unambiguous: in a citation run, or
+// introducing a quotation (introducesQuote).
 var continuation = regexp.MustCompile("`:(\\d+)`")
 
 // joined is the text allowed between members of a citation run:
