@@ -39,9 +39,17 @@ func cmdCite(ctx context.Context, args []string) error {
 	if err := fs.Parse(args[1:]); err != nil {
 		return err
 	}
+	// A document named without -file would otherwise be ignored while stdin is
+	// checked in its place, and an empty stdin passes.
+	if fs.NArg() > 0 {
+		return fmt.Errorf("cite check: unexpected argument %q; name the document with -file <path>", fs.Arg(0))
+	}
 	doc, err := readDoc(*file)
 	if err != nil {
 		return err
+	}
+	if strings.TrimSpace(doc) == "" {
+		return fmt.Errorf("cite check: the document %q is empty; there is nothing to check", *file)
 	}
 	root := repoRoot(ctx, *dir)
 	// A ref this repository cannot resolve makes EVERY citation unreadable, so
@@ -63,7 +71,7 @@ func cmdCite(ctx context.Context, args []string) error {
 	reportUnresolved(unresolved)
 
 	if len(findings) == 0 {
-		fmt.Println("cite: every citation this checkout can resolve is quoted in the body.")
+		fmt.Printf("cite: every citation this checkout can resolve is quoted in the body (%d cited).\n", len(cite.Extract(doc)))
 		return nil
 	}
 	for _, f := range findings {
