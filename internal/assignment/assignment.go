@@ -190,9 +190,9 @@ type ClaimState struct {
 	// It is not a failure to act on: an unreleased claim goes stale and is
 	// swept by whoever next reads the issue.
 	Stranded string `json:"stranded,omitempty"`
-	// Refs are the references an unpublished lane did publish a claim on, such
-	// as a pull request claimed from a lane whose work unit lives in a register.
-	// A published lane holds every reference it names and leaves this empty.
+	// Refs are the pull requests this lane published a claim on, kept after the
+	// lane moves to another so the claim on the earlier one is still released.
+	// An unpublished lane's work unit is never among them.
 	Refs []string `json:"refs,omitempty"`
 }
 
@@ -205,14 +205,18 @@ func (a *Assignment) heldRefs() []string {
 	if a.Claim == nil {
 		return nil
 	}
+	var refs []string
 	if a.Claim.Published() {
-		return a.claimRefs()
+		refs = a.claimRefs()
+	} else if r := strings.TrimSpace(a.PullRequest); r != "" {
+		// The pull request is on the tracker whatever the work unit is,
+		// including one recorded at handoff or before Refs existed.
+		refs = []string{r}
 	}
-	refs := slices.Clone(a.Claim.Refs)
-	// The pull request is on the tracker whatever the work unit is, including
-	// one recorded at handoff or before Refs existed.
-	if r := strings.TrimSpace(a.PullRequest); r != "" && !slices.Contains(refs, r) {
-		refs = append(refs, r)
+	for _, r := range a.Claim.Refs {
+		if !slices.Contains(refs, r) {
+			refs = append(refs, r)
+		}
 	}
 	return refs
 }
@@ -672,7 +676,7 @@ func (s *Store) ClaimPullRequest(ctx context.Context, id, pr string) error {
 		if a.Claim.Host == "" {
 			a.Claim.Host = c.Host
 		}
-		if !a.Claim.Published() && !slices.Contains(a.Claim.Refs, ref) {
+		if !slices.Contains(a.Claim.Refs, ref) {
 			a.Claim.Refs = append(a.Claim.Refs, ref)
 		}
 		a.Claim.At = c.At

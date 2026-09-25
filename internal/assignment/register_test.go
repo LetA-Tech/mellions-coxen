@@ -6,6 +6,7 @@ package assignment
 
 import (
 	"context"
+	"errors"
 	"slices"
 	"strings"
 	"testing"
@@ -268,5 +269,104 @@ func TestARegisterLaneRecordedBeforeRefsReleasesItsPullRequest(t *testing.T) {
 	}
 	if f.label("svc", "PR #178") {
 		t.Fatal("closing a record from before Refs left its pull request labelled mellions:claimed")
+	}
+}
+
+// A lane that moves from one pull request to another has published a claim on
+// both, so closing it releases both — whether its work unit is a published
+// issue or a register row.
+func TestALaneReleasesEveryPullRequestItClaimed(t *testing.T) {
+	for _, c := range []struct {
+		name, issue string
+		registers   map[string]string
+		issueHeld   bool
+	}{
+		{name: "published issue", issue: "#5", issueHeld: true},
+		{name: "register row", issue: "IMP-016", registers: map[string]string{"svc": "docs/tracker.md"}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			src := gitFixture(t)
+			s, err := newStoreT(t.TempDir())
+			if err != nil {
+				t.Fatal(err)
+			}
+			s.Registers = c.registers
+			f := trackerOf(t, s)
+			if _, err := s.Open(OpenOptions{
+				ID: "svc-lane", Repo: "svc", Issue: c.issue, Source: src,
+				Objective: "implement the work unit", Because: "it is ready",
+			}); err != nil {
+				t.Fatal(err)
+			}
+			for _, pr := range []string{"178", "179"} {
+				if err := s.ClaimPullRequest(context.Background(), "svc-lane", pr); err != nil {
+					t.Fatalf("ClaimPullRequest %s: %v", pr, err)
+				}
+			}
+			if err := s.Handoff("svc-lane", "replaced the first pull request"); err != nil {
+				t.Fatal(err)
+			}
+			if err := s.Close("svc-lane"); err != nil {
+				t.Fatal(err)
+			}
+			for _, ref := range []string{"PR #178", "PR #179"} {
+				if f.label("svc", ref) {
+					t.Errorf("closing the lane left %s labelled mellions:claimed", ref)
+				}
+			}
+			if c.issueHeld && f.label("svc", c.issue) {
+				t.Errorf("closing the lane left %s labelled mellions:claimed", c.issue)
+			}
+			if slices.Contains(f.released, key("svc", "IMP-016")) {
+				t.Errorf("the register row was sent to the tracker to release: %v", f.released)
+			}
+		})
+	}
+}
+
+// A release that fails names every reference still on the tracker, not only
+// the last one tried.
+func TestAStrandedReleaseNamesEveryRefStillHeld(t *testing.T) {
+	src := gitFixture(t)
+	s, err := newStoreT(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.Registers = map[string]string{"svc": "docs/tracker.md"}
+	f := trackerOf(t, s)
+	if _, err := s.Open(OpenOptions{
+		ID: "svc-imp16", Repo: "svc", Issue: "IMP-016", Source: src,
+		Objective: "implement the work unit", Because: "it is ready",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	for _, pr := range []string{"178", "179"} {
+		if err := s.ClaimPullRequest(context.Background(), "svc-imp16", pr); err != nil {
+			t.Fatalf("ClaimPullRequest %s: %v", pr, err)
+		}
+	}
+	if err := s.Handoff("svc-imp16", "done and pushed"); err != nil {
+		t.Fatal(err)
+	}
+	f.mu.Lock()
+	f.fail = errors.New("gh: HTTP 403")
+	f.mu.Unlock()
+	if err := s.Close("svc-imp16"); err != nil {
+		t.Fatal(err)
+	}
+	a, err := s.Get("svc-imp16")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a.Claim == nil {
+		t.Fatal("a failed release forgot the claims still on the tracker")
+	}
+	for _, ref := range []string{"PR #178", "PR #179"} {
+		if !strings.Contains(a.Claim.Stranded, ref) {
+			t.Errorf("stranded %q does not name %s", a.Claim.Stranded, ref)
+		}
+		if !slices.Contains(a.Claim.Refs, ref) {
+			t.Errorf("a failed release dropped %s from the refs a later release needs: %v", ref, a.Claim.Refs)
+		}
 	}
 }
