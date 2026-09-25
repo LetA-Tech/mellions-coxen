@@ -486,3 +486,34 @@ func TestCheck_AResolvedCitationIsNeverUnresolved(t *testing.T) {
 			len(unresolved))
 	}
 }
+
+// A bare `:N` is shorthand for line N of the file the citation before it
+// names, and is checked as that citation: a body written with shorthand was
+// passing every shorthand line unread.
+func TestCheck_AContinuationIsCheckedAgainstThePrecedingFile(t *testing.T) {
+	read := func(path string) ([]string, error) {
+		switch path {
+		case "a/one.go":
+			return []string{"package one", "func A() {}", "func B() {}"}, nil
+		case "b/two.go":
+			return []string{"package two", "func C() {}"}, nil
+		}
+		return nil, errors.New("not a file in this checkout")
+	}
+	backed := "See `a/one.go:2`:\n```go\nfunc A() {}\n```\n`:3`:\n```go\nfunc B() {}\n```\n"
+	if findings, _ := Check(backed, read); len(findings) != 0 {
+		t.Fatalf("a backed continuation reported %v", findings)
+	}
+	wrongFile := "See `a/one.go:2`:\n```go\nfunc A() {}\n```\nThen `b/two.go:1` `package two`. `:2`:\n```go\nfunc B() {}\n```\n"
+	findings, _ := Check(wrongFile, read)
+	if len(findings) != 1 || findings[0].Raw != "b/two.go:2" {
+		t.Fatalf("a continuation after another file resolved to %v, want b/two.go:2 reported", findings)
+	}
+	afterRange := "Lines `a/one.go:1-2` and `:3`:\n```go\nfunc B() {}\n```\n"
+	if findings, _ := Check(afterRange, read); len(findings) != 0 {
+		t.Fatalf("a continuation after a range reported %v", findings)
+	}
+	if got := Extract("`:3` with nothing before it"); len(got) != 0 {
+		t.Fatalf("a continuation with no file before it extracted %v", got)
+	}
+}
