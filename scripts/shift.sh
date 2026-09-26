@@ -189,6 +189,23 @@ if [ -z "${DBUS_SESSION_BUS_ADDRESS:-}" ] && [ -n "${XDG_RUNTIME_DIR:-}" ] && [ 
   export DBUS_SESSION_BUS_ADDRESS="unix:path=$XDG_RUNTIME_DIR/bus"
 fi
 
+# cron's PATH omits where `go install` puts binaries, so a repository gate that
+# runs a go-installed tool (golangci-lint, deadcode) refuses in every shift. The
+# toolchain's own install directory is appended when it exists and is missing.
+if command -v go >/dev/null 2>&1; then
+  gobin=$(go env GOBIN 2>/dev/null)
+  if [ -z "$gobin" ]; then
+    gopath=$(go env GOPATH 2>/dev/null)
+    [ -n "$gopath" ] && gobin="${gopath%%:*}/bin"
+  fi
+  if [ -n "$gobin" ] && [ -d "$gobin" ]; then
+    case ":$PATH:" in
+      *":$gobin:"*) ;;
+      *) export PATH="$PATH:$gobin" ;;
+    esac
+  fi
+fi
+
 # ---- 1. situational awareness ------------------------------------------------
 survey="$HOME_DIR/shifts/$stamp.survey.md"
 if [ -n "$TASK" ]; then
