@@ -252,7 +252,9 @@ mellions secret-check
   shared checkout instead of an assignment lane. Unresolved paths are silent.
 - `cite check` is the hand-run citation validator. It reports locally
   resolvable `path:line` claims whose lines do not exist or are not quoted in
-  the body and exits non-zero on findings. `cite-check` applies it to GitHub
+  the body and exits non-zero on findings. The document is `-file <path>` (or
+  `-` for stdin); a positional argument or an empty document is refused, and a
+  clean result says how many citations it checked. `cite-check` applies it to GitHub
   publication commands; `MELLIONS_CITE_CHECK=off` disables the hook when set
   in the session environment.
 - `secret check` is the hand-run credential-read classifier. `secret-check`

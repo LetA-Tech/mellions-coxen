@@ -11,6 +11,10 @@
 # result the session must answer, which advisory text delivered alongside the
 # call is not shown to do.
 #
+# The same hook refuses a recursive `rm` of a glob over a temporary root every
+# session shares (`rm -rf /tmp/tmp.*`): mktemp names every session's scratch
+# alike, so the glob takes other sessions' directories with it.
+#
 # Which directory a command line leaves the shell in, which invocations are
 # git, which tree each one is aimed at and whether its verb writes — none of
 # that is a search over the payload, so it lives in the binary, where it is a
