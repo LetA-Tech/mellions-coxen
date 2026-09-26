@@ -28,11 +28,31 @@ var roots = []string{"/tmp", "/var/tmp", "/dev/shm"}
 var tmpdirVars = []string{"$TMPDIR", "${TMPDIR}"}
 
 // Find returns the first operand of a recursive rm in command that globs
-// directly under a shared temporary root, or "".
-func Find(command string) string {
+// directly under a shared temporary root, or "". cwd is where the command line
+// starts; a `cd` moves it, so a relative glob is read from where it runs.
+//
+// It reads what a Bash tool call types, not every way a shell can reach rm:
+// a glob in a loop list, `find -delete`, `xargs rm` and a command inside a
+// string (`bash -c`, `trap`, `$( )`) are not seen.
+func Find(command, cwd string) string {
+	dir := cwd
 	for _, c := range shellsplit.Split(command) {
 		words := strip(c.Words)
-		if len(words) == 0 || filepath.Base(words[0]) != "rm" {
+		if len(words) == 0 {
+			continue
+		}
+		if (words[0] == "cd" || words[0] == "pushd") && len(words) > 1 {
+			if filepath.IsAbs(words[1]) {
+				dir = filepath.Clean(words[1])
+			} else if dir != "" && !strings.HasPrefix(words[1], "-") &&
+				!strings.HasPrefix(words[1], "$") && !strings.HasPrefix(words[1], "~") {
+				dir = filepath.Join(dir, words[1])
+			} else {
+				dir = ""
+			}
+			continue
+		}
+		if filepath.Base(words[0]) != "rm" {
 			continue
 		}
 		recursive, operands := parse(words[1:])
@@ -40,7 +60,7 @@ func Find(command string) string {
 			continue
 		}
 		for _, op := range operands {
-			if globsRoot(op) {
+			if globsRoot(op, dir) {
 				return op
 			}
 		}
@@ -56,19 +76,47 @@ func Reason(operand string) string {
 		"Delete the exact paths this turn created: keep what `mktemp` printed (`d=$(mktemp -d)`) and remove `\"$d\"`."
 }
 
+// prefixes run the command after them: shell keywords that open a body, and
+// wrappers whose own flags and counts come before it.
+var prefixes = map[string]bool{
+	"do": true, "then": true, "else": true, "{": true, "!": true,
+	"sudo": true, "command": true, "exec": true, "nice": true, "env": true,
+	"time": true, "timeout": true, "nohup": true,
+}
+
 // strip drops the prefixes that run rm without being rm.
 func strip(words []string) []string {
+	wrapped := false
 	for len(words) > 0 {
-		switch w := words[0]; {
-		case w == "sudo" || w == "command" || w == "exec" || w == "nice" || w == "env":
+		w := strings.TrimLeft(words[0], "(")
+		switch {
+		case w == "":
 			words = words[1:]
+		case prefixes[w]:
+			words, wrapped = words[1:], true
 		case strings.Contains(w, "=") && !strings.HasPrefix(w, "-"):
 			words = words[1:]
+		case wrapped && (strings.HasPrefix(w, "-") || count(w)):
+			words = words[1:]
 		default:
-			return words
+			return append([]string{w}, words[1:]...)
 		}
 	}
 	return words
+}
+
+// count reports a wrapper argument such as timeout's `60` or `5s`.
+func count(w string) bool {
+	w = strings.TrimRight(w, "smhd")
+	if w == "" {
+		return false
+	}
+	for _, r := range w {
+		if (r < '0' || r > '9') && r != '.' {
+			return false
+		}
+	}
+	return true
 }
 
 // parse reports whether rm's arguments ask for a recursive delete, and its
@@ -76,6 +124,9 @@ func strip(words []string) []string {
 func parse(args []string) (bool, []string) {
 	recursive, operands, ended := false, []string{}, false
 	for _, a := range args {
+		if strings.HasPrefix(a, "#") {
+			break
+		}
 		switch {
 		case ended || !strings.HasPrefix(a, "-") || a == "-":
 			operands = append(operands, a)
@@ -92,10 +143,18 @@ func parse(args []string) (bool, []string) {
 
 // globsRoot reports that op carries a glob whose literal parent directory is a
 // shared temporary root.
-func globsRoot(op string) bool {
+func globsRoot(op, dir string) bool {
+	op = strings.TrimRight(op, ")")
 	i := strings.IndexAny(op, "*?[")
 	if i < 0 {
 		return false
+	}
+	if !filepath.IsAbs(op) && !strings.HasPrefix(op, "$") {
+		if dir == "" {
+			return false
+		}
+		op = filepath.Join(dir, op)
+		i = strings.IndexAny(op, "*?[")
 	}
 	slash := strings.LastIndex(op[:i], "/")
 	if slash < 0 {

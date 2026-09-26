@@ -17,8 +17,19 @@ func TestFindRefusesARecursiveGlobOverASharedTempRoot(t *testing.T) {
 		`rm -rf ${TMPDIR}/tmp.*`,
 		`sudo rm -rf /tmp//tmp.*`,
 		`cd /x && rm -rf -- /tmp/[a-z]*`,
+		`cd /tmp && rm -rf tmp.*`,
+		`cd /tmp; rm -rf ./tmp.*`,
+		`for i in 1; do rm -rf /tmp/tmp.*; done`,
+		`if [ -d /tmp ]; then rm -rf /tmp/tmp.*; fi`,
+		`{ rm -rf /tmp/tmp.*; }`,
+		`(rm -rf /tmp/tmp.*)`,
+		`! rm -rf /tmp/tmp.*`,
+		`timeout 60 rm -rf /tmp/tmp.*`,
+		`time rm -rf /tmp/tmp.*`,
+		`nice -n 10 rm -rf /tmp/tmp.*`,
+		`sudo -n rm -rf /tmp/tmp.*`,
 	} {
-		if Find(cmd) == "" {
+		if Find(cmd, "/home/leta") == "" {
 			t.Errorf("not refused: %s", cmd)
 		}
 	}
@@ -34,9 +45,23 @@ func TestFindLeavesNamedPathsAlone(t *testing.T) {
 		`rm -rf ./build/*`,
 		`ls /tmp/tmp.*`,
 		`grep -r rm /tmp/x`,
+		`cd /tmp/tmp.Ab12 && rm -rf *`,
+		`rm -rf tmp.*`,
+		`rm -rf "$d"  # not /tmp/tmp.*`,
+		`timeout 60 ls /tmp/tmp.*`,
 	} {
-		if got := Find(cmd); got != "" {
+		if got := Find(cmd, "/home/leta"); got != "" {
 			t.Errorf("refused %q (operand %q)", cmd, got)
 		}
+	}
+}
+
+// A session standing in a shared temporary root globs it with a relative path.
+func TestFindReadsARelativeGlobFromTheSessionDirectory(t *testing.T) {
+	if Find(`rm -rf tmp.*`, "/tmp") == "" {
+		t.Error("a relative glob run from /tmp was not refused")
+	}
+	if got := Find(`rm -rf *`, "/tmp/tmp.Ab12Cd34Ef"); got != "" {
+		t.Errorf("a glob inside a named scratch directory was refused (operand %q)", got)
 	}
 }

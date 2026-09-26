@@ -61,6 +61,7 @@ func cmdSharedTreeCheck(args []string) error {
 func tmpglobDeny(payload []byte) string {
 	var ev struct {
 		ToolName string `json:"tool_name"`
+		Cwd      string `json:"cwd"`
 		Input    struct {
 			Command string `json:"command"`
 		} `json:"tool_input"`
@@ -68,7 +69,7 @@ func tmpglobDeny(payload []byte) string {
 	if json.Unmarshal(payload, &ev) != nil || ev.ToolName != "Bash" {
 		return ""
 	}
-	if op := tmpglob.Find(ev.Input.Command); op != "" {
+	if op := tmpglob.Find(ev.Input.Command, ev.Cwd); op != "" {
 		return tmpglob.Reason(op)
 	}
 	return ""
