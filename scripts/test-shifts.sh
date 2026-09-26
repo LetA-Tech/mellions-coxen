@@ -816,6 +816,49 @@ fi
 
 note "M: the session is handed the user's runtime dir and bus when they exist, explicit values stand, no bus is invented, and a missing runtime dir is said"
 
+# ---- N. the Go install directory on the session's PATH -----------------------
+# cron's PATH omits where `go install` puts binaries, so a gate that runs
+# golangci-lint refuses in every shift. Asserted on the PATH the session was
+# handed, with a stub go answering `go env`.
+mkdir -p "$tmp/n/go" "$tmp/n/gp1/bin" "$tmp/n/gp2/bin" "$tmp/n/own" "$tmp/n/h1" "$tmp/n/h2" "$tmp/n/h3"
+cat > "$tmp/n/go/go" <<'STUB'
+#!/usr/bin/env bash
+case "$2" in GOBIN) printf '%s\n' "${STUB_GOBIN:-}" ;; GOPATH) printf '%s\n' "${STUB_GOPATH:-}" ;; esac
+STUB
+chmod +x "$tmp/n/go/go"
+cat > "$STUB_DIR/claude-n" <<'STUB'
+#!/usr/bin/env bash
+cat > /dev/null
+printf '%s\n' "$PATH" > "$STUB_DIR/n.env"
+printf '{"type":"result","result":"ready — the stub shift replied"}\n'
+STUB
+chmod +x "$STUB_DIR/claude-n"
+run_n() {   # run_n <home> [env assignments...]
+  local home="$1"; shift
+  : > "$STUB_DIR/n.env"
+  env PATH="$tmp/n/go:$PATH" "$@" MELLIONS_HOME="$home" MELLIONS_BIN="$STUB_DIR/mellions" \
+      CLAUDE_BIN="$STUB_DIR/claude-n" MELLIONS_PROMPT="$tmp/l-task.md" \
+      "$root/scripts/shift.sh" > "$tmp/n.out" 2>&1
+  saw=$(cat "$STUB_DIR/n.env")
+}
+
+# N1: no GOBIN, so the first GOPATH entry's bin reaches the session.
+run_n "$tmp/n/h1" STUB_GOPATH="$tmp/n/gp1:$tmp/n/gp2"
+case ":$saw:" in *":$tmp/n/gp1/bin:"*) ;; *) bad "N1: the session's PATH lacks GOPATH/bin, so a go-installed gate refuses: '$saw' $(tail -3 "$tmp/n.out")" ;; esac
+case ":$saw:" in *":$tmp/n/gp2/bin:"*) bad "N1: a second GOPATH entry was added: '$saw'" ;; esac
+
+# N2: GOBIN wins, and one already on PATH is not added twice.
+run_n "$tmp/n/h2" STUB_GOBIN="$tmp/n/own" STUB_GOPATH="$tmp/n/gp1" PATH="$tmp/n/go:$tmp/n/own:$PATH"
+[ "$(printf '%s' ":$saw:" | grep -o ":$tmp/n/own:" | wc -l)" -eq 1 ] || bad "N2: GOBIN on PATH was duplicated or dropped: '$saw'"
+case ":$saw:" in *":$tmp/n/gp1/bin:"*) bad "N2: GOPATH/bin was added though GOBIN is set: '$saw'" ;; esac
+
+# N3: an install directory that does not exist is not added.
+run_n "$tmp/n/h3" STUB_GOPATH="$tmp/n/absent"
+case ":$saw:" in *":$tmp/n/absent/bin:"*) bad "N3: a directory that does not exist was put on PATH: '$saw'" ;; esac
+[ -n "$saw" ] || bad "N3: the session never started: $(tail -3 "$tmp/n.out")"
+
+note "N: the session's PATH carries the Go install directory (GOBIN, else the first GOPATH entry's bin) when it exists, once, and nothing that does not exist"
+
 # make check has to run this, or everything above is about a file nothing invokes.
 grep -q 'scripts/test-\*.sh' "$root/Makefile" || bad "the Makefile does not run scripts/test-*.sh"
 
