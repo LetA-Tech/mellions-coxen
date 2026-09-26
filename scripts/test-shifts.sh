@@ -118,6 +118,8 @@ for v in $(env | sed -n 's/^\(MELLIONS_[A-Za-z0-9_]*\)=.*/\1/p'); do unset "$v";
 # as a lane's own choice — and L1 reads the caller's directory instead of the
 # one the shift made. The suite has to start from an unset one to set it.
 unset GOTMPDIR
+# Same for the user bus: the M scenarios need to start from what cron hands a shift.
+unset XDG_RUNTIME_DIR DBUS_SESSION_BUS_ADDRESS
 export CLAUDE_BIN="$STUB_DIR/claude" MELLIONS_BIN="$STUB_DIR/mellions"
 export MELLIONS_COOLDOWN=1s MELLIONS_TICK=1 MELLIONS_AUTOUPDATE=0 MELLIONS_TIMEOUT=60
 export MELLIONS_SHIFTS_PER_DAY=50 MELLIONS_METHOD_EVERY=4 MELLIONS_BUDGET=1m
@@ -767,6 +769,52 @@ grep -qF "$l5/tmp/go" "$tmp/l.out" \
   || bad "L5: the shift refused rather than running on Go's default, which is degraded and not broken"
 
 note "L: the session's builds scratch on disk under the home, what earlier shifts left is collected and nothing younger is, an explicit GOTMPDIR stands, it does not switch the collector off, and a scratch directory that cannot be made is said rather than swallowed"
+
+# ---- M. the user bus a shift's session is handed -----------------------------
+# The DB harness bounds each test with `systemd-run --user`, which refuses
+# without XDG_RUNTIME_DIR and a bus; cron sets neither. Asserted on what the
+# session was handed, read out of the stub it was started as.
+cat > "$STUB_DIR/claude-m" <<'STUB'
+#!/usr/bin/env bash
+cat > /dev/null
+printf '%s|%s\n' "${XDG_RUNTIME_DIR-<unset>}" "${DBUS_SESSION_BUS_ADDRESS-<unset>}" >> "$STUB_DIR/m.env"
+printf '{"type":"result","result":"ready — the stub shift replied"}\n'
+STUB
+chmod +x "$STUB_DIR/claude-m"
+run_m() {   # run_m <home> [env assignments...]
+  local home="$1"; shift
+  : > "$STUB_DIR/m.env"
+  env "$@" MELLIONS_HOME="$home" MELLIONS_BIN="$STUB_DIR/mellions" \
+      CLAUDE_BIN="$STUB_DIR/claude-m" MELLIONS_PROMPT="$tmp/l-task.md" \
+      "$root/scripts/shift.sh" > "$tmp/m.out" 2>&1
+  saw=$(cat "$STUB_DIR/m.env")
+}
+mrt="$tmp/m/rt"; mkdir -p "$mrt" "$tmp/m/h1" "$tmp/m/h2" "$tmp/m/h3" "$tmp/m/h4"
+python3 -c 'import socket,sys; socket.socket(socket.AF_UNIX).bind(sys.argv[1])' "$mrt/bus"
+
+# M1: the user's runtime dir and its bus reach the session.
+run_m "$tmp/m/h1" MELLIONS_USER_RUNTIME_DIR="$mrt"
+[ "$saw" = "$mrt|unix:path=$mrt/bus" ] \
+  || bad "M1: the session was handed '$saw', so systemd-run --user refuses and every harness DB lane exits 1: $(tail -3 "$tmp/m.out")"
+
+# M2: values already set stand.
+run_m "$tmp/m/h2" MELLIONS_USER_RUNTIME_DIR="$mrt" XDG_RUNTIME_DIR="$tmp/m/h2" DBUS_SESSION_BUS_ADDRESS=unix:path=/mine
+[ "$saw" = "$tmp/m/h2|unix:path=/mine" ] || bad "M2: an explicit runtime dir or bus was replaced: '$saw'"
+
+# M3: a runtime dir with no bus socket hands the dir and no invented bus.
+mkdir -p "$tmp/m/nobus"
+run_m "$tmp/m/h3" MELLIONS_USER_RUNTIME_DIR="$tmp/m/nobus"
+[ "$saw" = "$tmp/m/nobus|<unset>" ] || bad "M3: a bus that does not exist was handed over: '$saw'"
+
+# M4: on Linux, no runtime dir is said, and the shift still runs.
+if [ "$(uname -s)" = Linux ]; then
+  run_m "$tmp/m/h4" MELLIONS_USER_RUNTIME_DIR="$tmp/m/absent"
+  grep -qF "$tmp/m/absent" "$tmp/m.out" \
+    || bad "M4: no user runtime directory and the shift did not say so: $(tail -3 "$tmp/m.out")"
+  [ "$saw" = "<unset>|<unset>" ] || bad "M4: the session was handed '$saw' from a directory that does not exist"
+fi
+
+note "M: the session is handed the user's runtime dir and bus when they exist, explicit values stand, no bus is invented, and a missing runtime dir is said"
 
 # make check has to run this, or everything above is about a file nothing invokes.
 grep -q 'scripts/test-\*.sh' "$root/Makefile" || bad "the Makefile does not run scripts/test-*.sh"
