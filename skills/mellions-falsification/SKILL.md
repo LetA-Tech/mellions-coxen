@@ -60,8 +60,10 @@ With more than one arm, read which named tests went red under which arm. An
 arm that must be green and reds condemns the batch, not itself:
 the cause is usually shared — a column every insert omits, a header every
 request lacks — so no red beside it counts until the accepted case is green.
-A test cited as this fix's proof that is red under no arm is not evidence
-for it. An arm that reds nothing neutralised nothing a
+Run each arm where the neutralised code errs: a gate left refusing all keeps
+refusal tests green, so run a case it must admit; left admitting all, one it
+must refuse. A test cited as this fix's proof that is red under no arm is not
+evidence for it. An arm that reds nothing neutralised nothing a
 test can see: the neutralisation did not land, the tests did not run (a
 skip, a build tag, a `-run` filter, a cache that did not fingerprint what you
 changed), the code is dead, the test is missing, or another path still
