@@ -29,7 +29,7 @@ func TestFindRefusesARecursiveGlobOverASharedTempRoot(t *testing.T) {
 		`nice -n 10 rm -rf /tmp/tmp.*`,
 		`sudo -n rm -rf /tmp/tmp.*`,
 	} {
-		if Find(cmd, "/home/leta") == "" {
+		if Find(cmd, "/home/you") == "" {
 			t.Errorf("not refused: %s", cmd)
 		}
 	}
@@ -50,7 +50,7 @@ func TestFindLeavesNamedPathsAlone(t *testing.T) {
 		`rm -rf "$d"  # not /tmp/tmp.*`,
 		`timeout 60 ls /tmp/tmp.*`,
 	} {
-		if got := Find(cmd, "/home/leta"); got != "" {
+		if got := Find(cmd, "/home/you"); got != "" {
 			t.Errorf("refused %q (operand %q)", cmd, got)
 		}
 	}

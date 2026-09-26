@@ -172,6 +172,23 @@ if [ -z "${GOTMPDIR:-}" ]; then
   fi
 fi
 
+# cron starts a shift with neither XDG_RUNTIME_DIR nor DBUS_SESSION_BUS_ADDRESS,
+# and `systemd-run --user` — how the platform PostgreSQL harness bounds a test's
+# memory — refuses without them, so every DB lane exits 1 before a test runs.
+# The user's own runtime directory is handed over when it exists; values
+# already set stand. Where there is none on Linux, the shift says so.
+if [ -z "${XDG_RUNTIME_DIR:-}" ]; then
+  rt="${MELLIONS_USER_RUNTIME_DIR:-/run/user/$(id -u)}"
+  if [ -d "$rt" ] && [ -O "$rt" ]; then
+    export XDG_RUNTIME_DIR="$rt"
+  elif [ "$(uname -s)" = Linux ]; then
+    say "no user runtime directory at $rt (is lingering enabled for $(id -un)?) — systemd-run --user refuses in this shift, so a harness DB lane exits 1 without running a test"
+  fi
+fi
+if [ -z "${DBUS_SESSION_BUS_ADDRESS:-}" ] && [ -n "${XDG_RUNTIME_DIR:-}" ] && [ -S "$XDG_RUNTIME_DIR/bus" ]; then
+  export DBUS_SESSION_BUS_ADDRESS="unix:path=$XDG_RUNTIME_DIR/bus"
+fi
+
 # ---- 1. situational awareness ------------------------------------------------
 survey="$HOME_DIR/shifts/$stamp.survey.md"
 if [ -n "$TASK" ]; then
