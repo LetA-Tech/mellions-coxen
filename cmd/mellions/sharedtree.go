@@ -15,11 +15,13 @@ import (
 	"github.com/LetA-Tech/mellions-coxen/internal/assignment"
 	"github.com/LetA-Tech/mellions-coxen/internal/pluginreg"
 	"github.com/LetA-Tech/mellions-coxen/internal/sharedtree"
+	"github.com/LetA-Tech/mellions-coxen/internal/tmpglob"
 )
 
 // cmdSharedTreeCheck reads a PreToolUse payload on stdin and denies a Bash
 // call that runs a tree-mutating git command inside a checkout this
-// installation cuts lanes from. Everything else is silence.
+// installation cuts lanes from, or recursively deletes a glob over a temporary
+// root every session shares. Everything else is silence.
 func cmdSharedTreeCheck(args []string) error {
 	fs := newFlagSet("shared-tree-check", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
@@ -34,11 +36,14 @@ func cmdSharedTreeCheck(args []string) error {
 			"the same question.")
 		return nil
 	}
-	cfg, err := loadConfig(*cfgPath)
-	if err != nil {
-		return nil
+	reason := tmpglobDeny(payload)
+	if reason == "" {
+		cfg, err := loadConfig(*cfgPath)
+		if err != nil {
+			return nil
+		}
+		reason = sharedtree.Deny(payload, sharedEstate(cfg))
 	}
-	reason := sharedtree.Deny(payload, sharedEstate(cfg))
 	if reason == "" {
 		return nil
 	}
@@ -49,6 +54,24 @@ func cmdSharedTreeCheck(args []string) error {
 	enc := json.NewEncoder(os.Stdout)
 	enc.SetEscapeHTML(false)
 	return enc.Encode(d)
+}
+
+// tmpglobDeny returns the reason to refuse a Bash payload that recursively
+// deletes a glob over a temporary root every session shares, or "".
+func tmpglobDeny(payload []byte) string {
+	var ev struct {
+		ToolName string `json:"tool_name"`
+		Input    struct {
+			Command string `json:"command"`
+		} `json:"tool_input"`
+	}
+	if json.Unmarshal(payload, &ev) != nil || ev.ToolName != "Bash" {
+		return ""
+	}
+	if op := tmpglob.Find(ev.Input.Command); op != "" {
+		return tmpglob.Reason(op)
+	}
+	return ""
 }
 
 // sharedEstate is where this installation's work lives, as the guard needs it.
