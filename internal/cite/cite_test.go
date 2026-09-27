@@ -92,16 +92,33 @@ The assertion at hooks/test-session-digest.sh:73 passes vacuously.`
 func TestQuotedCitationPasses(t *testing.T) {
 	files := tree{"goals.go": strings.Repeat("x\n", 63) + "\tcache.Set(key, out)\n"}
 	docs := map[string]string{
-		"fenced":        "The write at goals.go:64:\n\n```go\n\tcache.Set(key, out)\n```\n",
-		"blockquote":    "The write at goals.go:64:\n\n> cache.Set(key, out)\n",
-		"inline span":   "The write at `goals.go:64` — `cache.Set(key, out)` — caches it.\n",
-		"indented":      "The write at goals.go:64:\n\n    cache.Set(key, out)\n",
-		"grep -n paste": "goals.go:64\n\n```\n64:\tcache.Set(key, out)\n```\n",
-		"re-indented":   "goals.go:64\n\n```\ncache.Set(key, out)\n```\n",
+		"fenced":               "The write at goals.go:64:\n\n```go\n\tcache.Set(key, out)\n```\n",
+		"blockquote":           "The write at goals.go:64:\n\n> cache.Set(key, out)\n",
+		"blockquote of a span": "- The write at goals.go:64:\n  > `cache.Set(key, out)`\n",
+		"inline span":          "The write at `goals.go:64` — `cache.Set(key, out)` — caches it.\n",
+		"indented":             "The write at goals.go:64:\n\n    cache.Set(key, out)\n",
+		"grep -n paste":        "goals.go:64\n\n```\n64:\tcache.Set(key, out)\n```\n",
+		"re-indented":          "goals.go:64\n\n```\ncache.Set(key, out)\n```\n",
 	}
 	for name, doc := range docs {
 		if f := firstOnly(Check(doc, files.read)); len(f) != 0 {
 			t.Errorf("%s: %v, want clean", name, f[0].Reason())
+		}
+	}
+}
+
+// A block quoting one code span is read as the span's text, and only that: a
+// span holding another line, a span that is not the whole line, and a span
+// below the block's first line back nothing.
+func TestABlockquotedSpanBacksOnlyTheLineItHolds(t *testing.T) {
+	files := tree{"goals.go": strings.Repeat("x\n", 63) + "\tcache.Set(key, out)\n"}
+	for name, doc := range map[string]string{
+		"another line":       "The write at goals.go:64:\n\n> `return out, nil`\n",
+		"not the whole line": "The write at goals.go:64:\n\n> `cache.Set(key, out)` caches it\n",
+		"below the head":     "The write at goals.go:64:\n\n> it caches\n> `cache.Set(key, out)`\n",
+	} {
+		if f := firstOnly(Check(doc, files.read)); len(f) != 1 || f[0].Kind != Unbacked {
+			t.Errorf("%s: findings = %v, want one Unbacked", name, f)
 		}
 	}
 }

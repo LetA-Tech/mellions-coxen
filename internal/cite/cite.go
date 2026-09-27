@@ -434,7 +434,14 @@ func quotations(doc string) *quotedText {
 			if open < 0 {
 				start(i)
 			}
-			head(strings.TrimPrefix(trimmed, ">"))
+			quote := strings.TrimPrefix(trimmed, ">")
+			fresh := len(q.all[open].texts) == 0
+			head(quote)
+			// A block's first line written as one inline code span quotes the
+			// span's text: the backticks are Markdown, not the line.
+			if k := normalize(wholeSpan(quote)); fresh && k != "" {
+				q.all[open].texts = append(q.all[open].texts, k)
+			}
 		case strings.HasPrefix(line, "    "), strings.HasPrefix(line, "\t"):
 			// an indented code block
 			if open < 0 {
@@ -585,6 +592,20 @@ func spans(line string) []string {
 		out = append(out, rest[:j])
 		line = rest[j+n:]
 	}
+}
+
+// wholeSpan is the text of the one inline code span s consists of, or "" when
+// s is anything else.
+func wholeSpan(s string) string {
+	t := strings.TrimSpace(s)
+	if t == "" || t[0] != '`' {
+		return ""
+	}
+	sp := spans(t)
+	if len(sp) != 1 || len(t) != 2*runLen(t)+len(sp[0]) {
+		return ""
+	}
+	return sp[0]
 }
 
 // grep is one line of `grep -n` output: a path, a line number, and the line's
