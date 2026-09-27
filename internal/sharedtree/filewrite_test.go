@@ -176,3 +176,34 @@ func TestTheLoadPathIsGuardedByEveryNameItHas(t *testing.T) {
 		t.Errorf("an edit of the load path by its registry name was not refused naming the lane:\n%s", got)
 	}
 }
+
+// launchedPayload is filePayload with the transcript path the runtime sends,
+// kept under a directory named for the directory the session started in.
+func launchedPayload(session, tool, cwd, path, project string) []byte {
+	p := filePayload(session, tool, cwd, path)
+	return []byte(strings.Replace(string(p), `"hook_event_name"`,
+		`"transcript_path":"/home/you/.claude/projects/`+project+`/`+session+`.jsonl","hook_event_name"`, 1))
+}
+
+func TestASessionStartedInACheckoutWritesThatCheckoutAndNoOther(t *testing.T) {
+	e := fileEstate()
+	const dataSvc = "/home/you/workspace/data-service"
+	for _, tc := range []struct {
+		name, project, path string
+		refused             bool
+	}{
+		{"its own checkout", "-home-you-workspace-data-service", dataSvc + "/internal/x.go", false},
+		{"another checkout", "-home-you-workspace-data-service", "/home/you/workspace/payments-api/x.go", true},
+		{"a checkout whose name only starts like its own", "-home-you-workspace-data-service-old", dataSvc + "/x.go", true},
+		{"started in a subdirectory of the checkout", "-home-you-workspace-data-service-internal", dataSvc + "/x.go", true},
+		{"started in the load path, writing the load path", "-home-you-mellions-coxen", "/home/you/mellions-coxen/README.md", true},
+		{"started outside every checkout", "-home-you-mellions", dataSvc + "/x.go", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := sharedtree.Deny(launchedPayload("mine", "Edit", dataSvc, tc.path, tc.project), e) != ""
+			if got != tc.refused {
+				t.Fatalf("refused = %v, want %v", got, tc.refused)
+			}
+		})
+	}
+}
