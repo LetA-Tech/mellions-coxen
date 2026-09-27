@@ -110,6 +110,14 @@ catching. Enumerate the cases the narrow form caught and the wide one lets
 through, remove only the clause meant to hold them back, and watch those go red.
 A widening whose guard reds nothing is not guarded.
 
+Where the fix makes something refuse more — a guard, a validator, a constraint
+— the arms prove it refuses the cases you wrote, never whom else it refuses.
+Before it goes live, run the real predicate, not the test's stand-in, old and
+new, over the population it will meet: the sessions, rows and writers that
+exist now, or, where it judges only future input, a recent sample of that
+input. Read every one newly refused; a class nobody wrote a case for is where
+the false refusal lives.
+
 Where the claim is placement — a write inside another operation's
 transaction, lock or publish order — removing the write proves the write, not
 its place: displace it, abort the outer operation after it, wrap no test
