@@ -142,7 +142,10 @@ func Deny(payload []byte, e Estate) string {
 		// Transcript is where the runtime keeps this session's transcript,
 		// under a directory named for the directory the session was started in.
 		Transcript string `json:"transcript_path"`
-		Input      struct {
+		// Agent is set when a subagent makes the call; its payload carries the
+		// parent's session and transcript.
+		Agent string `json:"agent_id"`
+		Input struct {
 			Command      string `json:"command"`
 			FilePath     string `json:"file_path"`
 			NotebookPath string `json:"notebook_path"`
@@ -156,7 +159,11 @@ func Deny(payload []byte, e Estate) string {
 		if target == "" {
 			target = ev.Input.NotebookPath
 		}
-		fw := FindFileWrite(ev.ToolName, target, ev.Session, ev.Cwd, ev.Transcript, e)
+		transcript := ev.Transcript
+		if ev.Agent != "" {
+			transcript = ""
+		}
+		fw := FindFileWrite(ev.ToolName, target, ev.Session, ev.Cwd, transcript, e)
 		if fw == nil {
 			return ""
 		}
@@ -197,7 +204,8 @@ type FileWrite struct {
 // A session started in a shared checkout is working in that checkout, and a
 // record it once saved on an assignment does not make the checkout someone
 // else's: its writes there pass. Its writes into another checkout, and into
-// the load path, do not.
+// the load path, do not. A subagent is not the session that was started there:
+// Deny passes it no transcript, so it keeps no exemption.
 func FindFileWrite(tool, path, session, cwd, transcript string, e Estate) *FileWrite {
 	if !fileTools[tool] || path == "" || e.Assigned == nil {
 		return nil
@@ -783,9 +791,10 @@ func loadTree(dir string, e Estate) bool {
 // launchedIn reports that the session whose transcript is at transcript was
 // started in dir. The runtime keeps a transcript in a directory named for the
 // session's start directory with every character but a letter or digit
-// written as '-'; a transcript kept anywhere else answers no.
+// written as '-', under a directory named projects; a transcript kept anywhere
+// else answers no.
 func launchedIn(transcript, dir string) bool {
-	if transcript == "" || dir == "" {
+	if transcript == "" || dir == "" || filepath.Base(filepath.Dir(filepath.Dir(transcript))) != "projects" {
 		return false
 	}
 	name := []rune(filepath.Clean(dir))

@@ -207,3 +207,20 @@ func TestASessionStartedInACheckoutWritesThatCheckoutAndNoOther(t *testing.T) {
 		})
 	}
 }
+
+func TestNoExemptionForASubagentOrATranscriptOutsideTheRuntimesProjects(t *testing.T) {
+	e := fileEstate()
+	const dataSvc = "/home/you/workspace/data-service"
+	own := launchedPayload("mine", "Edit", lane, dataSvc+"/x.go", "-home-you-workspace-data-service")
+	sub := []byte(strings.Replace(string(own), `"hook_event_name"`, `"agent_id":"a1","hook_event_name"`, 1))
+	if sharedtree.Deny(sub, e) == "" {
+		t.Fatal("a subagent of a session started in the checkout was let through")
+	}
+	elsewhere := []byte(strings.Replace(string(own), "/home/you/.claude/projects/", "/tmp/", 1))
+	if sharedtree.Deny(elsewhere, e) == "" {
+		t.Fatal("a transcript outside a projects directory granted the exemption")
+	}
+	if sharedtree.Deny(own, e) != "" {
+		t.Fatal("control: the session started in the checkout was refused")
+	}
+}
