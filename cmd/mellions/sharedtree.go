@@ -21,7 +21,9 @@ import (
 // cmdSharedTreeCheck reads a PreToolUse payload on stdin and denies a Bash
 // call that runs a tree-mutating git command inside a checkout this
 // installation cuts lanes from, or recursively deletes a glob over a temporary
-// root every session shares. Everything else is silence.
+// root every session shares, and a file-writing tool call by a session holding
+// an assignment into such a checkout or the load path. Everything else is
+// silence.
 func cmdSharedTreeCheck(args []string) error {
 	fs := newFlagSet("shared-tree-check", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
@@ -33,7 +35,9 @@ func cmdSharedTreeCheck(args []string) error {
 	if len(payload) == 0 {
 		guardUsage("shared-tree-check", "It denies a tree-mutating git command aimed at a "+
 			"checkout this installation cuts lanes from, and names the read that answers "+
-			"the same question.")
+			"the same question; and an Edit, Write, MultiEdit or NotebookEdit by a session "+
+			"holding an assignment into such a checkout or the load path, naming the same "+
+			"file in its lane.")
 		return nil
 	}
 	reason := tmpglobDeny(payload)
@@ -80,10 +84,12 @@ func tmpglobDeny(payload []byte) string {
 // The guarded set is `checkouts()` — the repositories in `repos`, resolved
 // under the work roots. That is deliberately not every checkout the
 // configuration can reach: a repository named in `checkouts` but absent from
-// `repos` is one this installation works in and does not survey, Mellions' own
-// source among them, and the partnership says the engineer commits there.
+// `repos` is one this installation works in and does not survey, and a Bash
+// git write there is not refused. The load path is the exception for file
+// tools, which sharedtree adds to the set itself.
 func sharedEstate(cfg *Config) sharedtree.Estate {
 	set := cfg.checkouts()
+	reg := pluginreg.Read(home(), pluginreg.ID)
 	e := sharedtree.Estate{
 		Lanes: []string{cfg.assignmentsRoot()},
 		Home:  home(),
@@ -91,9 +97,28 @@ func sharedEstate(cfg *Config) sharedtree.Estate {
 		// Landing a Mellions fix is `git pull --ff-only` here. Read from the
 		// registry rather than assumed, so an installation that loads from
 		// somewhere else exempts that tree and not this one.
-		LoadPath:  pluginRoot(pluginreg.Read(home(), pluginreg.ID)),
+		LoadPath:  pluginRoot(reg),
 		Dirty:     treeIsDirty,
 		OtherTree: inOtherTree,
+		Assigned:  assignedFinder(cfg),
+		Ignored:   gitIgnores,
+	}
+	// The runtime's plugin root and the registry's load path can name
+	// different trees — a copy the runtime was handed, the checkout the
+	// registry reads in place — and which one a hook process sees is the
+	// runtime's choice, so file tools are refused in both, and in what either
+	// resolves to.
+	for _, dir := range []string{e.LoadPath, reg.LoadPath} {
+		if dir == "" {
+			continue
+		}
+		e.LoadAliases = append(e.LoadAliases, dir)
+		if real, err := filepath.EvalSymlinks(dir); err == nil && real != dir {
+			e.LoadAliases = append(e.LoadAliases, real)
+		}
+	}
+	if reg.LoadPath != "" {
+		e.LoadRepo = filepath.Base(filepath.Clean(reg.LoadPath))
 	}
 	for _, name := range set.Names() {
 		dir, _ := set.Dir(name)
@@ -106,6 +131,17 @@ func sharedEstate(cfg *Config) sharedtree.Estate {
 		}
 	}
 	return e
+}
+
+// gitIgnores reports that git ignores path in checkout's repository; sharedtree
+// asks it only of the memory plugin's state directory. A path
+// that does not exist yet is still answered, by the ignore rules alone; a git
+// that will not answer is "cannot tell", which answers false and leaves the
+// write refused.
+func gitIgnores(path, checkout string) bool {
+	cmd := exec.Command("git", "-C", checkout, "check-ignore", "-q", "--", path)
+	cmd.Env = append(withoutGitEnv(os.Environ()), "GIT_OPTIONAL_LOCKS=0")
+	return cmd.Run() == nil
 }
 
 // treeIsDirty reports that the working tree at dir has uncommitted changes.
@@ -303,6 +339,32 @@ func laneFinder(cfg *Config) func(repo, session, cwd string) string {
 			}
 		}
 		return ""
+	}
+}
+
+// assignedFinder answers whether THIS session holds an open (active or
+// blocked) assignment in any repository, by mine(): the assignment records the
+// session, or the session stands in its worktree. A store that cannot be read
+// answers no, which leaves a file write allowed.
+func assignedFinder(cfg *Config) func(session, cwd string) bool {
+	return func(session, cwd string) bool {
+		store, err := assignment.NewStore(cfg.assignmentsRoot())
+		if err != nil {
+			return false
+		}
+		open, err := store.List(false)
+		if err != nil {
+			return false
+		}
+		for _, a := range open {
+			if a.State != assignment.StateActive && a.State != assignment.StateBlocked {
+				continue
+			}
+			if mine(a, session, cwd) {
+				return true
+			}
+		}
+		return false
 	}
 }
 
