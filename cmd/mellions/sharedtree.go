@@ -133,7 +133,8 @@ func sharedEstate(cfg *Config) sharedtree.Estate {
 	return e
 }
 
-// gitIgnores reports that git ignores path in checkout's repository. A path
+// gitIgnores reports that git ignores path in checkout's repository; sharedtree
+// asks it only of the memory plugin's state directory. A path
 // that does not exist yet is still answered, by the ignore rules alone; a git
 // that will not answer is "cannot tell", which answers false and leaves the
 // write refused.

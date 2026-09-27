@@ -26,7 +26,10 @@ func fileEstate() sharedtree.Estate {
 		return strings.HasPrefix(dir, "/home/you/workspace/data-service/.claude/worktrees/")
 	}
 	e.Assigned = func(session, cwd string) bool { return session == "mine" }
-	e.Ignored = func(path, checkout string) bool { return strings.Contains(path, "/.remember/") }
+	e.Ignored = func(path, checkout string) bool {
+		return strings.Contains(path, "/.remember/") || strings.Contains(path, "/.claude/") ||
+			strings.HasSuffix(path, "/.env")
+	}
 	return e
 }
 
@@ -56,8 +59,14 @@ func TestAFileToolIntoASharedCheckoutIsRefusedForAnAssignedSession(t *testing.T)
 			{"load path file", "mine", lane, "/home/you/mellions-coxen/internal/sharedtree/sharedtree.go", true},
 			{"literal name a shell would expand", "mine", lane,
 				"/home/you/workspace/data-service/$weird*.go", true},
-			{"file git ignores in the checkout", "mine", lane,
+			{"memory plugin state git ignores in the checkout", "mine", lane,
 				"/home/you/workspace/data-service/.remember/remember.md", false},
+			{"ignored runtime settings in the checkout", "mine", lane,
+				"/home/you/workspace/data-service/.claude/settings.local.json", true},
+			{"ignored env file in the checkout", "mine", lane,
+				"/home/you/workspace/data-service/.env", true},
+			{".remember below the checkout root", "mine", lane,
+				"/home/you/workspace/data-service/internal/.remember/x.md", true},
 			{"lane file", "mine", lane, lane + "/internal/x.go", false},
 			{"lane nested under a shared checkout", "mine", lane,
 				"/home/you/workspace/payments-api/.worktrees/p-7/main.go", false},

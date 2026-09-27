@@ -114,10 +114,12 @@ type Estate struct {
 	// Ignored reports that git ignores path in the checkout, or false where it
 	// cannot tell. Nil is the same as false.
 	//
-	// An ignored file is outside what the working tree carries for anyone:
-	// tools keep their own state there — a memory plugin writes
-	// `<project>/.remember/` — and refusing that write refuses the tool, not a
-	// risk to uncommitted work.
+	// It narrows one exemption and grants nothing on its own: a file under
+	// `.remember/` at the checkout's root, where the memory plugin keeps a
+	// project's buffer, is written by that plugin through these tools, and is
+	// let through only while git ignores it there. Every other ignored file —
+	// `.claude/settings.local.json`, `.env`, build output — has no index or
+	// object copy and stays refused.
 	Ignored func(path, checkout string) bool
 	// LoadAliases are other names of the tree this installation is loaded
 	// from — the registry's answer where the runtime's differs, and symlink
@@ -181,8 +183,8 @@ type FileWrite struct {
 }
 
 // FindFileWrite returns the write when a session holding an assignment aims
-// tool at a file inside a guarded checkout, outside every lane and not ignored
-// by git, or nil.
+// tool at a file inside a guarded checkout, outside every lane and not the
+// memory plugin's ignored state, or nil.
 //
 // The guarded set is the shared checkouts and the load path. The load path is
 // exempt from exactly one Bash verb, the deployment pull, which has no
@@ -213,7 +215,7 @@ func FindFileWrite(tool, path, session, cwd string, e Estate) *FileWrite {
 		}
 	}
 	repo, checkout, ok := shared(filepath.Dir(target), guarded)
-	if !ok || (e.Ignored != nil && e.Ignored(target, checkout)) {
+	if !ok || memoryState(target, checkout, e) {
 		return nil
 	}
 	// Asked last: it reads the assignment store, and most writes land in no
@@ -248,6 +250,15 @@ func (w *FileWrite) Reason(e Estate, session, cwd string) string {
 	b.WriteString("\nmellions-territory carries the rule this enforces: never delete, move or revert " +
 		"what another session may hold.")
 	return b.String()
+}
+
+// memoryState reports that target is the memory plugin's own state in the
+// checkout: under `.remember/` at its root, and ignored by git there.
+func memoryState(target, checkout string, e Estate) bool {
+	if e.Ignored == nil || !under(target, filepath.Join(checkout, ".remember")) {
+		return false
+	}
+	return e.Ignored(target, checkout)
 }
 
 // Checkout is one long-lived tree lanes are cut from.
