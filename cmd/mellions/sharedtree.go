@@ -21,7 +21,9 @@ import (
 // cmdSharedTreeCheck reads a PreToolUse payload on stdin and denies a Bash
 // call that runs a tree-mutating git command inside a checkout this
 // installation cuts lanes from, or recursively deletes a glob over a temporary
-// root every session shares. Everything else is silence.
+// root every session shares, and a file-writing tool call by a session holding
+// an assignment into such a checkout or the load path. Everything else is
+// silence.
 func cmdSharedTreeCheck(args []string) error {
 	fs := newFlagSet("shared-tree-check", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
@@ -33,7 +35,9 @@ func cmdSharedTreeCheck(args []string) error {
 	if len(payload) == 0 {
 		guardUsage("shared-tree-check", "It denies a tree-mutating git command aimed at a "+
 			"checkout this installation cuts lanes from, and names the read that answers "+
-			"the same question.")
+			"the same question; and an Edit, Write, MultiEdit or NotebookEdit by a session "+
+			"holding an assignment into such a checkout or the load path, naming the same "+
+			"file in its lane.")
 		return nil
 	}
 	reason := tmpglobDeny(payload)
@@ -94,6 +98,7 @@ func sharedEstate(cfg *Config) sharedtree.Estate {
 		LoadPath:  pluginRoot(pluginreg.Read(home(), pluginreg.ID)),
 		Dirty:     treeIsDirty,
 		OtherTree: inOtherTree,
+		Assigned:  assignedFinder(cfg),
 	}
 	for _, name := range set.Names() {
 		dir, _ := set.Dir(name)
@@ -303,6 +308,31 @@ func laneFinder(cfg *Config) func(repo, session, cwd string) string {
 			}
 		}
 		return ""
+	}
+}
+
+// assignedFinder answers whether THIS session holds an open assignment in any
+// repository, by the same rule laneFinder uses to say which lane is its own.
+// A store that cannot be read answers no, which leaves a file write allowed.
+func assignedFinder(cfg *Config) func(session, cwd string) bool {
+	return func(session, cwd string) bool {
+		store, err := assignment.NewStore(cfg.assignmentsRoot())
+		if err != nil {
+			return false
+		}
+		open, err := store.List(false)
+		if err != nil {
+			return false
+		}
+		for _, a := range open {
+			if a.State != assignment.StateActive && a.State != assignment.StateBlocked {
+				continue
+			}
+			if mine(a, session, cwd) {
+				return true
+			}
+		}
+		return false
 	}
 }
 
