@@ -147,3 +147,23 @@ func TestTheHookRunsTheGuardForEveryToolItDecides(t *testing.T) {
 		}
 	}
 }
+
+// The runtime's plugin root can be a copy while the registry reads the
+// checkout in place; the checkout is guarded by either name, and the refusal
+// names the lane for the repository the checkout is, not the copy's directory.
+func TestTheLoadPathIsGuardedByEveryNameItHas(t *testing.T) {
+	e := fileEstate()
+	e.LoadPath = "/home/you/.claude/plugins/cache/mellions/0.1.0"
+	e.LoadAliases = []string{"/home/you/mellions-coxen"}
+	e.LoadRepo = "mellions-coxen"
+	e.Lane = func(repo, session, cwd string) string {
+		if repo == "mellions-coxen" {
+			return "/home/you/mellions/assignments/coxen-1/tree"
+		}
+		return ""
+	}
+	got := sharedtree.Deny(filePayload("mine", "Edit", lane, "/home/you/mellions-coxen/hooks/hooks.json"), e)
+	if !strings.Contains(got, "/home/you/mellions/assignments/coxen-1/tree/hooks/hooks.json") {
+		t.Errorf("an edit of the load path by its registry name was not refused naming the lane:\n%s", got)
+	}
+}

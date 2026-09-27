@@ -89,6 +89,7 @@ func tmpglobDeny(payload []byte) string {
 // tools, which sharedtree adds to the set itself.
 func sharedEstate(cfg *Config) sharedtree.Estate {
 	set := cfg.checkouts()
+	reg := pluginreg.Read(home(), pluginreg.ID)
 	e := sharedtree.Estate{
 		Lanes: []string{cfg.assignmentsRoot()},
 		Home:  home(),
@@ -96,11 +97,28 @@ func sharedEstate(cfg *Config) sharedtree.Estate {
 		// Landing a Mellions fix is `git pull --ff-only` here. Read from the
 		// registry rather than assumed, so an installation that loads from
 		// somewhere else exempts that tree and not this one.
-		LoadPath:  pluginRoot(pluginreg.Read(home(), pluginreg.ID)),
+		LoadPath:  pluginRoot(reg),
 		Dirty:     treeIsDirty,
 		OtherTree: inOtherTree,
 		Assigned:  assignedFinder(cfg),
 		Ignored:   gitIgnores,
+	}
+	// The runtime's plugin root and the registry's load path can name
+	// different trees — a copy the runtime was handed, the checkout the
+	// registry reads in place — and which one a hook process sees is the
+	// runtime's choice, so file tools are refused in both, and in what either
+	// resolves to.
+	for _, dir := range []string{e.LoadPath, reg.LoadPath} {
+		if dir == "" {
+			continue
+		}
+		e.LoadAliases = append(e.LoadAliases, dir)
+		if real, err := filepath.EvalSymlinks(dir); err == nil && real != dir {
+			e.LoadAliases = append(e.LoadAliases, real)
+		}
+	}
+	if reg.LoadPath != "" {
+		e.LoadRepo = filepath.Base(filepath.Clean(reg.LoadPath))
 	}
 	for _, name := range set.Names() {
 		dir, _ := set.Dir(name)

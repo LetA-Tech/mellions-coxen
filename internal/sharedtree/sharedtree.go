@@ -119,6 +119,14 @@ type Estate struct {
 	// `<project>/.remember/` — and refusing that write refuses the tool, not a
 	// risk to uncommitted work.
 	Ignored func(path, checkout string) bool
+	// LoadAliases are other names of the tree this installation is loaded
+	// from — the registry's answer where the runtime's differs, and symlink
+	// targets — guarded for file tools like LoadPath, and exempt from nothing.
+	LoadAliases []string
+	// LoadRepo names the repository the load path is a checkout of, so a
+	// refusal can name the session's lane for it; "" names it by the last
+	// element of LoadPath.
+	LoadRepo string
 }
 
 // Deny returns the reason to refuse a PreToolUse payload, or "" to stay
@@ -194,9 +202,15 @@ func FindFileWrite(tool, path, session, cwd string, e Estate) *FileWrite {
 		target = filepath.Join(cwd, target)
 	}
 	guarded := e
-	if e.LoadPath != "" {
-		guarded.Shared = append(append([]Checkout(nil), e.Shared...),
-			Checkout{Repo: filepath.Base(filepath.Clean(e.LoadPath)), Dir: e.LoadPath})
+	guarded.Shared = append([]Checkout(nil), e.Shared...)
+	loadRepo := e.LoadRepo
+	if loadRepo == "" && e.LoadPath != "" {
+		loadRepo = filepath.Base(filepath.Clean(e.LoadPath))
+	}
+	for _, dir := range append([]string{e.LoadPath}, e.LoadAliases...) {
+		if dir != "" {
+			guarded.Shared = append(guarded.Shared, Checkout{Repo: loadRepo, Dir: dir})
+		}
 	}
 	repo, checkout, ok := shared(filepath.Dir(target), guarded)
 	if !ok || (e.Ignored != nil && e.Ignored(target, checkout)) {
