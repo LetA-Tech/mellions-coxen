@@ -5,6 +5,9 @@
 package sharedtree_test
 
 import (
+	"encoding/json"
+	"os"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -23,6 +26,7 @@ func fileEstate() sharedtree.Estate {
 		return strings.HasPrefix(dir, "/home/you/workspace/data-service/.claude/worktrees/")
 	}
 	e.Assigned = func(session, cwd string) bool { return session == "mine" }
+	e.Ignored = func(path, checkout string) bool { return strings.Contains(path, "/.remember/") }
 	return e
 }
 
@@ -50,6 +54,10 @@ func TestAFileToolIntoASharedCheckoutIsRefusedForAnAssignedSession(t *testing.T)
 			{"relative path resolved against a cwd in the checkout", "mine",
 				"/home/you/workspace/data-service/internal", "x.go", true},
 			{"load path file", "mine", lane, "/home/you/mellions-coxen/internal/sharedtree/sharedtree.go", true},
+			{"literal name a shell would expand", "mine", lane,
+				"/home/you/workspace/data-service/$weird*.go", true},
+			{"file git ignores in the checkout", "mine", lane,
+				"/home/you/workspace/data-service/.remember/remember.md", false},
 			{"lane file", "mine", lane, lane + "/internal/x.go", false},
 			{"lane nested under a shared checkout", "mine", lane,
 				"/home/you/workspace/payments-api/.worktrees/p-7/main.go", false},
@@ -97,6 +105,45 @@ func TestAReadToolIsNeverRefused(t *testing.T) {
 		if got := sharedtree.Deny(filePayload("mine", tool, lane,
 			"/home/you/workspace/data-service/internal/x.go"), fileEstate()); got != "" {
 			t.Errorf("%s was refused:\n%s", tool, got)
+		}
+	}
+}
+
+// The decision above is reached only if the runtime hands the guard these
+// tools at all. A matcher is a regular expression over the tool name, so each
+// name is matched the way the runtime matches it, against the groups that run
+// shared-tree.sh.
+func TestTheHookRunsTheGuardForEveryToolItDecides(t *testing.T) {
+	raw, err := os.ReadFile("../../hooks/hooks.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var cfg struct {
+		Hooks map[string][]struct {
+			Matcher string `json:"matcher"`
+			Hooks   []struct {
+				Command string `json:"command"`
+			} `json:"hooks"`
+		} `json:"hooks"`
+	}
+	if err := json.Unmarshal(raw, &cfg); err != nil {
+		t.Fatal(err)
+	}
+	for _, tool := range []string{"Bash", "Edit", "Write", "MultiEdit", "NotebookEdit"} {
+		found := false
+		for _, g := range cfg.Hooks["PreToolUse"] {
+			re, err := regexp.Compile("^(?:" + g.Matcher + ")$")
+			if err != nil || !re.MatchString(tool) {
+				continue
+			}
+			for _, h := range g.Hooks {
+				if strings.Contains(h.Command, "/hooks/shared-tree.sh") {
+					found = true
+				}
+			}
+		}
+		if !found {
+			t.Errorf("no PreToolUse group runs shared-tree.sh for %s, so the guard never sees it", tool)
 		}
 	}
 }

@@ -6,6 +6,7 @@ package main
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
 )
@@ -50,5 +51,27 @@ func TestAssignedFinderAnswersForThisSessionsOpenLaneOnly(t *testing.T) {
 	}
 	if assignedFinder(&Config{AssignmentsRoot: filepath.Join(root, "absent")})("s-active", "/tmp") {
 		t.Error("a store that does not exist answered yes")
+	}
+}
+
+func TestGitIgnoresAnswersFromTheCheckoutsRules(t *testing.T) {
+	repo := t.TempDir()
+	if out, err := exec.Command("git", "-C", repo, "init", "-q").CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v %s", err, out)
+	}
+	if err := os.MkdirAll(filepath.Join(repo, ".remember"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, ".remember", ".gitignore"), []byte("*\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if !gitIgnores(filepath.Join(repo, ".remember", "remember.md"), repo) {
+		t.Error("a file the checkout ignores, not yet written, was not reported ignored")
+	}
+	if gitIgnores(filepath.Join(repo, "internal", "x.go"), repo) {
+		t.Error("a file the checkout tracks was reported ignored")
+	}
+	if gitIgnores(filepath.Join(repo, "x.go"), filepath.Join(repo, "absent")) {
+		t.Error("a git that cannot answer reported ignored")
 	}
 }

@@ -111,6 +111,14 @@ type Estate struct {
 	// holding no lane, is doing what he chose; a lane session editing the tree
 	// every lane is cut from is the failure this guard exists for.
 	Assigned func(session, cwd string) bool
+	// Ignored reports that git ignores path in the checkout, or false where it
+	// cannot tell. Nil is the same as false.
+	//
+	// An ignored file is outside what the working tree carries for anyone:
+	// tools keep their own state there — a memory plugin writes
+	// `<project>/.remember/` — and refusing that write refuses the tool, not a
+	// risk to uncommitted work.
+	Ignored func(path, checkout string) bool
 }
 
 // Deny returns the reason to refuse a PreToolUse payload, or "" to stay
@@ -165,7 +173,8 @@ type FileWrite struct {
 }
 
 // FindFileWrite returns the write when a session holding an assignment aims
-// tool at a file inside a guarded checkout and outside every lane, or nil.
+// tool at a file inside a guarded checkout, outside every lane and not ignored
+// by git, or nil.
 //
 // The guarded set is the shared checkouts and the load path. The load path is
 // exempt from exactly one Bash verb, the deployment pull, which has no
@@ -175,9 +184,14 @@ func FindFileWrite(tool, path, session, cwd string, e Estate) *FileWrite {
 	if !fileTools[tool] || path == "" || e.Assigned == nil {
 		return nil
 	}
-	target := abs(path, abs(cwd, cwd, e.Home), e.Home)
+	// A tool's path is a literal, never shell text, so it is joined rather
+	// than read through abs, which gives up on a `$` or a glob character.
+	target := filepath.Clean(path)
 	if !filepath.IsAbs(target) {
-		return nil
+		if !filepath.IsAbs(cwd) {
+			return nil
+		}
+		target = filepath.Join(cwd, target)
 	}
 	guarded := e
 	if e.LoadPath != "" {
@@ -185,9 +199,12 @@ func FindFileWrite(tool, path, session, cwd string, e Estate) *FileWrite {
 			Checkout{Repo: filepath.Base(filepath.Clean(e.LoadPath)), Dir: e.LoadPath})
 	}
 	repo, checkout, ok := shared(filepath.Dir(target), guarded)
+	if !ok || (e.Ignored != nil && e.Ignored(target, checkout)) {
+		return nil
+	}
 	// Asked last: it reads the assignment store, and most writes land in no
 	// guarded tree at all.
-	if !ok || !e.Assigned(session, cwd) {
+	if !e.Assigned(session, cwd) {
 		return nil
 	}
 	return &FileWrite{Tool: tool, Path: target, Repo: repo, Checkout: checkout}

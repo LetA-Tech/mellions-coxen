@@ -84,8 +84,9 @@ func tmpglobDeny(payload []byte) string {
 // The guarded set is `checkouts()` — the repositories in `repos`, resolved
 // under the work roots. That is deliberately not every checkout the
 // configuration can reach: a repository named in `checkouts` but absent from
-// `repos` is one this installation works in and does not survey, Mellions' own
-// source among them, and the partnership says the engineer commits there.
+// `repos` is one this installation works in and does not survey, and a Bash
+// git write there is not refused. The load path is the exception for file
+// tools, which sharedtree adds to the set itself.
 func sharedEstate(cfg *Config) sharedtree.Estate {
 	set := cfg.checkouts()
 	e := sharedtree.Estate{
@@ -99,6 +100,7 @@ func sharedEstate(cfg *Config) sharedtree.Estate {
 		Dirty:     treeIsDirty,
 		OtherTree: inOtherTree,
 		Assigned:  assignedFinder(cfg),
+		Ignored:   gitIgnores,
 	}
 	for _, name := range set.Names() {
 		dir, _ := set.Dir(name)
@@ -111,6 +113,16 @@ func sharedEstate(cfg *Config) sharedtree.Estate {
 		}
 	}
 	return e
+}
+
+// gitIgnores reports that git ignores path in checkout's repository. A path
+// that does not exist yet is still answered, by the ignore rules alone; a git
+// that will not answer is "cannot tell", which answers false and leaves the
+// write refused.
+func gitIgnores(path, checkout string) bool {
+	cmd := exec.Command("git", "-C", checkout, "check-ignore", "-q", "--", path)
+	cmd.Env = append(withoutGitEnv(os.Environ()), "GIT_OPTIONAL_LOCKS=0")
+	return cmd.Run() == nil
 }
 
 // treeIsDirty reports that the working tree at dir has uncommitted changes.
@@ -311,9 +323,10 @@ func laneFinder(cfg *Config) func(repo, session, cwd string) string {
 	}
 }
 
-// assignedFinder answers whether THIS session holds an open assignment in any
-// repository, by the same rule laneFinder uses to say which lane is its own.
-// A store that cannot be read answers no, which leaves a file write allowed.
+// assignedFinder answers whether THIS session holds an open (active or
+// blocked) assignment in any repository, by mine(): the assignment records the
+// session, or the session stands in its worktree. A store that cannot be read
+// answers no, which leaves a file write allowed.
 func assignedFinder(cfg *Config) func(session, cwd string) bool {
 	return func(session, cwd string) bool {
 		store, err := assignment.NewStore(cfg.assignmentsRoot())
