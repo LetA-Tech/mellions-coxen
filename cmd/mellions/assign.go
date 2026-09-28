@@ -51,7 +51,7 @@ func cmdAssign(ctx context.Context, args []string) error {
 			"mellions assign list [-all] | get <id> | record <id> <text> [-kind found|hypothesis|next|note]\n" +
 			"mellions assign claim <id> -pr N            # this lane holds that change set; a peer reads the claim before merging\n" +
 			"mellions assign handoff <id> [-file f|-] | reopen <id> | close <id> | abandon <id> -discarding \"...\"\n" +
-			"mellions assign sweep [-repo R] [-apply]   # close the handed-off lanes whose pull request is merged or closed\n" +
+			"mellions assign sweep [-repo R] [-apply]   # close the handed-off lanes whose pull request is merged or closed; retry a claim release that failed\n" +
 			"Each verb takes -h for its flags.")
 		return nil
 	// Older verbs, kept so a session following an older method is told what

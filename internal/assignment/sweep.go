@@ -45,7 +45,8 @@ type Swept struct {
 }
 
 // Sweep closes the handed-off lanes whose pull request the tracker says is
-// merged or closed, and says what it did, or would do, with every open lane.
+// merged or closed, and says what it did, or would do, with every open lane
+// and every finished lane whose claim a failed release left on the tracker.
 //
 // The session that merges a pull request is almost never the one that opened
 // the lane, so lanes were handed off and nobody closed them: continuity, the
