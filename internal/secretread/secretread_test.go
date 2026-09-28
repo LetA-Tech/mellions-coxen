@@ -344,6 +344,9 @@ func TestScanBash_NarrowingDidNotWiden(t *testing.T) {
 		{"the same behind a wrapper", `timeout 5 ./bin/mellions < ~/.pgpass assign handoff x -file -`},
 		{"a credential redirected with nothing after", `mellions < .env`},
 		{"a redirection before the command word", `< .env cat`},
+		{"a process substitution redirected before the subcommand", `mellions < <(cat .env) report write -file -`},
+		{"a read-write redirection", `cat <>.env`},
+		{"a read-write redirection before the subcommand", `mellions <>.env report write -file -`},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			if got := ScanBash(tt.cmd); len(got) == 0 {

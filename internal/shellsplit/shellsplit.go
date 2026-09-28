@@ -206,6 +206,17 @@ func lex(command string, i int, stopAtParen bool) ([]*Command, int) {
 			case strings.HasPrefix(command[i:], "<<"):
 				heredocNext = 1
 				i += 2
+			case strings.HasPrefix(command[i:], "<("):
+				// A process substitution is one word, as `$(` is: its inner
+				// command must not scatter across the words of this one.
+				var text string
+				text, i = substitution(command, i)
+				w.WriteString(text)
+				hasWord = true
+			case strings.HasPrefix(command[i:], "<>"):
+				// Opened for reading and writing: stdin is the file.
+				i += 2
+				redirIn = true
 			default:
 				i++
 				// <&3 duplicates a descriptor and names no file.
