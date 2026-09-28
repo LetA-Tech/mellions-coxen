@@ -319,9 +319,8 @@ func TestScanBash_NarrowingDidNotWiden(t *testing.T) {
 		// is keyed by reader and does not travel with the letter.
 		{"the same flag on a printer", `sed -i 's/x/y/' .env`},
 
-		// Only the dispatched word, and only the guard's own subcommands, are
-		// exonerated: every other `mellions` operand is still a path it may
-		// store and print back.
+		// Only the word `mellions` dispatches on is exonerated: every other
+		// operand is still a path it may store and print back.
 		{"a mellions file flag after the subcommand", `mellions report write -id d -file .env`},
 		{"a subcommand-shaped word in a later position", `mellions report write -id d -file secret`},
 		{"a mellions command led by a flag", `mellions -file .env report`},
@@ -337,6 +336,14 @@ func TestScanBash_NarrowingDidNotWiden(t *testing.T) {
 		// A redirection is the shell opening the file, whatever reads stdin.
 		{"a credential redirected into the hook entry", `mellions secret-check < .env`},
 		{"a credential redirected into a check", `mellions secret check x < .env`},
+		// Bash takes a redirection anywhere on the line, so the word after
+		// `mellions` can be stdin's file rather than the subcommand, and
+		// `-file -` stores stdin where `report latest` prints it.
+		{"a credential redirected before the subcommand", `mellions < .env report write -file -`},
+		{"the same without a space", `mellions <.env report write -file -`},
+		{"the same behind a wrapper", `timeout 5 ./bin/mellions < ~/.pgpass assign handoff x -file -`},
+		{"a credential redirected with nothing after", `mellions < .env`},
+		{"a redirection before the command word", `< .env cat`},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			if got := ScanBash(tt.cmd); len(got) == 0 {
