@@ -94,26 +94,25 @@ var safeReaders = map[string]bool{
 	// a binary is a claim about every subcommand it will ever have.
 }
 
-// guardSubcommands are the `mellions` subcommands that are this guard's own
-// entry points. `secret check` scans the command string or `-path` name it is
-// given and `secret-check` reads a hook payload on stdin; neither opens a file
-// named on its command line, and both print only the names the scan matched.
-var guardSubcommands = map[string]bool{"secret": true, "secret-check": true}
-
 // dispatchedWords reports how many leading operands of reader are words the
 // program dispatches on rather than paths it opens. `mellions` switches on its
 // first operand, flag-shaped or not, and for a word it does not know prints the
-// word and exits, so that word is never a file; after one of guardSubcommands no
-// operand is. Every other `mellions` operand stays a candidate path: `report
-// write -file` stores a named file's bytes where `report latest` prints them.
+// word and exits, so that word — `secret`, `secret-check` among them — is never
+// a file. Every later `mellions` operand stays a candidate path: `report write
+// -file` stores a named file's bytes where `report latest` prints them, and the
+// lexer hands on an input redirection's target as an ordinary word.
 func dispatchedWords(reader string, args []string) int {
 	if reader != "mellions" || len(args) == 0 {
 		return 0
 	}
-	if guardSubcommands[args[0]] {
-		return len(args)
-	}
 	return 1
+}
+
+// literalWord reports whether the shell passes word through without expanding
+// a variable or a substitution into it. An expanded word carries whatever the
+// expansion produced, and `mellions` prints an unknown command word back.
+func literalWord(word string) bool {
+	return !strings.ContainsAny(word, "$`")
 }
 
 // consumers read a file into the shell rather than onto stdout.
@@ -136,6 +135,9 @@ var printers = map[string]bool{
 	"strings": true, "base64": true, "jq": true, "tee": true, "column": true,
 	"fold": true, "nl": true, "rev": true, "sort": true, "uniq": true,
 	"diff": true, "yq": true, "hexdump": true,
+	// An unknown command word is printed back, `secret check` prints the words
+	// it matched, and `report write` stores text that `report latest` prints.
+	"mellions": true,
 }
 
 // consumedFlags names, per reader, the option whose operand the command uses
@@ -457,7 +459,7 @@ func ScanBash(command string) []Finding {
 		consumed := consumedFlags[reader]
 		dispatched := dispatchedWords(reader, args)
 		for ai, a := range args {
-			if ai < dispatched {
+			if ai < dispatched && literalWord(a) {
 				continue
 			}
 			for name := range holdsValue {
