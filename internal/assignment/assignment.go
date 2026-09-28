@@ -187,8 +187,8 @@ type ClaimState struct {
 	// says so rather than letting it read as an ordinary claim.
 	Unpublished string `json:"unpublished,omitempty"`
 	// Stranded says a release failed and the claim is still on the tracker.
-	// It is not a failure to act on: an unreleased claim goes stale and is
-	// swept by whoever next reads the issue.
+	// `mellions assign sweep -apply` retries the release; a claim nobody
+	// releases also goes stale and is swept by whoever next reads the issue.
 	Stranded string `json:"stranded,omitempty"`
 	// Refs are the pull requests this lane published a claim on, kept after the
 	// lane moves to another so the claim on the earlier one is still released.

@@ -410,6 +410,11 @@ func TestAStrandedClaimIsShownAndTheSweepRetriesIt(t *testing.T) {
 		t.Errorf("the lane's text does not say its claim on PR #180 is still on the tracker:\n%s", txt)
 	}
 
+	// The tracker answers again before the dry run, so a dry run that released
+	// would succeed and take the label off.
+	f.mu.Lock()
+	f.fail = nil
+	f.mu.Unlock()
 	dry, err := s.Sweep(context.Background(), SweepOptions{})
 	if err != nil {
 		t.Fatal(err)
@@ -421,9 +426,19 @@ func TestAStrandedClaimIsShownAndTheSweepRetriesIt(t *testing.T) {
 		t.Fatal("a dry-run sweep released a claim")
 	}
 
-	f.mu.Lock()
-	f.fail = nil
-	f.mu.Unlock()
+	s.Tracker = nil
+	blind, err := s.Sweep(context.Background(), SweepOptions{Apply: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v := sweptFor(blind, "svc-imp17"); v == nil || v.Verdict != "stranded" || !strings.Contains(v.Why, "cannot retry") {
+		t.Fatalf("with no tracker the sweep does not say it cannot retry: %+v", blind)
+	}
+	if a, err = s.Get("svc-imp17"); err != nil || a.Claim == nil || !strings.Contains(a.Claim.Stranded, "PR #180") {
+		t.Fatalf("with no tracker the sweep rewrote the stranded record: %+v %v", a.Claim, err)
+	}
+	s.Tracker = f
+
 	applied, err := s.Sweep(context.Background(), SweepOptions{Apply: true})
 	if err != nil {
 		t.Fatal(err)

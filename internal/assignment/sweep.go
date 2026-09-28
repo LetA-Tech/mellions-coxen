@@ -38,8 +38,9 @@ type SweepOptions struct {
 // Swept is the sweep's reading of one lane.
 type Swept struct {
 	ID string
-	// Verdict is closed, closable or kept for a handed-off lane, and the
-	// lane's own state where the sweep never touches it.
+	// Verdict is closed, closable or kept for a handed-off lane; stranded or
+	// released for a finished lane whose claim a failed release left behind;
+	// and the lane's own state where the sweep never touches it.
 	Verdict string
 	Why     string
 }
@@ -88,13 +89,20 @@ func (s *Store) Sweep(ctx context.Context, o SweepOptions) ([]Swept, error) {
 // tracker again.
 func (s *Store) retryRelease(a *Assignment, o SweepOptions) Swept {
 	v := Swept{ID: a.ID, Verdict: "stranded"}
+	if s.Tracker == nil {
+		v.Why = "a " + a.State + " lane whose claim was not released (" + a.Claim.Stranded +
+			"); no tracker is configured here, so the sweep cannot retry it"
+		return v
+	}
 	if !o.Apply {
 		v.Why = "a " + a.State + " lane whose claim was not released (" + a.Claim.Stranded +
 			"); `mellions assign sweep -apply` retries it"
 		return v
 	}
 	got, err := s.update(a.ID, func(a *Assignment) error {
-		s.releaseClaim(a)
+		if a.Claim != nil && a.Claim.Stranded != "" {
+			s.releaseClaim(a)
+		}
 		return nil
 	})
 	switch {

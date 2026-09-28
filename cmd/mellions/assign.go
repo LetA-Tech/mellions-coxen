@@ -640,8 +640,9 @@ func readInput(path string) (string, error) {
 }
 
 // assignSweep closes the lanes the tracker says are finished, or says which
-// it would close. One line per open lane either way, so what the sweep read
-// is on the screen next to what it did.
+// it would close. One line per open lane, and per finished lane whose claim is
+// still on the tracker, so what the sweep read is on the screen next to what
+// it did.
 func assignSweep(ctx context.Context, args []string) error {
 	fs := newFlagSet("assign sweep", flag.ExitOnError)
 	cfgPath := fs.String("config", "", "config file")
