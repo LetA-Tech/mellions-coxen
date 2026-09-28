@@ -51,7 +51,7 @@ func cmdAssign(ctx context.Context, args []string) error {
 			"mellions assign list [-all] | get <id> | record <id> <text> [-kind found|hypothesis|next|note]\n" +
 			"mellions assign claim <id> -pr N            # this lane holds that change set; a peer reads the claim before merging\n" +
 			"mellions assign handoff <id> [-file f|-] | reopen <id> | close <id> | abandon <id> -discarding \"...\"\n" +
-			"mellions assign sweep [-repo R] [-apply]   # close the handed-off lanes whose pull request is merged or closed\n" +
+			"mellions assign sweep [-repo R] [-apply]   # close the handed-off lanes whose pull request is merged or closed; retry a claim release that failed\n" +
 			"Each verb takes -h for its flags.")
 		return nil
 	// Older verbs, kept so a session following an older method is told what
@@ -640,8 +640,9 @@ func readInput(path string) (string, error) {
 }
 
 // assignSweep closes the lanes the tracker says are finished, or says which
-// it would close. One line per open lane either way, so what the sweep read
-// is on the screen next to what it did.
+// it would close. One line per open lane, and per finished lane whose claim is
+// still on the tracker, so what the sweep read is on the screen next to what
+// it did.
 func assignSweep(ctx context.Context, args []string) error {
 	fs := newFlagSet("assign sweep", flag.ExitOnError)
 	cfgPath := fs.String("config", "", "config file")
@@ -677,6 +678,10 @@ func assignSweep(ctx context.Context, args []string) error {
 		fmt.Printf("%-28s %-9s %s\n", v.ID, v.Verdict, v.Why)
 	}
 	fmt.Println()
+	if n := counts["released"] + counts["stranded"]; n > 0 {
+		fmt.Printf("%d finished lane(s) whose claim a failed release left on the tracker: %d released now, %d still stranded.\n",
+			n, counts["released"], counts["stranded"])
+	}
 	switch {
 	case *apply:
 		fmt.Printf("%d closed — worktree removed, branch and record kept; %d kept.\n", counts["closed"], counts["kept"])

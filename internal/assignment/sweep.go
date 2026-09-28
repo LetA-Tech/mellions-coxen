@@ -38,14 +38,16 @@ type SweepOptions struct {
 // Swept is the sweep's reading of one lane.
 type Swept struct {
 	ID string
-	// Verdict is closed, closable or kept for a handed-off lane, and the
-	// lane's own state where the sweep never touches it.
+	// Verdict is closed, closable or kept for a handed-off lane; stranded or
+	// released for a finished lane whose claim a failed release left behind;
+	// and the lane's own state where the sweep never touches it.
 	Verdict string
 	Why     string
 }
 
 // Sweep closes the handed-off lanes whose pull request the tracker says is
-// merged or closed, and says what it did, or would do, with every open lane.
+// merged or closed, and says what it did, or would do, with every open lane
+// and every finished lane whose claim a failed release left on the tracker.
 //
 // The session that merges a pull request is almost never the one that opened
 // the lane, so lanes were handed off and nobody closed them: continuity, the
@@ -61,18 +63,57 @@ type Swept struct {
 // worktree goes, the branch and the record stay, and the record says the
 // sweep did it and on what evidence.
 func (s *Store) Sweep(ctx context.Context, o SweepOptions) ([]Swept, error) {
-	open, err := s.List(false)
+	all, err := s.List(true)
 	if err != nil {
 		return nil, err
 	}
 	var out []Swept
-	for _, a := range open {
+	for _, a := range all {
 		if o.Repo != "" && !strings.EqualFold(strings.TrimSpace(o.Repo), strings.TrimSpace(a.Repo)) {
 			continue
 		}
-		out = append(out, s.sweepOne(ctx, a, o))
+		switch {
+		case a.State != StateClosed && a.State != StateAbandoned:
+			out = append(out, s.sweepOne(ctx, a, o))
+		case a.Claim != nil && a.Claim.Stranded != "":
+			out = append(out, s.retryRelease(a, o))
+		}
 	}
 	return out, nil
+}
+
+// retryRelease withdraws again the claims a finished lane failed to release.
+//
+// A failed release leaves the mellions:claimed label on the tracker, where a
+// peer reads it as a lane still holding the work; nothing else ever asks the
+// tracker again.
+func (s *Store) retryRelease(a *Assignment, o SweepOptions) Swept {
+	v := Swept{ID: a.ID, Verdict: "stranded"}
+	if s.Tracker == nil {
+		v.Why = "a " + a.State + " lane whose claim was not released (" + a.Claim.Stranded +
+			"); no tracker is configured here, so the sweep cannot retry it"
+		return v
+	}
+	if !o.Apply {
+		v.Why = "a " + a.State + " lane whose claim was not released (" + a.Claim.Stranded +
+			"); `mellions assign sweep -apply` retries it"
+		return v
+	}
+	got, err := s.update(a.ID, func(a *Assignment) error {
+		if a.Claim != nil && a.Claim.Stranded != "" {
+			s.releaseClaim(a)
+		}
+		return nil
+	})
+	switch {
+	case err != nil:
+		v.Why = "retrying the release failed: " + err.Error()
+	case got.Claim != nil && got.Claim.Stranded != "":
+		v.Why = "the claim is still not released: " + got.Claim.Stranded
+	default:
+		v.Verdict, v.Why = "released", "the claim a failed release left on the tracker is withdrawn"
+	}
+	return v
 }
 
 func (s *Store) sweepOne(ctx context.Context, a *Assignment, o SweepOptions) Swept {
@@ -139,6 +180,9 @@ func (s *Store) sweepOne(ctx context.Context, a *Assignment, o SweepOptions) Swe
 		return v
 	}
 	v.Verdict, v.Why = "closed", why
+	if got, err := s.Get(a.ID); err == nil && got.Claim != nil && got.Claim.Stranded != "" {
+		v.Why += "; the claim was not released (" + got.Claim.Stranded + "); `mellions assign sweep -apply` retries it"
+	}
 	if note := s.releaseJudged(ctx, a, pr); note != "" {
 		v.Why += "; " + note
 	}
