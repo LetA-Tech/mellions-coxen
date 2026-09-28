@@ -15,7 +15,7 @@ One copy per arm: a neutralisation left from the previous arm can mask the
 next. `git archive <rev>` carries that commit, not the index: a staged,
 uncommitted test is absent.
 Never falsify by restoring a working tree: it discards uncommitted work —
-yours or another's. With one arm and nothing
+yours or another session's. With one arm and nothing
 uncommitted at stake, toggling the edit in place — red, then green — is the
 arm.
 
@@ -26,7 +26,8 @@ it has no independent side: whatever moves the mechanism moves both halves,
 and the test stays green through the defect it was written for. Compare
 against something the mechanism cannot reach — a literal, a figure from the
 requirement, a golden file, a reference implementation, an invariant, a value
-read across the boundary the fix crosses.
+read across the boundary the fix crosses — never a call into the code under
+test.
 
 ## The revert arms
 
@@ -37,14 +38,14 @@ database), since an edit that no-ops (a `sed` that matched nothing, an
 unexpanded variable) reads exactly like a pass; the tests never reach the fix;
 the fix is idle; or a part of the same revert removed the condition the test
 needs — where one half of a fix creates the state the other half's defect lives
-in, each half wants its own arm. Revert half of a fix on its own and the half
-left standing can hold the test green, proving nothing about either.
+in, each half wants its own arm. Revert half of a fix alone and the half
+left standing can hold the test green, proving neither.
 
 Read the red: a wide revert can fail short of the assertion — a build break, a
 panic in a helper — or trip it by a mechanism you did not test. The red that
 counts is the assertion the fix exists for, by name.
 
-Where the fix is an instruction aimed at a model — a Skill, a prompt, a hook —
+Where the fix is aimed at a model — a Skill, a prompt, a hook —
 read `references/model-arms.md` first: the untreated run must be able to fail,
 and what counts as a difference is decided before either is read. Where
 something outside the process settles a race, read `references/race-arms.md`:
@@ -91,10 +92,10 @@ failure in a second copy with the same PATH, environment, working
 directory or cache reproduces the environment, not the tree, and reads exactly
 like "it fails at base too". Vary the one thing the claim is about.
 
-A pipeline's exit is its last stage's (`make check | tail` without
-`pipefail`), a backgrounded command's can be the launcher's: read the check's
-own output — a non-zero exit falsifies a green claim, a zero exit never
-establishes one.
+A pipeline's exit is its last stage's (`make check | tail` reports `tail`
+without `pipefail`); a backgrounded command's can be the launcher's, so
+"completed, exit 0" may attest only the spawn. Read the check's own output: a
+non-zero exit falsifies a green claim, a zero exit never establishes one.
 
 Mutation proves the tests see the change, not that the change reaches the
 outcome. Where a caller the tests never execute mediates the effect
@@ -102,13 +103,12 @@ outcome. Where a caller the tests never execute mediates the effect
 drive the entry point once at whatever fidelity is reachable and assert on
 the outcome the requirement names, not the unit's return value.
 
-Where the fix widens what something accepts — a matcher, a filter, a guard, an
+Where the fix widens what something accepts — a matcher, a filter, an
 allow-list — the revert arm shows what it now admits, never what it stopped
 catching: enumerate what the narrow form caught and the wide one lets through,
 remove only the clause meant to hold those back, and watch them go red. Where
-it refuses more, no arm shows whom else it refuses: run the real predicate, old
-and new, over what it will meet — live sessions, rows, sampled future input —
-and read each one newly refused.
+the fix refuses more, run the production predicate, old and new, over what it
+will meet — sessions, rows, sampled future input — and judge each newly refused.
 
 Where the claim is placement — a write inside another operation's
 transaction, lock or publish order — removing the write proves the write, not
@@ -122,11 +122,10 @@ touched: drive the write path the system drives, then read.
 Where what you measure is emitted once — a note said once per session, an
 at-most-once delivery, a lock taken by whoever asks first — the measurement is a
 consumable: a consumer you did not account for takes it, and your instrument
-records nothing, exactly like an arm producing nothing. Read the durable record
+records nothing. Read the durable record
 the emission leaves (the ledger, the offset, the holder), not the stream
 somebody else may have drained; a second reader on that stream is the same
 defect, now yours.
-
 
 ## Writing it down
 
