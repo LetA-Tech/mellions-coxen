@@ -79,6 +79,10 @@ func TestInputRedirectionTargets(t *testing.T) {
 		{`cat x < a < b`, []string{"cat", "x", "a", "b"}, []int{2, 3}},
 		{`cat <<< .env`, []string{"cat", ".env"}, nil},
 		{`cat <&3 x; ls y`, []string{"cat", "x"}, nil},
+		{`mellions < <(cat .env) report`, []string{"mellions", "<(cat .env)", "report"}, []int{1}},
+		{`diff <(ls a) b`, []string{"diff", "<(ls a)", "b"}, nil},
+		{`mellions <>x report .env`, []string{"mellions", "x", "report", ".env"}, []int{1}},
+		{`cat <>.env`, []string{"cat", ".env"}, []int{1}},
 	} {
 		c := Split(tt.cmd)[0]
 		if !reflect.DeepEqual(c.Words, tt.words) || !reflect.DeepEqual(c.In, tt.in) {
