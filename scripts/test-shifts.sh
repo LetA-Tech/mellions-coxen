@@ -621,7 +621,10 @@ start_runner "$k4home" "MELLIONS_SHIFTS_PER_DAY=1"; k4=$pid
 log="$k4home.out"
 wait_for 25 'ended rc=0' "$log" \
   || bad "K4: a day whose one shift the account refused was counted as spent: $(tail -5 "$log")"
-grep -q 'cap reached' "$log" && bad "K4: the refused shift was charged to the cap: $(tail -3 "$log")"
+# The shift K4 lets run is itself counted, so the runner says 'cap reached'
+# a cooldown after it ends; only a line before it charges the refused shift.
+awk '/ended rc=0/{exit} /cap reached/{f=1} END{exit !f}' "$log" \
+  && bad "K4: the refused shift was charged to the cap: $(tail -3 "$log")"
 kill -TERM "$k4" 2>/dev/null; wait_gone 10 "$k4"
 
 # The control for K4: the same day, the same cap, a shift that actually ran.
