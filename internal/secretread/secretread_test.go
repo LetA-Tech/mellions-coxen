@@ -270,8 +270,6 @@ func TestScanBash_FalseDenials(t *testing.T) {
 		// shape #77 opens with, and the guard denying a check of itself.
 		{"the guard's own check subcommand", `mellions secret check "ls -la"`},
 		{"the guard's hook entry fed a payload", `printf '%s' '{"tool_name":"Bash"}' | ./bin/mellions secret-check`},
-		{"asking the guard about a credential name", `mellions secret check "cat .env"`},
-		{"asking the guard about a path", `mellions secret check -path .git-credentials`},
 		// `git` is deliberately not a safe reader — `git show` prints file
 		// content — so this one turns on the name, not on the command word.
 		{"git add on the package directory", `git add internal/secretread/`},
@@ -328,6 +326,16 @@ func TestScanBash_NarrowingDidNotWiden(t *testing.T) {
 		{"a mellions command led by a flag", `mellions -file .env report`},
 		{"a printer after the guard in a pipeline", `mellions secret check x | cat .env`},
 		{"a printer after the guard in a sequence", `mellions secret-check; cat .pgpass`},
+		// A substitution hands the command a file's bytes, and the guard's
+		// findings and the unknown-command message print operand text back.
+		{"a credential substituted into a check", `mellions secret check "$(cat .env)"`},
+		{"the same with backticks", "mellions secret check `cat .env`"},
+		{"a credential substituted as the subcommand", `mellions "$(cat .env)"`},
+		{"a variable holding a credential path", `F=.env; mellions secret check $F`},
+		{"a captured credential handed to a report", `U="$(tail -1 .db_connection)"; mellions report write -id d -body "$U"`},
+		// A redirection is the shell opening the file, whatever reads stdin.
+		{"a credential redirected into the hook entry", `mellions secret-check < .env`},
+		{"a credential redirected into a check", `mellions secret check x < .env`},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			if got := ScanBash(tt.cmd); len(got) == 0 {
