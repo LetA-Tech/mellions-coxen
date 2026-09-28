@@ -15,7 +15,7 @@ One copy per arm: a neutralisation left from the previous arm can mask the
 next. `git archive <rev>` carries that commit, not the index: a staged,
 uncommitted test is absent.
 Never falsify by restoring a working tree: it discards uncommitted work —
-yours or another session's. With one arm and nothing
+yours or another's. With one arm and nothing
 uncommitted at stake, toggling the edit in place — red, then green — is the
 arm.
 
@@ -26,8 +26,7 @@ it has no independent side: whatever moves the mechanism moves both halves,
 and the test stays green through the defect it was written for. Compare
 against something the mechanism cannot reach — a literal, a figure from the
 requirement, a golden file, a reference implementation, an invariant, a value
-read across the boundary the fix crosses — never a call into the code under
-test.
+read across the boundary the fix crosses.
 
 ## The revert arms
 
@@ -77,8 +76,8 @@ worse than none.
 
 ## What a red or a green can still hide
 
-A status belongs to the last thing that produced it, and a green can be a
-verdict nobody computed this time.
+A status belongs to the last thing that produced it: a green can be a verdict
+nobody computed this time.
 
 A test that expects a failure is green on whatever stopped the path first — a
 missing table, a refused permission. Read which failure the run got; if it is
@@ -92,11 +91,10 @@ failure in a second copy with the same PATH, environment, working
 directory or cache reproduces the environment, not the tree, and reads exactly
 like "it fails at base too". Vary the one thing the claim is about.
 
-A pipeline's exit is its last stage's (`make check | tail` reports `tail`
-without `pipefail`), and a backgrounded command's can be the launcher's, so
-"completed, exit 0" may attest only that the spawn succeeded. Read
-the check's own output: a non-zero exit falsifies a green claim on its own, a
-zero exit never establishes one.
+A pipeline's exit is its last stage's (`make check | tail` without
+`pipefail`), a backgrounded command's can be the launcher's: read the check's
+own output — a non-zero exit falsifies a green claim, a zero exit never
+establishes one.
 
 Mutation proves the tests see the change, not that the change reaches the
 outcome. Where a caller the tests never execute mediates the effect
@@ -106,9 +104,11 @@ the outcome the requirement names, not the unit's return value.
 
 Where the fix widens what something accepts — a matcher, a filter, a guard, an
 allow-list — the revert arm shows what it now admits, never what it stopped
-catching. Enumerate the cases the narrow form caught and the wide one lets
-through, remove only the clause meant to hold them back, and watch those go red.
-A widening whose guard reds nothing is not guarded.
+catching: enumerate what the narrow form caught and the wide one lets through,
+remove only the clause meant to hold those back, and watch them go red. Where
+it refuses more, no arm shows whom else it refuses: run the real predicate, old
+and new, over what it will meet — live sessions, rows, sampled future input —
+and read each one newly refused.
 
 Where the claim is placement — a write inside another operation's
 transaction, lock or publish order — removing the write proves the write, not
