@@ -102,12 +102,12 @@ var guardSubcommands = map[string]bool{"secret": true, "secret-check": true}
 
 // dispatchedWords reports how many leading operands of reader are words the
 // program dispatches on rather than paths it opens. `mellions` switches on its
-// first operand and, for a name it does not know, prints the name and exits, so
-// that word is never a file; after one of guardSubcommands no operand is.
-// Every other `mellions` operand stays a candidate path: `report write -file`
-// stores a named file's bytes where `report latest` prints them.
+// first operand, flag-shaped or not, and for a word it does not know prints the
+// word and exits, so that word is never a file; after one of guardSubcommands no
+// operand is. Every other `mellions` operand stays a candidate path: `report
+// write -file` stores a named file's bytes where `report latest` prints them.
 func dispatchedWords(reader string, args []string) int {
-	if reader != "mellions" || len(args) == 0 || strings.HasPrefix(args[0], "-") {
+	if reader != "mellions" || len(args) == 0 {
 		return 0
 	}
 	if guardSubcommands[args[0]] {
