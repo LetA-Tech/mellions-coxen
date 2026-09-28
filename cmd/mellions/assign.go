@@ -677,6 +677,10 @@ func assignSweep(ctx context.Context, args []string) error {
 		fmt.Printf("%-28s %-9s %s\n", v.ID, v.Verdict, v.Why)
 	}
 	fmt.Println()
+	if n := counts["released"] + counts["stranded"]; n > 0 {
+		fmt.Printf("%d finished lane(s) whose claim a failed release left on the tracker: %d released now, %d still stranded.\n",
+			n, counts["released"], counts["stranded"])
+	}
 	switch {
 	case *apply:
 		fmt.Printf("%d closed — worktree removed, branch and record kept; %d kept.\n", counts["closed"], counts["kept"])

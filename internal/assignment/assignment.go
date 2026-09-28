@@ -1693,6 +1693,10 @@ func (a Assignment) Text(now time.Time) string {
 				claim.Label, a.Claim.Host, a.Claim.At.Format(time.RFC3339))
 		}
 	}
+	if a.Claim != nil && a.Claim.Stranded != "" {
+		fmt.Fprintf(&b, "- claim: NOT RELEASED — %s. A peer reads it as held; `mellions assign sweep -apply` retries the release\n",
+			a.Claim.Stranded)
+	}
 	if a.PullRequest != "" {
 		fmt.Fprintf(&b, "- change set: %s %s (claimed; a peer reads the claim before merging it)\n",
 			a.Repo, a.PullRequest)
