@@ -23,8 +23,8 @@ func TestReasonStatesTheNamesItMatched(t *testing.T) {
 	}{
 		{"a known printer on a credential path", `cat .db_connection`,
 			"`cat … .db_connection` — `.db_connection` is named like a credential file, and `cat` " + notOnSafeList},
-		{"the guard's own subcommand name", `./bin/mellions secret-check`,
-			"`mellions … secret-check` — `secret-check` is named like a credential file, and `mellions` " + notOnSafeList},
+		{"a first-party CLI operand", `./bin/mellions report write -id d -file app-secret`,
+			"`mellions … app-secret` — `app-secret` is named like a credential file, and `mellions` " + notOnSafeList},
 		{"a repository name argument", `gh release view v6.2.4 -R aws-actions/configure-aws-credentials --json body`,
 			"`gh … aws-actions/configure-aws-credentials` — `aws-actions/configure-aws-credentials` is " +
 				"named like a credential file, and `gh` " + notOnSafeList},

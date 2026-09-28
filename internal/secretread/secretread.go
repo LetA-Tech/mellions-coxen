@@ -94,6 +94,28 @@ var safeReaders = map[string]bool{
 	// a binary is a claim about every subcommand it will ever have.
 }
 
+// guardSubcommands are the `mellions` subcommands that are this guard's own
+// entry points. `secret check` scans the command string or `-path` name it is
+// given and `secret-check` reads a hook payload on stdin; neither opens a file
+// named on its command line, and both print only the names the scan matched.
+var guardSubcommands = map[string]bool{"secret": true, "secret-check": true}
+
+// dispatchedWords reports how many leading operands of reader are words the
+// program dispatches on rather than paths it opens. `mellions` switches on its
+// first operand and, for a name it does not know, prints the name and exits, so
+// that word is never a file; after one of guardSubcommands no operand is.
+// Every other `mellions` operand stays a candidate path: `report write -file`
+// stores a named file's bytes where `report latest` prints them.
+func dispatchedWords(reader string, args []string) int {
+	if reader != "mellions" || len(args) == 0 || strings.HasPrefix(args[0], "-") {
+		return 0
+	}
+	if guardSubcommands[args[0]] {
+		return len(args)
+	}
+	return 1
+}
+
 // consumers read a file into the shell rather than onto stdout.
 var consumers = map[string]bool{"source": true, ".": true}
 
@@ -433,7 +455,11 @@ func ScanBash(command string) []Finding {
 		// A variable holding a credential, printed back out. The capture was
 		// safe; handing it to a printer is the same leak one step later.
 		consumed := consumedFlags[reader]
+		dispatched := dispatchedWords(reader, args)
 		for ai, a := range args {
+			if ai < dispatched {
+				continue
+			}
 			for name := range holdsValue {
 				if printers[reader] && names(a, name) {
 					out = append(out, Finding{Path: "$" + name, Reader: reader, Value: true})

@@ -266,6 +266,12 @@ func TestScanBash_FalseDenials(t *testing.T) {
 		// The two words appear inside an identifier, not a filename.
 		{"the words inside a match pattern", `grep -ln -i 'credential\|secret' hooks/*.sh`},
 		{"an assignment id naming the package", `mellions assign open cx-secretread-false-denials -repo mellions-coxen`},
+		// The guard's own subcommand word read as a file named `secret`: the
+		// shape #77 opens with, and the guard denying a check of itself.
+		{"the guard's own check subcommand", `mellions secret check "ls -la"`},
+		{"the guard's hook entry fed a payload", `printf '%s' '{"tool_name":"Bash"}' | ./bin/mellions secret-check`},
+		{"asking the guard about a credential name", `mellions secret check "cat .env"`},
+		{"asking the guard about a path", `mellions secret check -path .git-credentials`},
 		// `git` is deliberately not a safe reader — `git show` prints file
 		// content — so this one turns on the name, not on the command word.
 		{"git add on the package directory", `git add internal/secretread/`},
@@ -313,6 +319,15 @@ func TestScanBash_NarrowingDidNotWiden(t *testing.T) {
 		// identity file to ssh and an in-place edit to sed, so the exoneration
 		// is keyed by reader and does not travel with the letter.
 		{"the same flag on a printer", `sed -i 's/x/y/' .env`},
+
+		// Only the dispatched word, and only the guard's own subcommands, are
+		// exonerated: every other `mellions` operand is still a path it may
+		// store and print back.
+		{"a mellions file flag after the subcommand", `mellions report write -id d -file .env`},
+		{"a subcommand-shaped word in a later position", `mellions report write -id d -file secret`},
+		{"a mellions command led by a flag", `mellions -file .env report`},
+		{"a printer after the guard in a pipeline", `mellions secret check x | cat .env`},
+		{"a printer after the guard in a sequence", `mellions secret-check; cat .pgpass`},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			if got := ScanBash(tt.cmd); len(got) == 0 {
