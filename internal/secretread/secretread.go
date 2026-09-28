@@ -99,13 +99,33 @@ var safeReaders = map[string]bool{
 // first operand, flag-shaped or not, and for a word it does not know prints the
 // word and exits, so that word — `secret`, `secret-check` among them — is never
 // a file. Every later `mellions` operand stays a candidate path: `report write
-// -file` stores a named file's bytes where `report latest` prints them, and the
-// lexer hands on an input redirection's target as an ordinary word.
+// -file` stores a named file's bytes where `report latest` prints them. args
+// must not hold an input redirection's target, which sits anywhere on the line.
 func dispatchedWords(reader string, args []string) int {
 	if reader != "mellions" || len(args) == 0 {
 		return 0
 	}
 	return 1
+}
+
+// argv splits c's words into the ones the program is given and the targets of
+// its input redirections.
+func argv(c *shellsplit.Command) (words, redirected []string) {
+	if len(c.In) == 0 {
+		return c.Words, nil
+	}
+	in := map[int]bool{}
+	for _, i := range c.In {
+		in[i] = true
+	}
+	for i, w := range c.Words {
+		if in[i] {
+			redirected = append(redirected, w)
+		} else {
+			words = append(words, w)
+		}
+	}
+	return words, redirected
 }
 
 // literalWord reports whether the shell passes word through without expanding
@@ -408,7 +428,9 @@ func ScanBash(command string) []Finding {
 	holdsPath := map[string]bool{}
 
 	for _, c := range shellsplit.Split(command) {
-		words := c.Words
+		// An input redirection's target is a file the command reads, never
+		// its command word or one of its arguments.
+		words, redirected := argv(c)
 		if len(words) == 0 {
 			continue
 		}
@@ -448,7 +470,8 @@ func ScanBash(command string) []Finding {
 			continue
 		}
 		reader := path.Base(words[i])
-		args := words[i+1:]
+		dispatched := dispatchedWords(reader, words[i+1:])
+		args := append(words[i+1:len(words):len(words)], redirected...)
 
 		if consumers[reader] {
 			continue
@@ -457,7 +480,6 @@ func ScanBash(command string) []Finding {
 		// A variable holding a credential, printed back out. The capture was
 		// safe; handing it to a printer is the same leak one step later.
 		consumed := consumedFlags[reader]
-		dispatched := dispatchedWords(reader, args)
 		for ai, a := range args {
 			if ai < dispatched && literalWord(a) {
 				continue
