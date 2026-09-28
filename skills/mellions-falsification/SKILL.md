@@ -38,14 +38,14 @@ database), since an edit that no-ops (a `sed` that matched nothing, an
 unexpanded variable) reads exactly like a pass; the tests never reach the fix;
 the fix is idle; or a part of the same revert removed the condition the test
 needs — where one half of a fix creates the state the other half's defect lives
-in, each half wants its own arm. Revert half of a fix on its own and the half
-left standing can hold the test green, proving nothing about either.
+in, each half wants its own arm. Revert half of a fix alone and the half
+left standing can hold the test green, proving neither.
 
 Read the red: a wide revert can fail short of the assertion — a build break, a
 panic in a helper — or trip it by a mechanism you did not test. The red that
 counts is the assertion the fix exists for, by name.
 
-Where the fix is an instruction aimed at a model — a Skill, a prompt, a hook —
+Where the fix is aimed at a model — a Skill, a prompt, a hook —
 read `references/model-arms.md` first: the untreated run must be able to fail,
 and what counts as a difference is decided before either is read. Where
 something outside the process settles a race, read `references/race-arms.md`:
@@ -77,8 +77,8 @@ worse than none.
 
 ## What a red or a green can still hide
 
-A status belongs to the last thing that produced it, and a green can be a
-verdict nobody computed this time.
+A status belongs to the last thing that produced it: a green can be a verdict
+nobody computed this time.
 
 A test that expects a failure is green on whatever stopped the path first — a
 missing table, a refused permission. Read which failure the run got; if it is
@@ -93,10 +93,9 @@ directory or cache reproduces the environment, not the tree, and reads exactly
 like "it fails at base too". Vary the one thing the claim is about.
 
 A pipeline's exit is its last stage's (`make check | tail` reports `tail`
-without `pipefail`), and a backgrounded command's can be the launcher's, so
-"completed, exit 0" may attest only that the spawn succeeded. Read
-the check's own output: a non-zero exit falsifies a green claim on its own, a
-zero exit never establishes one.
+without `pipefail`); a backgrounded command's can be the launcher's, so
+"completed, exit 0" may attest only the spawn. Read the check's own output: a
+non-zero exit falsifies a green claim, a zero exit never establishes one.
 
 Mutation proves the tests see the change, not that the change reaches the
 outcome. Where a caller the tests never execute mediates the effect
@@ -104,11 +103,12 @@ outcome. Where a caller the tests never execute mediates the effect
 drive the entry point once at whatever fidelity is reachable and assert on
 the outcome the requirement names, not the unit's return value.
 
-Where the fix widens what something accepts — a matcher, a filter, a guard, an
+Where the fix widens what something accepts — a matcher, a filter, an
 allow-list — the revert arm shows what it now admits, never what it stopped
-catching. Enumerate the cases the narrow form caught and the wide one lets
-through, remove only the clause meant to hold them back, and watch those go red.
-A widening whose guard reds nothing is not guarded.
+catching: enumerate what the narrow form caught and the wide one lets through,
+remove only the clause meant to hold those back, and watch them go red. Where
+the fix refuses more, run the production predicate, old and new, over what it
+will meet — sessions, rows, sampled future input — and judge each newly refused.
 
 Where the claim is placement — a write inside another operation's
 transaction, lock or publish order — removing the write proves the write, not
@@ -122,11 +122,10 @@ touched: drive the write path the system drives, then read.
 Where what you measure is emitted once — a note said once per session, an
 at-most-once delivery, a lock taken by whoever asks first — the measurement is a
 consumable: a consumer you did not account for takes it, and your instrument
-records nothing, exactly like an arm producing nothing. Read the durable record
+records nothing. Read the durable record
 the emission leaves (the ledger, the offset, the holder), not the stream
 somebody else may have drained; a second reader on that stream is the same
 defect, now yours.
-
 
 ## Writing it down
 
