@@ -25,6 +25,8 @@ func TestReasonStatesTheNamesItMatched(t *testing.T) {
 			"`cat … .db_connection` — `.db_connection` is named like a credential file, and `cat` " + notOnSafeList},
 		{"a first-party CLI operand", `./bin/mellions report write -id d -file app-secret`,
 			"`mellions … app-secret` — `app-secret` is named like a credential file, and `mellions` " + notOnSafeList},
+		{"a process substitution handed to an unlisted reader", `perl -pe1 <(cat .env)`,
+			"`perl … .env` — `.env` is named like a credential file, and `perl` " + notOnSafeList},
 		{"a repository name argument", `gh release view v6.2.4 -R aws-actions/configure-aws-credentials --json body`,
 			"`gh … aws-actions/configure-aws-credentials` — `aws-actions/configure-aws-credentials` is " +
 				"named like a credential file, and `gh` " + notOnSafeList},

@@ -230,6 +230,13 @@ func lex(command string, i int, stopAtParen bool) ([]*Command, int) {
 				redirIn = true
 			}
 
+		case c == '>' && i+1 < len(command) && command[i+1] == '(':
+			// An output process substitution is one word, as `<(` is.
+			var text string
+			text, i = substitution(command, i)
+			w.WriteString(text)
+			hasWord = true
+
 		case c == '>':
 			endWord()
 			if strings.HasPrefix(command[i:], ">>") {

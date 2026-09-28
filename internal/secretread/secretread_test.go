@@ -271,6 +271,7 @@ func TestScanBash_FalseDenials(t *testing.T) {
 		{"the guard's own check subcommand", `mellions secret check "ls -la"`},
 		{"the guard's hook entry fed a payload", `printf '%s' '{"tool_name":"Bash"}' | ./bin/mellions secret-check`},
 		{"asking the guard about a command that reads one", `mellions secret check "cat .env"`},
+		{"a safe reader counting a process substitution", `wc -l <(cat .env)`},
 		// `git` is deliberately not a safe reader — `git show` prints file
 		// content — so this one turns on the name, not on the command word.
 		{"git add on the package directory", `git add internal/secretread/`},
@@ -346,6 +347,14 @@ func TestScanBash_NarrowingDidNotWiden(t *testing.T) {
 		{"a redirection before the command word", `< .env cat`},
 		{"a process substitution redirected before the subcommand", `mellions < <(cat .env) report write -file -`},
 		{"a read-write redirection", `cat <>.env`},
+		// A process substitution is a path to what its command reads: the
+		// reader's own default applies, and `>(` runs a command of its own.
+		{"a process substitution read by a non-printer", `perl -pe1 <(cat .env)`},
+		{"a nested process substitution", `perl -pe1 <(<(cat .env))`},
+		{"a process substitution redirected into an interpreter", `python3 < <(tail -1 .db_connection)`},
+		{"an output process substitution that prints", `mellions >(cat .env)`},
+		{"the same behind a safe reader", `wc >(cat .env)`},
+		{"a process substitution as the subcommand", `mellions <(cat .env)`},
 		{"a read-write redirection before the subcommand", `mellions <>.env report write -file -`},
 	} {
 		t.Run(tt.name, func(t *testing.T) {

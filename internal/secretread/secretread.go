@@ -132,7 +132,7 @@ func argv(c *shellsplit.Command) (words, redirected []string) {
 // a variable or a substitution into it. An expanded word carries whatever the
 // expansion produced, and `mellions` prints an unknown command word back.
 func literalWord(word string) bool {
-	return !strings.ContainsAny(word, "$`")
+	return !strings.ContainsAny(word, "$`") && !strings.Contains(word, "<(") && !strings.Contains(word, ">(")
 }
 
 // consumers read a file into the shell rather than onto stdout.
@@ -498,6 +498,19 @@ func ScanBash(command string) []Finding {
 			if ai > 0 && consumed[args[ai-1]] {
 				continue
 			}
+			// A process substitution hands the reader a path to its output, so
+			// the path default applies, not the printer one; the inner command
+			// of `>(` writes wherever it likes, so it is scanned as a command.
+			if strings.HasPrefix(a, ">(") && strings.HasSuffix(a, ")") {
+				out = append(out, ScanBash(a[2:len(a)-1])...)
+				continue
+			}
+			if strings.Contains(a, "<(") || strings.Contains(a, ">(") {
+				if p := secretInside(a); p != "" && !safeReaders[reader] {
+					out = append(out, Finding{Path: p, Reader: reader})
+				}
+				continue
+			}
 			if found := secretsInWord(a); len(found) > 0 {
 				// A path, however it is spelled: the command opens the file
 				// itself. Only the enumerated non-emitters are exonerated.
@@ -525,7 +538,7 @@ func containsSecretRead(word string) bool {
 // secretInside returns the credential path embedded in a command or process
 // substitution, or "".
 func secretInside(word string) string {
-	if !strings.Contains(word, "$(") && !strings.Contains(word, "<(") && !strings.Contains(word, "`") {
+	if !strings.Contains(word, "$(") && !strings.Contains(word, "<(") && !strings.Contains(word, ">(") && !strings.Contains(word, "`") {
 		return ""
 	}
 	for _, f := range strings.FieldsFunc(word, func(r rune) bool {
