@@ -270,6 +270,7 @@ func TestScanBash_FalseDenials(t *testing.T) {
 		// shape #77 opens with, and the guard denying a check of itself.
 		{"the guard's own check subcommand", `mellions secret check "ls -la"`},
 		{"the guard's hook entry fed a payload", `printf '%s' '{"tool_name":"Bash"}' | ./bin/mellions secret-check`},
+		{"asking the guard about a command that reads one", `mellions secret check "cat .env"`},
 		// `git` is deliberately not a safe reader — `git show` prints file
 		// content — so this one turns on the name, not on the command word.
 		{"git add on the package directory", `git add internal/secretread/`},
