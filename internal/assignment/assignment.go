@@ -427,12 +427,15 @@ func (s *Store) Open(o OpenOptions) (*Assignment, error) {
 	// keeps one lock file per assignment — the same one every other mutator
 	// uses — instead of a second one somewhere else that guards a different
 	// thing.
+	// A directory already at the lane's place is not this open's to remove.
+	_, statErr := os.Stat(s.dir(id))
+	ours := os.IsNotExist(statErr)
 	if err := os.MkdirAll(s.dir(id), 0o755); err != nil {
 		return nil, fmt.Errorf("assignment: create %s: %w", s.dir(id), err)
 	}
 	var opened *Assignment
 	err := durable.Guard(s.file(id), func() error {
-		a, err := s.create(id, o)
+		a, err := s.create(id, o, ours)
 		if err != nil {
 			return err
 		}
@@ -765,7 +768,7 @@ func (s *Store) releaseClaim(a *Assignment) {
 // Its failure paths undo what it made. A branch cut for a lane that then failed
 // to open is not harmless litter: it is the thing that makes the id permanently
 // unopenable, and it is invisible to every command here.
-func (s *Store) create(id string, o OpenOptions) (*Assignment, error) {
+func (s *Store) create(id string, o OpenOptions, ours bool) (*Assignment, error) {
 	if _, err := os.Stat(s.file(id)); err == nil {
 		return nil, fmt.Errorf("assignment: %s already exists", id)
 	}
@@ -778,8 +781,16 @@ func (s *Store) create(id string, o OpenOptions) (*Assignment, error) {
 		return nil, err
 	}
 
+	// Files at the lane's place that no record holds belong to something else:
+	// a tree made by hand, a crash's leftovers. Open cuts nothing among them.
 	if o.Worktree != "" {
-		return s.adopt(id, o)
+		return s.adopt(id, o, ours)
+	}
+	if entries, err := os.ReadDir(s.dir(id)); err == nil && slices.ContainsFunc(entries, func(e os.DirEntry) bool {
+		return e.Name() != filepath.Base(s.file(id))+".lock"
+	}) {
+		return nil, fmt.Errorf("assignment: %s already holds files and no assignment records them; "+
+			"adopt a tree in it with -worktree, or look before removing it", s.dir(id))
 	}
 
 	branch := o.Branch
@@ -794,7 +805,7 @@ func (s *Store) create(id string, o OpenOptions) (*Assignment, error) {
 
 	base, pin := s.baseFor(o.Source, o.BaseRef)
 	if base == "" {
-		os.RemoveAll(s.dir(id))
+		s.discard(id, ours)
 		return nil, fmt.Errorf("assignment: read HEAD of %s: nothing to cut %s from", o.Source, branch)
 	}
 
@@ -804,7 +815,7 @@ func (s *Store) create(id string, o OpenOptions) (*Assignment, error) {
 	// removing it on the way out of our own failure would be a worse defect
 	// than the one this cleanup exists for.
 	if _, err := s.Git(o.Source, "rev-parse", "--verify", "--quiet", "refs/heads/"+branch); err == nil {
-		os.RemoveAll(s.dir(id))
+		s.discard(id, ours)
 		return nil, fmt.Errorf("assignment: %s cannot be opened: branch %s already exists in %s and no "+
 			"assignment holds it. Something left it behind, or somebody else is using it. Look before "+
 			"removing it: `git -C %s log --oneline %s`",
@@ -818,7 +829,7 @@ func (s *Store) create(id string, o OpenOptions) (*Assignment, error) {
 		// because the check above established the branch was not there.
 		s.Git(o.Source, "worktree", "remove", "--force", worktree)
 		s.Git(o.Source, "branch", "-D", branch)
-		os.RemoveAll(s.dir(id))
+		s.discard(id, ours)
 		return nil, fmt.Errorf("assignment: create worktree for %s: %w", id, err)
 	}
 
@@ -832,7 +843,7 @@ func (s *Store) create(id string, o OpenOptions) (*Assignment, error) {
 	undo := func() {
 		s.Git(o.Source, "worktree", "remove", "--force", worktree)
 		s.Git(o.Source, "branch", "-D", branch)
-		os.RemoveAll(s.dir(id))
+		s.discard(id, ours)
 	}
 	if err := s.publishClaim(ctx, a, o.Unpublished); err != nil {
 		undo()
@@ -975,6 +986,14 @@ func (s *Store) resolveRemoteBranch(source, local, remote, branch string) (base,
 	return base, pin
 }
 
+// discard removes the lane's directory on the way out of a failed open, when
+// this open made it.
+func (s *Store) discard(id string, ours bool) {
+	if ours {
+		os.RemoveAll(s.dir(id))
+	}
+}
+
 // adopt records a lane in a working tree that already exists. A repository's
 // own process may dictate where its work happens and what the branch is
 // called; forcing a second tree beside it makes the record point at the wrong
@@ -982,28 +1001,28 @@ func (s *Store) resolveRemoteBranch(source, local, remote, branch string) (base,
 //
 // Nothing adopted is ours to destroy. The tree and the branch stay where they
 // are whatever happens to the lane.
-func (s *Store) adopt(id string, o OpenOptions) (*Assignment, error) {
+func (s *Store) adopt(id string, o OpenOptions, ours bool) (*Assignment, error) {
 	tree, err := filepath.Abs(o.Worktree)
 	if err == nil {
 		tree, err = filepath.EvalSymlinks(tree)
 	}
 	if err != nil {
-		os.RemoveAll(s.dir(id))
+		s.discard(id, ours)
 		return nil, fmt.Errorf("assignment: adopt %s: %w", o.Worktree, err)
 	}
 	top, err := s.Git(tree, "rev-parse", "--show-toplevel")
 	if err != nil || !samePath(strings.TrimSpace(string(top)), tree) {
-		os.RemoveAll(s.dir(id))
+		s.discard(id, ours)
 		return nil, fmt.Errorf("assignment: %s is not the top of a git working tree", tree)
 	}
 	if !sameGitDir(s, tree, o.Source) {
-		os.RemoveAll(s.dir(id))
+		s.discard(id, ours)
 		return nil, fmt.Errorf("assignment: %s is not a working tree of %s", tree, o.Source)
 	}
 	out, err := s.Git(tree, "rev-parse", "--abbrev-ref", "HEAD")
 	branch := strings.TrimSpace(string(out))
 	if err != nil || branch == "" || branch == "HEAD" {
-		os.RemoveAll(s.dir(id))
+		s.discard(id, ours)
 		return nil, fmt.Errorf("assignment: %s is not on a branch; a lane needs one to record", tree)
 	}
 	head, _ := s.Git(tree, "rev-parse", "HEAD")
@@ -1021,12 +1040,12 @@ func (s *Store) adopt(id string, o OpenOptions) (*Assignment, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 	if err := s.publishClaim(ctx, a, o.Unpublished); err != nil {
-		os.RemoveAll(s.dir(id))
+		s.discard(id, ours)
 		return nil, err
 	}
 	if err := s.save(a); err != nil {
 		s.releaseClaim(a)
-		os.RemoveAll(s.dir(id))
+		s.discard(id, ours)
 		return nil, err
 	}
 	return a, nil
