@@ -351,6 +351,15 @@ grep -q 'already alive here' "$home.out" && bad "E3: the re-executed runner refu
 n=$(count 'ended rc=0' "$log")
 wait_count 20 $((n + 1)) 'ended rc=0' "$log" || bad "E3: no shift ran after the re-exec: $(tail -3 "$log")"
 [ "$(count 'runner re-exec' "$log")" -eq 1 ] || bad "E3: one change was re-executed more than once"
+# A copy that does not parse is never exec'd: the runner would die with no runner left.
+g3 "$up" pull -q 2>/dev/null; printf '\nif then fi\n' >> "$up/scripts/shifts.sh"
+g3 "$up" commit -q -am three; g3 "$up" push -q 2>/dev/null
+wait_for 30 "runner: $co/scripts/shifts.sh changed on disk and does not parse" "$log" || bad "E3: a copy that does not parse was not refused by name: $(tail -5 "$log")"
+n=$(count 'ended rc=0' "$log")
+wait_count 20 $((n + 1)) 'ended rc=0' "$log" || bad "E3: no shift ran after an unparseable copy landed: $(tail -3 "$log")"
+kill -0 "$e3" 2>/dev/null || bad "E3: the runner died on an unparseable copy of itself"
+[ "$(count 'runner re-exec' "$log")" -eq 1 ] || bad "E3: an unparseable copy was exec'd"
+[ "$(count 'does not parse' "$log")" -eq 1 ] || bad "E3: one unparseable change was refused more than once"
 touch "$home/stop"; wait_gone 10 "$e3" || bad "E3: the re-executed runner did not stop"
 
 # ---- E4. the binary installed is the one PATH resolves at the update -------------
