@@ -326,6 +326,85 @@ wait_for 30 "update ok: $sha2" "$log" || bad "E2: a clean checkout carrying only
 [ -e "$co/stray.tmp" ] || bad "E2: the update removed an untracked file"
 touch "$home/stop"; wait_gone 10 "$e2" || bad "E2: the runner did not stop"
 
+# ---- E3. an update that changes the runner's own file runs the new copy ----------
+# bash executes the copy it opened and a pull replaces the inode, so without a
+# re-exec a runner started before a fix to itself runs the old code for good.
+home="$tmp/e3"; mkdir -p "$home"; log="$home/shifts/runner.log"
+origin="$tmp/origin3.git"; git init -q --bare "$origin"
+co="$tmp/co3"; git clone -q "$origin" "$co" 2>/dev/null
+g3() { git -C "$1" -c user.name=t -c user.email=t@t "${@:2}"; }
+printf 'build:\n\t@mkdir -p bin && cp "$$STUB_DIR/mellions" bin/mellions\ncheck:\n\t@echo checked\n' > "$co/Makefile"
+mkdir -p "$co/scripts"; cp "$runner" "$co/scripts/shifts.sh"
+g3 "$co" add Makefile scripts/shifts.sh; g3 "$co" commit -q -m one; g3 "$co" push -q -u origin HEAD 2>/dev/null
+mkdir -p "$tmp/bin3"; cp "$STUB_DIR/mellions" "$tmp/bin3/mellions"; record "$co"
+env MELLIONS_AUTOUPDATE=1 MELLIONS_BIN="$tmp/bin3/mellions" MELLIONS_SHIFT="$root/scripts/shift.sh" MELLIONS_HOME="$home" \
+  "$co/scripts/shifts.sh" > "$home.out" 2>&1 &
+e3=$!; runners="$runners $e3"
+wait_for 15 'ended rc=0' "$log" || bad "E3: no shift ran before the change: $(tail -3 "$log")"
+up="$tmp/up3"; git clone -q "$origin" "$up" 2>/dev/null
+sed 's/runner start: pid/runner start (v2): pid/' "$runner" > "$up/scripts/shifts.sh"
+g3 "$up" commit -q -am two; g3 "$up" push -q 2>/dev/null
+wait_for 30 "runner start (v2): pid $e3" "$log" || bad "E3: the runner did not run its updated copy: $(tail -5 "$log")"
+grep -q "runner re-exec: $co/scripts/shifts.sh changed on disk since pid $e3" "$log" || bad "E3: the re-exec was not logged"
+[ "$(cat "$home/shifts/runner.lock" 2>/dev/null)" = "$e3" ] || bad "E3: the re-executed runner does not hold the lock"
+grep -q 'already alive here' "$home.out" && bad "E3: the re-executed runner refused itself as a second runner"
+n=$(count 'ended rc=0' "$log")
+wait_count 20 $((n + 1)) 'ended rc=0' "$log" || bad "E3: no shift ran after the re-exec: $(tail -3 "$log")"
+[ "$(count 'runner re-exec' "$log")" -eq 1 ] || bad "E3: one change was re-executed more than once"
+# A copy that does not parse is never exec'd: the runner would die with no runner left.
+g3 "$up" pull -q 2>/dev/null; f="$up/scripts/shifts.sh"
+{ head -1 "$f"; echo 'if then fi'; tail -n +2 "$f"; } > "$f.new" && mv "$f.new" "$f"
+g3 "$up" commit -q -am three; g3 "$up" push -q 2>/dev/null
+wait_for 30 "runner: $co/scripts/shifts.sh changed on disk and does not parse" "$log" || bad "E3: a copy that does not parse was not refused by name: $(tail -5 "$log")"
+n=$(count 'ended rc=0' "$log")
+wait_count 20 $((n + 1)) 'ended rc=0' "$log" || bad "E3: no shift ran after an unparseable copy landed: $(tail -3 "$log")"
+kill -0 "$e3" 2>/dev/null || bad "E3: the runner died on an unparseable copy of itself"
+[ "$(count 'runner re-exec' "$log")" -eq 1 ] || bad "E3: an unparseable copy was exec'd"
+[ "$(count 'does not parse' "$log")" -eq 1 ] || bad "E3: one unparseable change was refused more than once"
+touch "$home/stop"; wait_gone 10 "$e3" || bad "E3: the re-executed runner did not stop"
+
+# ---- E5. a stop signalled during an update is not lost to a re-exec ---------------
+# The signal lives only in the process; exec'ing a changed copy would forget it
+# and run shifts on, and even without a change no further shift may start.
+home="$tmp/e5"; mkdir -p "$home"; log="$home/shifts/runner.log"
+origin="$tmp/origin5.git"; git init -q --bare "$origin"
+co="$tmp/co5"; git clone -q "$origin" "$co" 2>/dev/null
+printf 'build:\n\t@touch "$$E5_MARK"; sleep 3; mkdir -p bin && cp "$$STUB_DIR/mellions" bin/mellions\ncheck:\n\t@echo checked\n' > "$co/Makefile"
+mkdir -p "$co/scripts"; cp "$runner" "$co/scripts/shifts.sh"
+g3 "$co" add Makefile scripts/shifts.sh; g3 "$co" commit -q -m one; g3 "$co" push -q -u origin HEAD 2>/dev/null
+up="$tmp/up5"; git clone -q "$origin" "$up" 2>/dev/null
+sed 's/runner start: pid/runner start (v2): pid/' "$runner" > "$up/scripts/shifts.sh"
+g3 "$up" commit -q -am two; g3 "$up" push -q 2>/dev/null
+mkdir -p "$tmp/bin5"; cp "$STUB_DIR/mellions" "$tmp/bin5/mellions"; record "$co"
+env E5_MARK="$tmp/e5.building" MELLIONS_AUTOUPDATE=1 MELLIONS_BIN="$tmp/bin5/mellions" MELLIONS_SHIFT="$root/scripts/shift.sh" MELLIONS_HOME="$home" \
+  "$co/scripts/shifts.sh" > "$home.out" 2>&1 &
+e5=$!; runners="$runners $e5"
+i=0; while [ ! -e "$tmp/e5.building" ] && [ $i -lt 150 ]; do sleep 0.1; i=$((i + 1)); done
+[ -e "$tmp/e5.building" ] || bad "E5: the update never started: $(tail -3 "$log")"
+kill -TERM "$e5"
+wait_gone 15 "$e5" || { bad "E5: a runner signalled during its update is still alive: $(tail -3 "$log")"; touch "$home/stop"; wait_gone 20 "$e5"; }
+[ "$(count 'runner re-exec' "$log")" -eq 0 ] || bad "E5: the runner exec'd its changed copy after a stop was signalled"
+[ "$(count 'starting' "$log")" -eq 0 ] || bad "E5: a shift started after a stop was signalled during the update"
+
+# ---- E4. the binary installed is the one PATH resolves at the update -------------
+# A copy that appears earlier on PATH after the runner started is what every
+# session runs; installing to the path resolved at start leaves it stale for good.
+home="$tmp/e4"; mkdir -p "$home"; log="$home/shifts/runner.log"
+origin="$tmp/origin4.git"; git init -q --bare "$origin"
+co="$tmp/co4"; git clone -q "$origin" "$co" 2>/dev/null
+printf 'build:\n\t@mkdir -p bin && cp "$$STUB_DIR/mellions" bin/mellions\ncheck:\n\t@echo checked\n' > "$co/Makefile"
+g3 "$co" add Makefile; g3 "$co" commit -q -m one; g3 "$co" push -q -u origin HEAD 2>/dev/null
+sha=$(git -C "$co" rev-parse --short HEAD)
+mkdir -p "$tmp/p1" "$tmp/p2"; cp "$STUB_DIR/mellions" "$tmp/p2/mellions"; record "$co"
+start_runner "$home" "MELLIONS_AUTOUPDATE=1 MELLIONS_CHECKOUT=$co MELLIONS_BIN= PATH=$tmp/p1:$tmp/p2:$PATH"; e4=$pid
+wait_for 15 "update ok: $sha pulled, built and checked; the binary is at $tmp/p2/mellions" "$log" || bad "E4: the first install did not go to the only copy on PATH: $(tail -3 "$log")"
+{ cat "$STUB_DIR/mellions"; echo '# an older build'; } > "$tmp/p1/mellions"; chmod +x "$tmp/p1/mellions"
+wait_for 30 "the binary is at $tmp/p1/mellions" "$log" || bad "E4: the runner kept its start-time path while PATH resolves $tmp/p1/mellions: $(tail -3 "$log")"
+cmp -s "$co/bin/mellions" "$tmp/p1/mellions" || bad "E4: the copy PATH resolves is not the checkout's build"
+n=$(count "update: $sha is what runs already" "$log")
+wait_count 20 $((n + 1)) "update: $sha is what runs already" "$log" || bad "E4: an installed copy was built again: $(tail -3 "$log")"
+touch "$home/stop"; wait_gone 10 "$e4" || bad "E4: the runner did not stop"
+
 # ---- F. a lock left by a dead runner is taken over -------------------------------
 home="$tmp/f"; mkdir -p "$home/shifts"; log="$home/shifts/runner.log"; record "$root"
 sleep 0.01 & dead=$!; wait "$dead"
