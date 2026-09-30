@@ -364,3 +364,52 @@ func TestScanBash_NarrowingDidNotWiden(t *testing.T) {
 		})
 	}
 }
+
+// Every substitution runs where bash finds it — an operand, a redirection
+// target, mid-word, inside another substitution — so its commands are scanned
+// wherever it sits, and a captured one only for what escapes the capture.
+func TestScanBash_SubstitutionsAreScannedWhereBashRunsThem(t *testing.T) {
+	for _, tt := range []struct{ name, cmd string }{
+		{"an output substitution as a redirection target", `echo hi > >(cat .env)`},
+		{"the same on stderr", `echo hi 2> >(cat .env)`},
+		{"the same appending", `echo hi >> >(cat .env)`},
+		{"the same for both streams", `echo hi &> >(cat .env)`},
+		{"the same with a mellions reader", `mellions version > >(cat .env)`},
+		{"an output substitution mid-word", `ls x>(cat .env)`},
+		{"an input substitution whose stdout goes to stderr", `ls <(cat .env >&2)`},
+		{"the same written 1>&2", `ls <(cat .env 1>&2)`},
+		{"a revision:path read by a printer", `diff <(git show x:.env) y`},
+		{"a revision:path at the top level", `git show HEAD:.env`},
+		{"an output substitution inside a captured one", `ls "$(true >(cat .env))"`},
+		{"a captured read sent to stderr", `X="$(cat .env >&2)"`},
+		{"a captured read piped to the terminal", `X="$(cat .env | tee /dev/stderr)"`},
+		{"a captured read redirected to the terminal", `X=$(cat .env > /dev/tty)`},
+		{"a backquoted read sent to stderr", "ls `cat .env >&2`"},
+		{"an output substitution inside backquotes", "true `true >(cat .env)`"},
+		{"an output substitution inside double quotes", `echo "x$(true >(cat .env))"`},
+		{"an output substitution as an input target", `cat < >(cat .env)`},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := ScanBash(tt.cmd); len(got) == 0 {
+				t.Errorf("ScanBash(%q) found nothing; its substitution prints a credential", tt.cmd)
+			}
+		})
+	}
+	for _, tt := range []struct{ name, cmd string }{
+		{"a captured read handed to a non-printer", `psql "$(tail -1 .db_connection)"`},
+		{"a captured read in an assignment", `URL="$(tail -1 .db_connection)"`},
+		{"a backquoted capture in an assignment", "URL=`tail -1 .db_connection`"},
+		{"a captured read whose stderr joins the capture", `X="$(cat .env 2>&1)"`},
+		{"a safe reader counting an input substitution", `wc -l <(cat .env)`},
+		{"output substitutions reading nothing", `echo hi > >(tee out.log)`},
+		{"input substitutions reading nothing", `diff <(ls) <(ls -a)`},
+		{"a substitution reading nothing", `ls $(pwd)`},
+		{"a revision:path that is not a credential", `git show HEAD:go.mod`},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := ScanBash(tt.cmd); len(got) != 0 {
+				t.Errorf("ScanBash(%q) = %+v; nothing here prints a credential", tt.cmd, got)
+			}
+		})
+	}
+}

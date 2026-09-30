@@ -93,3 +93,42 @@ func TestInputRedirectionTargets(t *testing.T) {
 		t.Errorf("a descriptor duplication leaked a mark into the next command: %+v", cs)
 	}
 }
+
+// A substitution's commands are recorded on the command that carries it,
+// whichever word it sits in, with the kind that says whether they are captured.
+func TestSubstitutionsAreRecordedWhereverTheySit(t *testing.T) {
+	for _, tt := range []struct {
+		name, cmd string
+		kind      byte
+		inner     string
+	}{
+		{"an operand", `ls $(cat a)`, '$', "cat"},
+		{"backquotes", "ls `cat a`", '`', "cat"},
+		{"a redirection target", `echo hi > >(cat a)`, '>', "cat"},
+		{"an input target", `cat < <(cat a)`, '<', "cat"},
+		{"mid-word", `ls x>(cat a)`, '>', "cat"},
+		{"inside double quotes", `echo "x$(cat a)"`, '$', "cat"},
+		{"backquotes inside double quotes", "echo \"x`cat a`\"", '`', "cat"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			cmds := Split(tt.cmd)
+			if len(cmds) != 1 || len(cmds[0].Subs) != 1 {
+				t.Fatalf("Split(%q) = %d commands, subs %+v; want one command carrying one substitution", tt.cmd, len(cmds), cmds)
+			}
+			s := cmds[0].Subs[0]
+			if s.Kind != tt.kind || len(s.Cmds) != 1 || s.Cmds[0].Words[0] != tt.inner {
+				t.Fatalf("Split(%q) substitution = kind %q cmds %+v; want kind %q running %q", tt.cmd, s.Kind, s.Cmds, tt.kind, tt.inner)
+			}
+		})
+	}
+	for _, tt := range []struct {
+		cmd string
+		dup bool
+	}{
+		{`cat a >&2`, true}, {`cat a 1>&2`, true}, {`cat a 2>&1`, false}, {`cat a >&-`, false}, {`cat a > f`, false},
+	} {
+		if got := Split(tt.cmd)[0].StdoutDup; got != tt.dup {
+			t.Errorf("Split(%q).StdoutDup = %v, want %v", tt.cmd, got, tt.dup)
+		}
+	}
+}

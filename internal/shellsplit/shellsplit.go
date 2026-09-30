@@ -20,11 +20,27 @@ import "strings"
 // In holds the indexes in Words of the files an input redirection (`<`)
 // names: they stay in Words, where a reader of the command's operands finds
 // them, and In says they are not the program's arguments.
+//
+// Subs holds every substitution written anywhere in the command — an operand,
+// a redirection target, mid-word, inside double quotes — with the commands it
+// runs, because bash runs them wherever they sit. StdoutDup is set when the
+// command duplicates its stdout onto another descriptor (`>&2`, `1>&2`), so
+// output a caller took to be captured goes elsewhere.
 type Command struct {
-	Words    []string
-	Heredocs []string
-	Out      string
-	In       []int
+	Words     []string
+	Heredocs  []string
+	Out       string
+	In        []int
+	Subs      []Sub
+	StdoutDup bool
+}
+
+// Sub is one substitution and the commands inside it. Kind is the byte that
+// opens it: '$' for `$(…)`, '`' for a backquoted one, '<' for `<(…)` and '>'
+// for `>(…)`. The first three capture the inner stdout; `>(…)` does not.
+type Sub struct {
+	Kind byte
+	Cmds []*Command
 }
 
 // pending is a heredoc whose delimiter has been read and whose body has not:
@@ -85,21 +101,32 @@ func lex(command string, i int, stopAtParen bool) ([]*Command, int) {
 	}
 	endCmd := func() {
 		endWord()
-		if len(cur.Words) > 0 || len(cur.Heredocs) > 0 {
+		if len(cur.Words) > 0 || len(cur.Heredocs) > 0 || len(cur.Subs) > 0 {
 			out = append(out, cur)
 		}
 		cur = &Command{}
 		redirIn = false
+	}
+	// sub reads the substitution opening at i into the current word and
+	// records the commands it runs on the command that carries it.
+	sub := func(i int) int {
+		text, inner, next := substitution(command, i)
+		w.WriteString(text)
+		hasWord = true
+		if inner != nil {
+			cur.Subs = append(cur.Subs, Sub{Kind: command[i], Cmds: inner})
+		}
+		return next
 	}
 
 	for i < len(command) {
 		c := command[i]
 		switch {
 		case c == '$' && i+1 < len(command) && command[i+1] == '(':
-			var text string
-			text, i = substitution(command, i)
-			w.WriteString(text)
-			hasWord = true
+			i = sub(i)
+
+		case c == '`':
+			i = sub(i)
 
 		case stopAtParen && c == ')':
 			endCmd()
@@ -141,10 +168,8 @@ func lex(command string, i int, stopAtParen bool) ([]*Command, int) {
 				// Reading it as ordinary bytes is what let a body's own
 				// punctuation close the quote and scatter the rest of the
 				// command across words the caller never sees.
-				if command[i] == '$' && i+1 < len(command) && command[i+1] == '(' {
-					var text string
-					text, i = substitution(command, i)
-					w.WriteString(text)
+				if command[i] == '`' || command[i] == '$' && i+1 < len(command) && command[i+1] == '(' {
+					i = sub(i)
 					continue
 				}
 				w.WriteByte(command[i])
@@ -209,10 +234,7 @@ func lex(command string, i int, stopAtParen bool) ([]*Command, int) {
 			case strings.HasPrefix(command[i:], "<("):
 				// A process substitution is one word, as `$(` is: its inner
 				// command must not scatter across the words of this one.
-				var text string
-				text, i = substitution(command, i)
-				w.WriteString(text)
-				hasWord = true
+				i = sub(i)
 			case strings.HasPrefix(command[i:], "<>"):
 				// Opened for reading and writing: stdin is the file.
 				i += 2
@@ -232,12 +254,15 @@ func lex(command string, i int, stopAtParen bool) ([]*Command, int) {
 
 		case c == '>' && i+1 < len(command) && command[i+1] == '(':
 			// An output process substitution is one word, as `<(` is.
-			var text string
-			text, i = substitution(command, i)
-			w.WriteString(text)
-			hasWord = true
+			i = sub(i)
 
 		case c == '>':
+			// Digits written against the operator name the descriptor it
+			// redirects; none means stdout.
+			src := ""
+			if hasWord && digits(w.String()) {
+				src = w.String()
+			}
 			endWord()
 			if strings.HasPrefix(command[i:], ">>") {
 				i += 2
@@ -247,8 +272,12 @@ func lex(command string, i int, stopAtParen bool) ([]*Command, int) {
 			// >&2 duplicates a descriptor and names no file.
 			if i < len(command) && command[i] == '&' {
 				i++
+				j := i
 				for i < len(command) && command[i] >= '0' && command[i] <= '9' {
 					i++
+				}
+				if (src == "" || src == "1") && i > j && command[j:i] != "1" {
+					cur.StdoutDup = true
 				}
 				break
 			}
@@ -264,9 +293,10 @@ func lex(command string, i int, stopAtParen bool) ([]*Command, int) {
 	return out, i
 }
 
-// substitution reads $(...) beginning at i. It returns the text the
-// substitution contributes to the word it sits in, the commands it runs, and
-// the index just past its ")".
+// substitution reads the substitution beginning at i — `$(…)`, `<(…)`,
+// `>(…)` or a backquoted one. It returns the text the substitution contributes
+// to the word it sits in, the commands it runs, and the index just past its
+// close.
 //
 // Reading it as a unit rather than as bytes is the whole point: the
 // substitution's own quotes, newlines and parentheses stay inside it, so a
@@ -282,19 +312,22 @@ func lex(command string, i int, stopAtParen bool) ([]*Command, int) {
 // read as absent, because "" is indistinguishable from an argument nobody
 // wrote.
 //
-// The commands inside stay inside. A caller asking whether a read reaches the
-// transcript needs to know it was captured, and inner commands returned as
-// ordinary ones lose exactly that: `"$(cat .pgpass)"` puts a secret in a
-// variable, which is the idiom the secret guard steers toward.
+// The inner commands are returned apart from the outer ones. A caller asking
+// whether a read reaches the transcript needs to know it was captured:
+// `"$(cat .pgpass)"` puts a secret in a variable, which is the idiom the
+// secret guard steers toward.
 //
 // $((…)) is arithmetic and names no command.
-func substitution(command string, i int) (string, int) {
+func substitution(command string, i int) (string, []*Command, int) {
+	if command[i] == '`' {
+		return backquoted(command, i)
+	}
 	if strings.HasPrefix(command[i:], "$((") {
 		if j := strings.Index(command[i+3:], "))"); j >= 0 {
 			next := i + 3 + j + 2
-			return command[i:next], next
+			return command[i:next], nil, next
 		}
-		return command[i:], len(command)
+		return command[i:], nil, len(command)
 	}
 	inner, next := lex(command, i+2, true)
 	var b strings.Builder
@@ -304,9 +337,44 @@ func substitution(command string, i int) (string, int) {
 		}
 	}
 	if b.Len() == 0 {
-		return command[i:next], next
+		return command[i:next], inner, next
 	}
-	return b.String(), next
+	return b.String(), inner, next
+}
+
+// backquoted reads the `…` substitution opening at i. Inside it a backslash
+// quotes only `$`, a backquote and another backslash; the rest is the inner
+// command line as written. One that never closes runs to the end of the line.
+func backquoted(command string, i int) (string, []*Command, int) {
+	var inner strings.Builder
+	j := i + 1
+	for j < len(command) && command[j] != '`' {
+		if command[j] == '\\' && j+1 < len(command) && strings.IndexByte("$`\\", command[j+1]) >= 0 {
+			inner.WriteByte(command[j+1])
+			j += 2
+			continue
+		}
+		inner.WriteByte(command[j])
+		j++
+	}
+	next := j + 1
+	if j >= len(command) {
+		next = len(command)
+	}
+	return command[i:next], Split(inner.String()), next
+}
+
+// digits reports whether s is a non-empty run of decimal digits.
+func digits(s string) bool {
+	if s == "" {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		if s[i] < '0' || s[i] > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 // readHeredocs consumes the queued heredoc bodies starting at i, which is the

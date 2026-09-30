@@ -385,7 +385,7 @@ func secretsInWord(word string) []string {
 		// every unquoted pipe, so one that survives into a word is quoted — it is
 		// regex alternation, and splitting on it turns `credential\|secret` into
 		// the word `secret`, which exactSecretNames closes on purpose.
-		case '(', ')', '\'', '"', '`', ',', '=', ';', '{', '}', '[', ']', '<', '>', '$':
+		case '(', ')', '\'', '"', '`', ',', '=', ';', '{', '}', '[', ']', '<', '>', '$', ':':
 			return true
 		}
 		return false
@@ -418,7 +418,36 @@ func ScanPath(p string) []Finding {
 // them from the words — so writing a document that discusses a credential file
 // by name is silent, which is what makes the guard survivable.
 func ScanBash(command string) []Finding {
+	return dedupe(scan(shellsplit.Split(command), false))
+}
+
+// scan returns the findings of cmds. captured is true when their stdout is
+// taken by the substitution around them rather than reaching the transcript:
+// then only what escapes the capture is a finding — the commands of a `>(…)`
+// inside, and every command of the list once one of them sends its stdout
+// elsewhere, since a pipe carries a read to the command that sends it on.
+//
+// Every substitution is scanned where bash runs it, whatever word it sits in.
+// `>(…)` is scanned as an ordinary command, because its stdout is the one the
+// enclosing command inherited.
+func scan(cmds []*shellsplit.Command, captured bool) []Finding {
 	var out []Finding
+	if captured {
+		for _, c := range cmds {
+			if escapes(c) {
+				captured = false
+				break
+			}
+		}
+	}
+	for _, c := range cmds {
+		for _, s := range c.Subs {
+			out = append(out, scan(s.Cmds, s.Kind != '>')...)
+		}
+	}
+	if captured {
+		return out
+	}
 	// A variable that holds a credential's VALUE, read by a substitution. Using
 	// it is the idiom; printing it is the leak.
 	holdsValue := map[string]bool{}
@@ -427,7 +456,7 @@ func ScanBash(command string) []Finding {
 	// "$F"` opens the file exactly as `cat .db_connection` does.
 	holdsPath := map[string]bool{}
 
-	for _, c := range shellsplit.Split(command) {
+	for _, c := range cmds {
 		// An input redirection's target is a file the command reads, never
 		// its command word or one of its arguments.
 		words, redirected := argv(c)
@@ -499,16 +528,16 @@ func ScanBash(command string) []Finding {
 				continue
 			}
 			// A process substitution hands the reader a path to its output, so
-			// the path default applies, not the printer one; the inner command
-			// of `>(` writes wherever it likes, so it is scanned as a command.
-			if strings.HasPrefix(a, ">(") && strings.HasSuffix(a, ")") {
-				out = append(out, ScanBash(a[2:len(a)-1])...)
-				continue
-			}
-			if strings.Contains(a, "<(") || strings.Contains(a, ">(") {
+			// the path default applies, not the printer one. The reader writes
+			// into a `>(…)` rather than reading it; its commands were scanned
+			// with the command's substitutions.
+			if strings.Contains(a, "<(") {
 				if p := secretInside(a); p != "" && !safeReaders[reader] {
 					out = append(out, Finding{Path: p, Reader: reader})
 				}
+				continue
+			}
+			if strings.Contains(a, ">(") {
 				continue
 			}
 			if found := secretsInWord(a); len(found) > 0 {
@@ -526,7 +555,28 @@ func ScanBash(command string) []Finding {
 			}
 		}
 	}
-	return dedupe(out)
+	return out
+}
+
+// escapes reports whether c sends its stdout somewhere other than the
+// substitution capturing it: a duplicated descriptor, or a redirection or an
+// operand naming the terminal or a descriptor file, which a printer such as
+// tee or dd writes to.
+func escapes(c *shellsplit.Command) bool {
+	if c.StdoutDup || namesDescriptor(c.Out) {
+		return true
+	}
+	for _, w := range c.Words {
+		if namesDescriptor(w) {
+			return true
+		}
+	}
+	return false
+}
+
+func namesDescriptor(w string) bool {
+	return strings.Contains(w, "/dev/stderr") || strings.Contains(w, "/dev/tty") ||
+		strings.Contains(w, "/dev/fd/") || strings.Contains(w, "/fd/")
 }
 
 // containsSecretRead reports whether a word embeds a command substitution that
@@ -544,8 +594,8 @@ func secretInside(word string) string {
 	for _, f := range strings.FieldsFunc(word, func(r rune) bool {
 		return r == ' ' || r == '\t' || r == '(' || r == ')' || r == '`' || r == '"' || r == '\''
 	}) {
-		if IsSecretPath(f) {
-			return f
+		if found := secretsInWord(f); len(found) > 0 {
+			return found[0]
 		}
 	}
 	return ""
