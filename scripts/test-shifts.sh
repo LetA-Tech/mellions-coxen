@@ -352,7 +352,8 @@ n=$(count 'ended rc=0' "$log")
 wait_count 20 $((n + 1)) 'ended rc=0' "$log" || bad "E3: no shift ran after the re-exec: $(tail -3 "$log")"
 [ "$(count 'runner re-exec' "$log")" -eq 1 ] || bad "E3: one change was re-executed more than once"
 # A copy that does not parse is never exec'd: the runner would die with no runner left.
-g3 "$up" pull -q 2>/dev/null; sed -i '2i if then fi' "$up/scripts/shifts.sh"
+g3 "$up" pull -q 2>/dev/null; f="$up/scripts/shifts.sh"
+{ head -1 "$f"; echo 'if then fi'; tail -n +2 "$f"; } > "$f.new" && mv "$f.new" "$f"
 g3 "$up" commit -q -am three; g3 "$up" push -q 2>/dev/null
 wait_for 30 "runner: $co/scripts/shifts.sh changed on disk and does not parse" "$log" || bad "E3: a copy that does not parse was not refused by name: $(tail -5 "$log")"
 n=$(count 'ended rc=0' "$log")
@@ -361,6 +362,29 @@ kill -0 "$e3" 2>/dev/null || bad "E3: the runner died on an unparseable copy of 
 [ "$(count 'runner re-exec' "$log")" -eq 1 ] || bad "E3: an unparseable copy was exec'd"
 [ "$(count 'does not parse' "$log")" -eq 1 ] || bad "E3: one unparseable change was refused more than once"
 touch "$home/stop"; wait_gone 10 "$e3" || bad "E3: the re-executed runner did not stop"
+
+# ---- E5. a stop signalled during an update is not lost to a re-exec ---------------
+# The signal lives only in the process; exec'ing a changed copy would forget it
+# and run shifts on, and even without a change no further shift may start.
+home="$tmp/e5"; mkdir -p "$home"; log="$home/shifts/runner.log"
+origin="$tmp/origin5.git"; git init -q --bare "$origin"
+co="$tmp/co5"; git clone -q "$origin" "$co" 2>/dev/null
+printf 'build:\n\t@touch "$$E5_MARK"; sleep 3; mkdir -p bin && cp "$$STUB_DIR/mellions" bin/mellions\ncheck:\n\t@echo checked\n' > "$co/Makefile"
+mkdir -p "$co/scripts"; cp "$runner" "$co/scripts/shifts.sh"
+g3 "$co" add Makefile scripts/shifts.sh; g3 "$co" commit -q -m one; g3 "$co" push -q -u origin HEAD 2>/dev/null
+up="$tmp/up5"; git clone -q "$origin" "$up" 2>/dev/null
+sed 's/runner start: pid/runner start (v2): pid/' "$runner" > "$up/scripts/shifts.sh"
+g3 "$up" commit -q -am two; g3 "$up" push -q 2>/dev/null
+mkdir -p "$tmp/bin5"; cp "$STUB_DIR/mellions" "$tmp/bin5/mellions"; record "$co"
+env E5_MARK="$tmp/e5.building" MELLIONS_AUTOUPDATE=1 MELLIONS_BIN="$tmp/bin5/mellions" MELLIONS_SHIFT="$root/scripts/shift.sh" MELLIONS_HOME="$home" \
+  "$co/scripts/shifts.sh" > "$home.out" 2>&1 &
+e5=$!; runners="$runners $e5"
+i=0; while [ ! -e "$tmp/e5.building" ] && [ $i -lt 150 ]; do sleep 0.1; i=$((i + 1)); done
+[ -e "$tmp/e5.building" ] || bad "E5: the update never started: $(tail -3 "$log")"
+kill -TERM "$e5"
+wait_gone 15 "$e5" || { bad "E5: a runner signalled during its update is still alive: $(tail -3 "$log")"; touch "$home/stop"; wait_gone 20 "$e5"; }
+[ "$(count 'runner re-exec' "$log")" -eq 0 ] || bad "E5: the runner exec'd its changed copy after a stop was signalled"
+[ "$(count 'starting' "$log")" -eq 0 ] || bad "E5: a shift started after a stop was signalled during the update"
 
 # ---- E4. the binary installed is the one PATH resolves at the update -------------
 # A copy that appears earlier on PATH after the runner started is what every

@@ -342,19 +342,27 @@ update() {
 
 # bash keeps executing the copy of this file it opened, and a pull replaces the
 # inode, so without this a fix to the runner itself never runs until a restart
-# nobody schedules. exec keeps the pid, so the lock stays this runner's.
+# nobody schedules. exec keeps the pid, so the lock stays this runner's. A stop
+# that arrived as a signal lives only in this process, so it is honoured here
+# rather than lost across the exec; an exec that fails keeps this runner going.
+# The args expand through `${arr[@]+…}` for bash 3.2 under `set -u`.
 reexec_if_changed() {
   local now
+  stop_wanted && return 0
   now=$(cksum < "$self" 2>/dev/null) || return 0
   [ "$now" = "$self_sum" ] && return 0
-  if ! bash -n "$self" >> "$UPDATELOG" 2>&1; then
-    self_sum=$now
+  self_sum=$now
+  if ! "$BASH" -n "$self" >> "$UPDATELOG" 2>&1; then
     log "runner: $self changed on disk and does not parse; this runner keeps the copy it started with — $UPDATELOG"
     return 0
   fi
   log "runner re-exec: $self changed on disk since pid $$ started; running the new copy"
   trap - EXIT
-  exec "$BASH" "$self" "${self_args[@]}"
+  shopt -s execfail
+  exec "$BASH" "$self" ${self_args[@]+"${self_args[@]}"}
+  shopt -u execfail
+  trap release EXIT
+  log "runner: exec of $BASH $self failed; this runner keeps the copy it started with"
 }
 
 # ---- the loop ----------------------------------------------------------------
@@ -387,6 +395,7 @@ while ! stop_wanted; do
     continue
   fi
   if [ "$AUTOUPDATE" != 0 ] && update; then reexec_if_changed; fi
+  stop_wanted && break
   n=$((n + 1))
   survey_args=""
   [ "$EVERY" -gt 0 ] && [ $((n % EVERY)) -eq 0 ] && survey_args="-repos mellions-coxen"
