@@ -432,3 +432,18 @@ func TestScanBash_ASubshellDoesNotCloseTheSubstitution(t *testing.T) {
 		}
 	}
 }
+
+// A string a shell parses again carries substitutions the lexer never
+// recorded, and a backquoted name is a path the reader opens.
+func TestScanBash_TextIsStillReadWhereNoSubstitutionWasRecorded(t *testing.T) {
+	for _, cmd := range []string{
+		`bash -c 'echo hi > >(cat .env)'`,
+		`bash -c "true >(cat .env)"`,
+		`eval 'ls >(cat .env)'`,
+		"perl -pe1 `echo .env`",
+	} {
+		if got := ScanBash(cmd); len(got) == 0 {
+			t.Errorf("ScanBash(%q) found nothing; bash runs a read of a credential here", cmd)
+		}
+	}
+}

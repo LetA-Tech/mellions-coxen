@@ -545,10 +545,11 @@ func scan(cmds []*shellsplit.Command, captured bool) []Finding {
 				continue
 			}
 			// A process substitution hands the reader a path to its output, so
-			// the path default applies, not the printer one. The reader writes
-			// into a `>(…)` rather than reading it; its commands were scanned
-			// with the command's substitutions.
-			if strings.Contains(a, "<(") {
+			// the path default applies, not the printer one. The text is read
+			// too, not only the recorded substitution: a string a shell parses
+			// again (`bash -c`, `eval`) carries one the lexer never recorded,
+			// and a backquoted `echo .env` hands the reader a path.
+			if strings.Contains(a, "<(") || strings.Contains(a, ">(") || strings.Contains(a, "`") {
 				if p := secretInside(a); p != "" && !safeReaders[reader] {
 					out = append(out, Finding{Path: p, Reader: reader})
 				}
