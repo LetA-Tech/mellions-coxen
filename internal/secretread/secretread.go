@@ -375,6 +375,9 @@ func secretsInWord(word string) []string {
 	if IsSecretPath(word) {
 		return []string{word}
 	}
+	if p := revisionPath(word); p != "" {
+		return []string{p}
+	}
 	if word == "" || strings.ContainsAny(word, " \t\n") {
 		return nil
 	}
@@ -385,7 +388,7 @@ func secretsInWord(word string) []string {
 		// every unquoted pipe, so one that survives into a word is quoted — it is
 		// regex alternation, and splitting on it turns `credential\|secret` into
 		// the word `secret`, which exactSecretNames closes on purpose.
-		case '(', ')', '\'', '"', '`', ',', '=', ';', '{', '}', '[', ']', '<', '>', '$', ':':
+		case '(', ')', '\'', '"', '`', ',', '=', ';', '{', '}', '[', ']', '<', '>', '$':
 			return true
 		}
 		return false
@@ -395,6 +398,20 @@ func secretsInWord(word string) []string {
 		}
 	}
 	return out
+}
+
+// revisionPath returns the credential path a `<revision>:<path>` word names,
+// or "": `git show HEAD:.env` prints the file as it stood at that revision. A
+// part is taken as a path only where it starts with a dot or holds a slash, so
+// a script name such as `audit:secrets` is not read as a file.
+func revisionPath(word string) string {
+	parts := strings.Split(word, ":")
+	for _, p := range parts[1:] {
+		if (strings.HasPrefix(p, ".") || strings.Contains(p, "/")) && secretByName(p) {
+			return p
+		}
+	}
+	return ""
 }
 
 // ScanPath classifies a path a tool reads directly, with no shell in between —
@@ -537,9 +554,6 @@ func scan(cmds []*shellsplit.Command, captured bool) []Finding {
 				}
 				continue
 			}
-			if strings.Contains(a, ">(") {
-				continue
-			}
 			if found := secretsInWord(a); len(found) > 0 {
 				// A path, however it is spelled: the command opens the file
 				// itself. Only the enumerated non-emitters are exonerated.
@@ -594,8 +608,11 @@ func secretInside(word string) string {
 	for _, f := range strings.FieldsFunc(word, func(r rune) bool {
 		return r == ' ' || r == '\t' || r == '(' || r == ')' || r == '`' || r == '"' || r == '\''
 	}) {
-		if found := secretsInWord(f); len(found) > 0 {
-			return found[0]
+		if IsSecretPath(f) {
+			return f
+		}
+		if p := revisionPath(f); p != "" {
+			return p
 		}
 	}
 	return ""
