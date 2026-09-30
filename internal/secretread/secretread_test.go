@@ -413,3 +413,22 @@ func TestScanBash_SubstitutionsAreScannedWhereBashRunsThem(t *testing.T) {
 		})
 	}
 }
+
+// A subshell's ")" inside a substitution closes the subshell, not the
+// substitution, so what the subshell does is still read as inside it.
+func TestScanBash_ASubshellDoesNotCloseTheSubstitution(t *testing.T) {
+	for _, cmd := range []string{
+		`X=$( (cat .env) >&2 )`,
+		`ls <( (cat .env) >&2 )`,
+		`( echo "$(cat .env)" )`,
+	} {
+		if got := ScanBash(cmd); len(got) == 0 {
+			t.Errorf("ScanBash(%q) found nothing; the subshell prints a credential", cmd)
+		}
+	}
+	for _, cmd := range []string{`X=$( (tail -1 .db_connection) )`, `(cd sub && make build)`, `X=$( (ls) ) ; echo "$X"`} {
+		if got := ScanBash(cmd); len(got) != 0 {
+			t.Errorf("ScanBash(%q) = %+v; nothing here prints a credential", cmd, got)
+		}
+	}
+}

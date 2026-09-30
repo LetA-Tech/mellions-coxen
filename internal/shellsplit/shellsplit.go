@@ -99,11 +99,24 @@ func lex(command string, i int, stopAtParen bool) ([]*Command, int) {
 			cur.Words = append(cur.Words, s)
 		}
 	}
+	// groups holds where each open subshell's commands start in out; closed
+	// is the start of the one that just closed, whose redirections follow it.
+	var groups []int
+	closed := -1
 	endCmd := func() {
 		endWord()
-		if len(cur.Words) > 0 || len(cur.Heredocs) > 0 || len(cur.Subs) > 0 {
+		switch {
+		case len(cur.Words) > 0 || len(cur.Heredocs) > 0 || len(cur.Subs) > 0:
 			out = append(out, cur)
+		case closed >= 0 && (cur.StdoutDup || cur.Out != ""):
+			for _, g := range out[closed:] {
+				g.StdoutDup = g.StdoutDup || cur.StdoutDup
+				if g.Out == "" {
+					g.Out = cur.Out
+				}
+			}
 		}
+		closed = -1
 		cur = &Command{}
 		redirIn = false
 	}
@@ -127,6 +140,19 @@ func lex(command string, i int, stopAtParen bool) ([]*Command, int) {
 
 		case c == '`':
 			i = sub(i)
+
+		case c == '(' && !hasWord:
+			// A subshell opens: its commands are this list's, and its ")"
+			// must not be read as the close of a substitution.
+			endCmd()
+			groups = append(groups, len(out))
+			i++
+
+		case c == ')' && len(groups) > 0:
+			endCmd()
+			closed = groups[len(groups)-1]
+			groups = groups[:len(groups)-1]
+			i++
 
 		case stopAtParen && c == ')':
 			endCmd()
