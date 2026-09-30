@@ -352,7 +352,7 @@ n=$(count 'ended rc=0' "$log")
 wait_count 20 $((n + 1)) 'ended rc=0' "$log" || bad "E3: no shift ran after the re-exec: $(tail -3 "$log")"
 [ "$(count 'runner re-exec' "$log")" -eq 1 ] || bad "E3: one change was re-executed more than once"
 # A copy that does not parse is never exec'd: the runner would die with no runner left.
-g3 "$up" pull -q 2>/dev/null; printf '\nif then fi\n' >> "$up/scripts/shifts.sh"
+g3 "$up" pull -q 2>/dev/null; sed -i '2i if then fi' "$up/scripts/shifts.sh"
 g3 "$up" commit -q -am three; g3 "$up" push -q 2>/dev/null
 wait_for 30 "runner: $co/scripts/shifts.sh changed on disk and does not parse" "$log" || bad "E3: a copy that does not parse was not refused by name: $(tail -5 "$log")"
 n=$(count 'ended rc=0' "$log")
