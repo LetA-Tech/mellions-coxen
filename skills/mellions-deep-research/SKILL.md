@@ -13,9 +13,7 @@ far to go follows the stakes and the contradictions.
 ## Start from the question
 
 Name what has to be true for the intended action to be right. That question
-chooses the sources; a fixed list does not. "Is the defect still there at HEAD"
-wants the code and a reproduction; "why does production do this" wants runtime
-evidence.
+chooses the sources; a fixed list does not.
 
 ## What exists
 
@@ -86,13 +84,13 @@ nothing there is not absence.
 
 ## Exhaust what is reachable before asking
 
-Do not ask a question reachable evidence can answer: run the targeted test,
+Run the targeted test,
 inspect persisted state, instrument the path, sandbox what static reading
 cannot settle. Missing documentation is not grounds to ask.
 
 ## A check is evidence only if it can fail
 
-A check that cannot fail is not evidence. Before a grep, a query or a test is
+Before a grep, a query or a test is
 cited as proof, run it against a case it must find and a case it must not
 match: a detection that matches nothing reports every codebase clean. Draw both
 from the corpus before writing the pattern, not from memory after — a matcher
@@ -108,7 +106,10 @@ Where absence across an estate is the claim, no tree is its outer edge:
 enumerate the refs the remote reports, not the ones a checkout fetched, and
 the open pull requests no integration ref holds.
 A capped read is not a smaller answer but an unread one: `head -N`, or a tool's
-own limit, gives the first N in path order, so count the matches first.
+own limit, gives the first N in path order, so count the matches first. An
+empty answer prints nothing, so in a compound command other output passes for
+it: there, print each claim's verdict — `merge-base --is-ancestor`, a count,
+`test` — or label each output.
 
 An instrument that reports proves its reporting path, never that anything
 writes what it carries. Where a reading is an absence's whole support, find
