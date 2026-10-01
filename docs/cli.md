@@ -249,7 +249,9 @@ mellions secret-check
   keyword is supplied for a pull request base on which GitHub will not resolve
   it. Unknown default-branch state is silent.
 - `shared-tree-check` may deny a tree-mutating Git command aimed at a configured
-  shared checkout instead of an assignment lane. Unresolved paths are silent.
+  shared checkout instead of an assignment lane, and an `rm` (recursive or not)
+  that globs directly under `/tmp`, `/var/tmp`, `/dev/shm` or `$TMPDIR`.
+  Unresolved paths are silent.
 - `cite check` is the hand-run citation validator. It reports locally
   resolvable `path:line` claims whose lines do not exist or are not quoted in
   the body and exits non-zero on findings. The document is `-file <path>` (or
