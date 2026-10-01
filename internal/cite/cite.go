@@ -49,8 +49,9 @@
 // What is deliberately not a citation, because a checker that denies on noise
 // gets disabled: a token whose path does not resolve to a file in the tree
 // (a URL's host, an IP and port, a clock time, `issues/656#issuecomment-…`,
-// another repository's path), and a line range, which is honest about being a
-// region rather than a line.
+// another repository's path), a line range, which is honest about being a
+// region rather than a line, and a container image reference, whose tag is not
+// a line (image).
 package cite
 
 import (
@@ -142,6 +143,26 @@ var continuation = regexp.MustCompile("`:(\\d+)`")
 // "`a.go:3`, `:5` and `:9`".
 var joined = regexp.MustCompile(`^(?:,\s*|,?\s+(?:and|or)\s+)$`)
 
+// tagged is what follows an image tag and never a line number: a dotted
+// version (`timescale/timescaledb:2.21.3`) or a digest (`img:18@sha256:…`).
+var tagged = regexp.MustCompile(`^(?:\.\d|@[A-Za-z0-9]+:)`)
+
+// registryHost is a first path segment naming a registry: a dotted hostname
+// (`docker.io`, `ghcr.io`, `public.ecr.aws`), never a leading-dot directory.
+var registryHost = regexp.MustCompile(`^(?:localhost|[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?)+)$`)
+
+// image reports whether a path is a container image name: a registry host, then
+// a repository whose last segment carries no file extension. Check asks only of
+// a path no file in this checkout answers to, so a directory that happens to be
+// named like a host is still read where the tree has it.
+func image(path string) bool {
+	segs := strings.Split(path, "/")
+	if len(segs) < 2 || strings.Contains(segs[len(segs)-1], ".") {
+		return false
+	}
+	return registryHost.MatchString(segs[0])
+}
+
 // Extract returns every citation a document makes, in the order written.
 //
 // Two things that look like citations are not. A line range names a region,
@@ -181,7 +202,7 @@ func occurrences(doc string) []Citation {
 	for _, m := range citation.FindAllStringSubmatchIndex(claimed, -1) {
 		path := claimed[m[4]:m[5]]
 		n, err := strconv.Atoi(claimed[m[6]:m[7]])
-		if err != nil || n < 1 {
+		if err != nil || n < 1 || tagged.MatchString(claimed[m[1]:]) {
 			continue
 		}
 		// A range still names its file for a continuation after it.
@@ -300,6 +321,9 @@ func Check(doc string, read func(path string) ([]string, error)) ([]Finding, []C
 		}
 		lines, err := read(c.Path)
 		if err != nil {
+			if !errors.Is(err, ErrPathClaimsTree) && image(c.Path) {
+				continue
+			}
 			if _, seen := seenUnresolved[c.Raw]; !seen && !errors.Is(err, ErrPathClaimsTree) {
 				seenUnresolved[c.Raw] = struct{}{}
 				unresolved = append(unresolved, c)

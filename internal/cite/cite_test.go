@@ -595,3 +595,58 @@ func TestCheck_ContinuationShapesThatAreCitations(t *testing.T) {
 }
 
 func mustFindings(f []Finding, _ []Citation) []Finding { return f }
+
+// An image reference is not a citation in either half of Check: no finding, and
+// not named among the unresolved, where it read as a citation nobody opened and
+// pushed an author to rewrite a correct body. Every form here is from published
+// bodies. The controls beside them must still be named: a citation this tree
+// cannot open, an extensionless file under a leading-dot directory, another
+// repository's file under a host-named prefix, and a bare org/name:N, which
+// nothing lexical separates from a file's line.
+func TestCheck_AnImageReferenceIsNotACitation(t *testing.T) {
+	read := func(string) ([]string, error) { return nil, errors.New("not a file in this checkout") }
+	images := []string{
+		"docker.io/library/postgres:18",
+		"`docker.io/library/postgres:18`",
+		"docker.io/library/postgres:18@sha256:5f1d0b8c2a",
+		"ghcr.io/org/img:2",
+		"public.ecr.aws/x/y:3",
+		"localhost/img:4",
+		"docker.io/library/golang:1.27.1-alpine",
+		"timescale/timescaledb:2.21.3-pg17",
+		"docker/dockerfile:1.7",
+		"alpine/socat:1.8.1.3",
+		"timescale/timescaledb:2.21.3@sha256:0a1b",
+		"library/postgres:18@sha256:5f1d0b8c2a",
+	}
+	for _, ref := range images {
+		findings, unresolved := Check("The base is "+ref+" now.", read)
+		if len(findings) != 0 || len(unresolved) != 0 {
+			t.Errorf("%s: findings %v, unresolved %v — want neither", ref, findings, unresolved)
+		}
+	}
+	controls := map[string]string{
+		"see dir/file.go:12":               "dir/file.go:12",
+		"see .github/CODEOWNERS:3":         ".github/CODEOWNERS:3",
+		"see github.com/x/y/z.go:12":       "github.com/x/y/z.go:12",
+		"see bitnami/redis:7 then":         "bitnami/redis:7",
+		"see dir/file.go:12. Next":         "dir/file.go:12",
+		"see `cmd/tool:9`, the entrypoint": "cmd/tool:9",
+	}
+	for doc, want := range controls {
+		_, unresolved := Check(doc, read)
+		if len(unresolved) != 1 || unresolved[0].Raw != want {
+			t.Errorf("%q: unresolved %v, want exactly %s named", doc, unresolved, want)
+		}
+	}
+}
+
+// A host-named directory this checkout has is still read: image() is asked only
+// of a path no file answers to.
+func TestCheck_AHostNamedDirectoryInTheTreeIsStillChecked(t *testing.T) {
+	files := tree{"conf.d/default": "server {\n  listen 80;\n}"}
+	findings, _ := Check("the listener is conf.d/default:2", files.read)
+	if len(findings) != 1 || findings[0].Kind != Unbacked {
+		t.Fatalf("findings %v, want conf.d/default:2 Unbacked", findings)
+	}
+}
