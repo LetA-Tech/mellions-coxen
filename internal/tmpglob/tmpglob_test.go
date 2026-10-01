@@ -22,6 +22,15 @@ func TestFindRefusesAGlobDeleteOverASharedTempRoot(t *testing.T) {
 		`rm -f "$TMPDIR"/go-build*`,
 		`cd /tmp && rm -f tmp.*`,
 		`timeout 60 rm -f /dev/shm/sem.*`,
+		`rm -f "${TMPDIR:-/tmp}"/tmp.*`,
+		`rm -rf ${TMPDIR-/tmp}/tmp.*`,
+		`cd $TMPDIR && rm -f tmp.*`,
+		`cd "${TMPDIR:-/tmp}" && rm -rf tmp.*`,
+		`sudo -u x rm -f /tmp/tmp.*`,
+		`timeout -s KILL 60 rm -f /tmp/tmp.*`,
+		`env -u FOO rm -rf /tmp/tmp.*`,
+		`rm -f /private/tmp/tmp.*`,
+		`rm -rf /private/var/tmp/build-*`,
 		`rm -rf "$TMPDIR"/go-build*`,
 		`rm -rf ${TMPDIR}/tmp.*`,
 		`sudo rm -rf /tmp//tmp.*`,
@@ -60,6 +69,12 @@ func TestFindLeavesNamedPathsAlone(t *testing.T) {
 		`rm -rf tmp.*`,
 		`rm -rf "$d"  # not /tmp/tmp.*`,
 		`timeout 60 ls /tmp/tmp.*`,
+		`rm -f "${TMPDIR:-/tmp}"/tmp.Ab12Cd34Ef`,
+		`cd $HOME && rm -f tmp.*`,
+		`cd $TMPDIR/tmp.Ab12 && rm -f *`,
+		`sudo -u x ls /tmp/tmp.*`,
+		`timeout -s KILL 60 ls /tmp/tmp.*`,
+		`rm -f /private/tmp/tmp.Ab12Cd34Ef`,
 	} {
 		if got := Find(cmd, "/home/you"); got != "" {
 			t.Errorf("refused %q (operand %q)", cmd, got)
@@ -81,7 +96,7 @@ func TestFindReadsARelativeGlobFromTheSessionDirectory(t *testing.T) {
 // taken, not only directories.
 func TestReasonNamesFilesAndDirectories(t *testing.T) {
 	r := Reason("/tmp/tmp.*")
-	for _, want := range []string{"/tmp/tmp.*", "files and directories", `"$d"`} {
+	for _, want := range []string{"/tmp/tmp.*", "files and directories", `f=$(mktemp)`, `"$d"`} {
 		if !strings.Contains(r, want) {
 			t.Errorf("Reason lacks %q:\n%s", want, r)
 		}
