@@ -157,7 +157,7 @@ var registryHost = regexp.MustCompile(`^(?:localhost|[A-Za-z0-9](?:[A-Za-z0-9-]*
 // named like a host is still read where the tree has it.
 func image(path string) bool {
 	segs := strings.Split(path, "/")
-	if len(segs) < 2 || strings.Contains(segs[len(segs)-1], ".") {
+	if strings.Contains(segs[len(segs)-1], ".") {
 		return false
 	}
 	return registryHost.MatchString(segs[0])
