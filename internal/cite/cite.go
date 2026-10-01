@@ -49,8 +49,9 @@
 // What is deliberately not a citation, because a checker that denies on noise
 // gets disabled: a token whose path does not resolve to a file in the tree
 // (a URL's host, an IP and port, a clock time, `issues/656#issuecomment-…`,
-// another repository's path), and a line range, which is honest about being a
-// region rather than a line.
+// another repository's path), a line range, which is honest about being a
+// region rather than a line, and a container image reference, whose tag is not
+// a line (image).
 package cite
 
 import (
@@ -72,6 +73,9 @@ type Citation struct {
 	// At is the document line the citation is written on, which is what
 	// anchors a quotation to it.
 	At int
+	// tagged: a dotted version or a digest follows the number, which is how an
+	// image tag is written and never a line.
+	tagged bool
 }
 
 // Kind is why a citation does not hold.
@@ -142,6 +146,40 @@ var continuation = regexp.MustCompile("`:(\\d+)`")
 // "`a.go:3`, `:5` and `:9`".
 var joined = regexp.MustCompile(`^(?:,\s*|,?\s+(?:and|or)\s+)$`)
 
+// tagged is what follows an image tag and never a line number: a dotted
+// version (`timescale/timescaledb:2.21.3`) or a digest (`img:18@sha256:…`).
+var tagged = regexp.MustCompile(`^(?:\.\d|@[A-Za-z0-9]+:)`)
+
+// registryHost is a first path segment naming a registry: a dotted hostname
+// (`docker.io`, `ghcr.io`, `public.ecr.aws`), never a leading-dot directory.
+var registryHost = regexp.MustCompile(`^(?:localhost|[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?)+)$`)
+
+// repoSegment is one lowercase component of an image repository name.
+var repoSegment = regexp.MustCompile(`^[a-z0-9]+(?:(?:[._]|__|-+)[a-z0-9]+)*$`)
+
+// image reports whether a path is a container image name: a registry host, then
+// lowercase repository components, the last without a file extension.
+func image(path string) bool {
+	segs := strings.Split(path, "/")
+	if strings.Contains(segs[len(segs)-1], ".") || !registryHost.MatchString(segs[0]) {
+		return false
+	}
+	for _, s := range segs[1:] {
+		if !repoSegment.MatchString(s) {
+			return false
+		}
+	}
+	return true
+}
+
+// NotACitation reports whether a token the resolver could not open is an image
+// reference rather than a citation. It is asked only after the read failed and
+// the path does not claim this tree, so a file the checkout has is checked
+// however it is written.
+func NotACitation(c Citation, err error) bool {
+	return err != nil && !errors.Is(err, ErrPathClaimsTree) && (c.tagged || image(c.Path))
+}
+
 // Extract returns every citation a document makes, in the order written.
 //
 // Two things that look like citations are not. A line range names a region,
@@ -195,7 +233,8 @@ func occurrences(doc string) []Citation {
 			Line: n,
 			// From the path, not from the match, whose first group eats the
 			// newline before a citation that opens a line.
-			At: strings.Count(claimed[:m[4]], "\n"),
+			At:     strings.Count(claimed[:m[4]], "\n"),
+			tagged: tagged.MatchString(claimed[m[1]:]),
 		}})
 		if m[8] >= 0 {
 			all[len(all)-1].c.Line = 0
@@ -300,6 +339,9 @@ func Check(doc string, read func(path string) ([]string, error)) ([]Finding, []C
 		}
 		lines, err := read(c.Path)
 		if err != nil {
+			if NotACitation(c, err) {
+				continue
+			}
 			if _, seen := seenUnresolved[c.Raw]; !seen && !errors.Is(err, ErrPathClaimsTree) {
 				seenUnresolved[c.Raw] = struct{}{}
 				unresolved = append(unresolved, c)
