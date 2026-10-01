@@ -4,7 +4,10 @@
 
 package tmpglob
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestFindRefusesAGlobDeleteOverASharedTempRoot(t *testing.T) {
 	for _, cmd := range []string{
@@ -71,5 +74,16 @@ func TestFindReadsARelativeGlobFromTheSessionDirectory(t *testing.T) {
 	}
 	if got := Find(`rm -rf *`, "/tmp/tmp.Ab12Cd34Ef"); got != "" {
 		t.Errorf("a glob inside a named scratch directory was refused (operand %q)", got)
+	}
+}
+
+// The refusal is read by a session that typed `rm -f`: it must say files are
+// taken, not only directories.
+func TestReasonNamesFilesAndDirectories(t *testing.T) {
+	r := Reason("/tmp/tmp.*")
+	for _, want := range []string{"/tmp/tmp.*", "files and directories", `"$d"`} {
+		if !strings.Contains(r, want) {
+			t.Errorf("Reason lacks %q:\n%s", want, r)
+		}
 	}
 }

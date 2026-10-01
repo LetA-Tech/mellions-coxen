@@ -70,8 +70,8 @@ func Find(command, cwd string) string {
 // Reason is what the session is told when Find names an operand.
 func Reason(operand string) string {
 	return "`rm` of `" + operand + "` deletes by a glob over a temporary directory every session on this host shares.\n\n" +
-		"`mktemp` names every session's scratch the same way, so the glob matches other sessions' directories — " +
-		"harnesses and test runs that are reading them now — and nothing reports what was taken.\n\n" +
+		"`mktemp` names every session's scratch the same way, so the glob matches other sessions' files and directories — " +
+		"what harnesses and test runs are reading now — and nothing reports what was taken.\n\n" +
 		"Delete the exact paths this turn created: keep what `mktemp` printed (`d=$(mktemp -d)`) and remove `\"$d\"`."
 }
 
