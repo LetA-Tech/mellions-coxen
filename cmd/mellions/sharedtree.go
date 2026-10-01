@@ -20,8 +20,8 @@ import (
 
 // cmdSharedTreeCheck reads a PreToolUse payload on stdin and denies a Bash
 // call that runs a tree-mutating git command inside a checkout this
-// installation cuts lanes from, or recursively deletes a glob over a temporary
-// root every session shares, and a file-writing tool call by a session holding
+// installation cuts lanes from, or deletes a glob over a temporary root every
+// session shares, and a file-writing tool call by a session holding
 // an assignment into such a checkout or the load path. Everything else is
 // silence.
 func cmdSharedTreeCheck(args []string) error {
@@ -60,8 +60,8 @@ func cmdSharedTreeCheck(args []string) error {
 	return enc.Encode(d)
 }
 
-// tmpglobDeny returns the reason to refuse a Bash payload that recursively
-// deletes a glob over a temporary root every session shares, or "".
+// tmpglobDeny returns the reason to refuse a Bash payload that deletes a glob
+// over a temporary root every session shares, or "".
 func tmpglobDeny(payload []byte) string {
 	var ev struct {
 		ToolName string `json:"tool_name"`

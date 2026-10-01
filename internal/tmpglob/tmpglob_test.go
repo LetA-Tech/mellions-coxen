@@ -6,13 +6,19 @@ package tmpglob
 
 import "testing"
 
-func TestFindRefusesARecursiveGlobOverASharedTempRoot(t *testing.T) {
+func TestFindRefusesAGlobDeleteOverASharedTempRoot(t *testing.T) {
 	for _, cmd := range []string{
 		`rm -rf /tmp/tmp.* 2>/dev/null; true`,
 		`echo done; rm -rf /tmp/*`,
 		`rm -r -f /tmp/tmp.??????????`,
 		`rm --recursive --force /var/tmp/build-*`,
 		`rm -fR /dev/shm/sem.*`,
+		`rm -f /tmp/tmp.*`,
+		`rm /tmp/tmp.*`,
+		`rm -f -- /var/tmp/build-*.log`,
+		`rm -f "$TMPDIR"/go-build*`,
+		`cd /tmp && rm -f tmp.*`,
+		`timeout 60 rm -f /dev/shm/sem.*`,
 		`rm -rf "$TMPDIR"/go-build*`,
 		`rm -rf ${TMPDIR}/tmp.*`,
 		`sudo rm -rf /tmp//tmp.*`,
@@ -41,7 +47,9 @@ func TestFindLeavesNamedPathsAlone(t *testing.T) {
 		`d=$(mktemp -d); rm -rf "$d"`,
 		`rm -rf "$d"/*`,
 		`rm -rf /tmp/tmp.Ab12Cd34Ef/*`,
-		`rm -f /tmp/tmp.*`,
+		`rm -f /tmp/tmp.Ab12Cd34Ef`,
+		`rm -f "$d"/*.log`,
+		`rm -f /tmp/tmp.Ab12Cd34Ef/*`,
 		`rm -rf ./build/*`,
 		`ls /tmp/tmp.*`,
 		`grep -r rm /tmp/x`,

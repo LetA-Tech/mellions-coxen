@@ -2,16 +2,19 @@
 // Built and maintained by LetA Tech Ltd.
 // Contact: leta@letatech.ca
 
-// Package tmpglob decides whether a Bash command recursively deletes a glob
-// whose parent is a temporary root every session on the host shares.
+// Package tmpglob decides whether a Bash command deletes a glob whose parent is
+// a temporary root every session on the host shares.
 //
-// `mktemp -d` names every scratch directory on the host `/tmp/tmp.XXXXXXXXXX`,
-// whoever made it, so `rm -rf /tmp/tmp.*` written to clean up one session's
-// scratch deletes every other session's too — directories in-flight test runs
-// and harnesses are reading. What a turn may delete is what it created, by the
-// path `mktemp` printed; a glob over the shared root can only name more than
-// that. A glob below a directory the session named (`rm -rf "$d"/*`) is not
-// refused: the directory is already one path.
+// `mktemp` names every scratch file and directory on the host
+// `/tmp/tmp.XXXXXXXXXX`, whoever made it, so `rm -f /tmp/tmp.*` or
+// `rm -rf /tmp/tmp.*` written to clean up one session's scratch deletes every
+// other session's too — files and directories in-flight test runs and
+// harnesses are reading. Without -r it takes the files and leaves the
+// directories, which is no smaller a reach into other sessions' work. What a
+// turn may delete is what it created, by the path `mktemp` printed; a glob over
+// the shared root can only name more than that. A glob below a directory the
+// session named (`rm -rf "$d"/*`) is not refused: the directory is already one
+// path.
 package tmpglob
 
 import (
@@ -27,8 +30,8 @@ var roots = []string{"/tmp", "/var/tmp", "/dev/shm"}
 // tmpdirVars are the spellings of $TMPDIR a command line carries unexpanded.
 var tmpdirVars = []string{"$TMPDIR", "${TMPDIR}"}
 
-// Find returns the first operand of a recursive rm in command that globs
-// directly under a shared temporary root, or "". cwd is where the command line
+// Find returns the first operand of an rm in command that globs directly
+// under a shared temporary root, recursive or not, or "". cwd is where the command line
 // starts; a `cd` moves it, so a relative glob is read from where it runs.
 //
 // It reads what a Bash tool call types, not every way a shell can reach rm:
@@ -55,11 +58,7 @@ func Find(command, cwd string) string {
 		if filepath.Base(words[0]) != "rm" {
 			continue
 		}
-		recursive, operands := parse(words[1:])
-		if !recursive {
-			continue
-		}
-		for _, op := range operands {
+		for _, op := range operands(words[1:]) {
 			if globsRoot(op, dir) {
 				return op
 			}
@@ -119,26 +118,22 @@ func count(w string) bool {
 	return true
 }
 
-// parse reports whether rm's arguments ask for a recursive delete, and its
-// operands.
-func parse(args []string) (bool, []string) {
-	recursive, operands, ended := false, []string{}, false
+// operands returns rm's operands: every argument that is not an option, and
+// every argument after `--`.
+func operands(args []string) []string {
+	ops, ended := []string{}, false
 	for _, a := range args {
 		if strings.HasPrefix(a, "#") {
 			break
 		}
 		switch {
 		case ended || !strings.HasPrefix(a, "-") || a == "-":
-			operands = append(operands, a)
+			ops = append(ops, a)
 		case a == "--":
 			ended = true
-		case a == "--recursive":
-			recursive = true
-		case !strings.HasPrefix(a, "--") && strings.ContainsAny(a, "rR"):
-			recursive = true
 		}
 	}
-	return recursive, operands
+	return ops
 }
 
 // globsRoot reports that op carries a glob whose literal parent directory is a
