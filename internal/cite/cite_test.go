@@ -628,6 +628,7 @@ func TestCheck_AnImageReferenceIsNotACitation(t *testing.T) {
 	controls := map[string]string{
 		"see dir/file.go:12":               "dir/file.go:12",
 		"see .github/CODEOWNERS:3":         ".github/CODEOWNERS:3",
+		"see .githooks/pre-commit:5":       ".githooks/pre-commit:5",
 		"see github.com/x/y/z.go:12":       "github.com/x/y/z.go:12",
 		"see bitnami/redis:7 then":         "bitnami/redis:7",
 		"see dir/file.go:12. Next":         "dir/file.go:12",
