@@ -73,6 +73,9 @@ type Citation struct {
 	// At is the document line the citation is written on, which is what
 	// anchors a quotation to it.
 	At int
+	// tagged: a dotted version or a digest follows the number, which is how an
+	// image tag is written and never a line.
+	tagged bool
 }
 
 // Kind is why a citation does not hold.
@@ -151,16 +154,30 @@ var tagged = regexp.MustCompile(`^(?:\.\d|@[A-Za-z0-9]+:)`)
 // (`docker.io`, `ghcr.io`, `public.ecr.aws`), never a leading-dot directory.
 var registryHost = regexp.MustCompile(`^(?:localhost|[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?)+)$`)
 
+// repoSegment is one lowercase component of an image repository name.
+var repoSegment = regexp.MustCompile(`^[a-z0-9]+(?:(?:[._]|__|-+)[a-z0-9]+)*$`)
+
 // image reports whether a path is a container image name: a registry host, then
-// a repository whose last segment carries no file extension. Check asks only of
-// a path no file in this checkout answers to, so a directory that happens to be
-// named like a host is still read where the tree has it.
+// lowercase repository components, the last without a file extension.
 func image(path string) bool {
 	segs := strings.Split(path, "/")
-	if strings.Contains(segs[len(segs)-1], ".") {
+	if strings.Contains(segs[len(segs)-1], ".") || !registryHost.MatchString(segs[0]) {
 		return false
 	}
-	return registryHost.MatchString(segs[0])
+	for _, s := range segs[1:] {
+		if !repoSegment.MatchString(s) {
+			return false
+		}
+	}
+	return true
+}
+
+// NotACitation reports whether a token the resolver could not open is an image
+// reference rather than a citation. It is asked only after the read failed and
+// the path does not claim this tree, so a file the checkout has is checked
+// however it is written.
+func NotACitation(c Citation, err error) bool {
+	return err != nil && !errors.Is(err, ErrPathClaimsTree) && (c.tagged || image(c.Path))
 }
 
 // Extract returns every citation a document makes, in the order written.
@@ -202,7 +219,7 @@ func occurrences(doc string) []Citation {
 	for _, m := range citation.FindAllStringSubmatchIndex(claimed, -1) {
 		path := claimed[m[4]:m[5]]
 		n, err := strconv.Atoi(claimed[m[6]:m[7]])
-		if err != nil || n < 1 || tagged.MatchString(claimed[m[1]:]) {
+		if err != nil || n < 1 {
 			continue
 		}
 		// A range still names its file for a continuation after it.
@@ -216,7 +233,8 @@ func occurrences(doc string) []Citation {
 			Line: n,
 			// From the path, not from the match, whose first group eats the
 			// newline before a citation that opens a line.
-			At: strings.Count(claimed[:m[4]], "\n"),
+			At:     strings.Count(claimed[:m[4]], "\n"),
+			tagged: tagged.MatchString(claimed[m[1]:]),
 		}})
 		if m[8] >= 0 {
 			all[len(all)-1].c.Line = 0
@@ -321,7 +339,7 @@ func Check(doc string, read func(path string) ([]string, error)) ([]Finding, []C
 		}
 		lines, err := read(c.Path)
 		if err != nil {
-			if !errors.Is(err, ErrPathClaimsTree) && image(c.Path) {
+			if NotACitation(c, err) {
 				continue
 			}
 			if _, seen := seenUnresolved[c.Raw]; !seen && !errors.Is(err, ErrPathClaimsTree) {

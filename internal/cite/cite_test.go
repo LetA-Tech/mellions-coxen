@@ -650,3 +650,35 @@ func TestCheck_AHostNamedDirectoryInTheTreeIsStillChecked(t *testing.T) {
 		t.Fatalf("findings %v, want conf.d/default:2 Unbacked", findings)
 	}
 }
+
+// A version or digest after the number marks an image tag only for a token the
+// checkout cannot open. A file this tree has, or a path claiming it, is checked
+// however it is written: one suffix must not switch the gate off.
+func TestCheck_ATagSuffixDoesNotExemptThisTree(t *testing.T) {
+	read := func(path string) ([]string, error) {
+		switch path {
+		case "internal/cite/cite.go":
+			return []string{"package cite", "import (", ")"}, nil
+		case "internal/cite/citee.go", "conf.d/defualt":
+			return nil, ErrPathClaimsTree
+		}
+		return nil, errors.New("not a file in this checkout")
+	}
+	cases := map[string]Kind{
+		"see internal/cite/cite.go:99@dev: `x`":         Missing,
+		"see internal/cite/cite.go:2@dev: `wrong text`": Unbacked,
+		"see internal/cite/cite.go:2.5 for it":          Unbacked,
+		"see internal/cite/citee.go:2@dev: `x`":         Absent,
+		"the listener is conf.d/defualt:2":              Absent,
+	}
+	for doc, want := range cases {
+		findings, unresolved := Check(doc, read)
+		if len(findings) != 1 || findings[0].Kind != want || len(unresolved) != 0 {
+			t.Errorf("%q: findings %v unresolved %v, want one %v", doc, findings, unresolved, want)
+		}
+	}
+	_, unresolved := Check("see github.com/LetA-Tech/mcfo-finsys/Makefile:12", read)
+	if len(unresolved) != 1 {
+		t.Errorf("a cross-repo extensionless file under a host prefix: unresolved %v, want it named", unresolved)
+	}
+}
