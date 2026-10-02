@@ -23,8 +23,10 @@ func TestReasonStatesTheNamesItMatched(t *testing.T) {
 	}{
 		{"a known printer on a credential path", `cat .db_connection`,
 			"`cat … .db_connection` — `.db_connection` is named like a credential file, and `cat` " + notOnSafeList},
-		{"the guard's own subcommand name", `./bin/mellions secret-check`,
-			"`mellions … secret-check` — `secret-check` is named like a credential file, and `mellions` " + notOnSafeList},
+		{"a first-party CLI operand", `./bin/mellions report write -id d -file app-secret`,
+			"`mellions … app-secret` — `app-secret` is named like a credential file, and `mellions` " + notOnSafeList},
+		{"a process substitution handed to an unlisted reader", `perl -pe1 <(cat .env)`,
+			"`perl … .env` — `.env` is named like a credential file, and `perl` " + notOnSafeList},
 		{"a repository name argument", `gh release view v6.2.4 -R aws-actions/configure-aws-credentials --json body`,
 			"`gh … aws-actions/configure-aws-credentials` — `aws-actions/configure-aws-credentials` is " +
 				"named like a credential file, and `gh` " + notOnSafeList},
@@ -33,10 +35,10 @@ func TestReasonStatesTheNamesItMatched(t *testing.T) {
 		{"a variable assigned a credential's path", `F=.db_connection; frob "$F"`,
 			"`$F` was assigned a path named like a credential file earlier on this command line, and `frob` " + notOnSafeList},
 		{"a variable assigned a substitution naming a credential", `U="$(tail -1 .db_connection)"; echo "$U"`,
-			"`$U` was assigned, earlier on this command line, a word containing `$(` or a backtick " +
+			"`$U` was assigned, earlier on this command line, a word containing `$(`, `<(` or a backtick " +
 				"and a credential file's name, and `echo` " + onPrinterList},
 		{"a substitution beside a credential name", `echo "$(date) .env"`,
-			"an argument to `echo` contains `$(` or a backtick and the credential file name `.env`, and `echo` " + onPrinterList},
+			"an argument to `echo` contains `$(`, `<(` or a backtick and the credential file name `.env`, and `echo` " + onPrinterList},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
