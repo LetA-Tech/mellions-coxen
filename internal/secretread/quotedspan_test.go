@@ -45,7 +45,8 @@ func TestScanBash_QuotedRegexInsideSubstitution(t *testing.T) {
 		{"a quoted name in a script", "x=$(python3 -c \"import os; print(open('.env').read())\")\necho $x", ".env"},
 
 		// Quoting that does not balance exempts nothing.
-		{"case pattern paren", "x=$(case a in a) cat .*;; esac; grep 'a .*b' f)\necho $x", ".*"},
+		{"case pattern paren", "x=\"$(case a in a) cat .* ;; esac)\"\necho $x", ".*"},
+		{"case pattern paren, unquoted", "x=$(case a in a) cat .*;; esac; grep 'a .*b' f)\necho $x", ".*"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -81,5 +82,16 @@ func TestScanBash_SedExecutesAGlobByItsStem(t *testing.T) {
 	cmd := "x=$(sed '1e cat .e* ' f)\necho $x"
 	if len(ScanBash(cmd)) == 0 {
 		t.Fatalf("ScanBash(%q) allowed — this is the leak", cmd)
+	}
+}
+
+// A case pattern's `)` closes a substitution early, and the quoting after it
+// can still balance. The lexer strips a word's outer quotes before ScanBash
+// sees it, so this shape is held at secretInside, which must be sound on any
+// word it is handed.
+func TestSecretInside_CaseVoidsTheExemption(t *testing.T) {
+	word := `"$(case a in a) cat .* ;; esac)"`
+	if got := secretInside(word); got != ".*" {
+		t.Fatalf("secretInside(%q) = %q, want .*", word, got)
 	}
 }

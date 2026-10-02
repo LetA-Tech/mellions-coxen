@@ -542,8 +542,9 @@ type fragment struct {
 // another command, tracking quotes the way bash does: each `$(` and backtick
 // opens a fresh quoting context, and a quote inside the other kind is literal.
 // balanced is false when a quote, a substitution or a parenthesis is left open
-// or closed twice — a case pattern's `)`, say — so the caller can fall back to
-// the reading that exempts nothing.
+// or closed twice, or where a `case` word appears: its pattern's `)` can close a
+// substitution early and leave nothing unbalanced to show it. The caller then
+// falls back to the reading that exempts nothing.
 func substitutionFragments(word string) ([]fragment, bool) {
 	type context struct {
 		single, double, backtick bool
@@ -562,6 +563,9 @@ func substitutionFragments(word string) ([]fragment, bool) {
 		for _, f := range strings.FieldsFunc(text, func(r rune) bool {
 			return r == ' ' || r == '\t' || r == '\n' || r == '(' || r == ')' || r == '`' || r == '"' || r == '\''
 		}) {
+			if !quoted && f == "case" {
+				balanced = false
+			}
 			out = append(out, fragment{text: f, prose: prose})
 		}
 	}
