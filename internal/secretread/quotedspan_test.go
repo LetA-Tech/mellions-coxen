@@ -96,9 +96,8 @@ func TestSecretInside_CaseVoidsTheExemption(t *testing.T) {
 	}
 }
 
-// An escape keeps its backslash in the fragment, as the split before quote
-// tracking did: `\s*` has the stem `\s`, and dropping the backslash made it
-// `s*`, whose stem prefixes secring.gpg.
+// An escape keeps its backslash in the fragment: `\s*` has the stem `\s`,
+// where `s*` would have the stem `s`, which prefixes secring.gpg.
 func TestScanBash_EscapeKeepsItsBackslash(t *testing.T) {
 	cmd := "grep -n '^```go\\|^```\\s*$\\|package main\\|func main' comment.md"
 	if got := ScanBash(cmd); len(got) != 0 {
