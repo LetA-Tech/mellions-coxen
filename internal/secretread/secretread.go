@@ -473,18 +473,166 @@ func containsSecretRead(word string) bool {
 }
 
 // secretInside returns the credential path embedded in a substitution, or "".
+//
+// One fragment shape is not read as a glob: `.*` or `.?` at the head of a
+// basename, inside a quoted span that has whitespace in it. That span reaches
+// the inner command as one argument, and no credential's name has whitespace,
+// so neither the shell nor a program that expands its own operands can turn it
+// into a dotfile — it is a regex or a sed script. The exemption lapses where a
+// word in the substitution names a program that re-parses a quoted script, and
+// where the quoting does not balance.
 func secretInside(word string) string {
 	if !strings.Contains(word, "$(") && !strings.Contains(word, "`") {
 		return ""
 	}
-	for _, f := range strings.FieldsFunc(word, func(r rune) bool {
-		return r == ' ' || r == '\t' || r == '(' || r == ')' || r == '`' || r == '"' || r == '\''
-	}) {
-		if IsSecretPath(f) {
-			return f
+	frags, balanced := substitutionFragments(word)
+	exempt := balanced
+	for _, f := range frags {
+		if reparsers[programName(f.text)] {
+			exempt = false
+		}
+	}
+	for _, f := range frags {
+		if exempt && f.prose && dotRegexHead(f.text) {
+			if secretByName(f.text) {
+				return f.text
+			}
+			continue
+		}
+		if IsSecretPath(f.text) {
+			return f.text
 		}
 	}
 	return ""
+}
+
+// reparsers run a quoted argument as a script of their own, where `.*` is a
+// glob again: shells, eval and remote shells, and the interpreters whose
+// one-liners reach a glob or a shell.
+var reparsers = map[string]bool{
+	"sh": true, "bash": true, "zsh": true, "dash": true, "ksh": true, "mksh": true,
+	"fish": true, "csh": true, "tcsh": true, "busybox": true, "eval": true,
+	"ssh": true, "su": true, "script": true, "watch": true,
+	"awk": true, "gawk": true, "mawk": true, "nawk": true,
+	"perl": true, "python": true, "ruby": true, "node": true, "php": true,
+}
+
+// programName lowers a fragment's basename and strips a version suffix, so
+// `/usr/bin/python3.12` is `python`.
+func programName(s string) string {
+	return strings.TrimRight(strings.ToLower(path.Base(s)), "0123456789.")
+}
+
+// dotRegexHead reports whether a fragment's basename begins with the regex
+// "any character" — `.*` or `.?` — which is the shape whose glob stem `.`
+// prefixes every dotted credential name.
+func dotRegexHead(s string) bool {
+	base := basename(s)
+	return strings.HasPrefix(base, ".*") || strings.HasPrefix(base, ".?")
+}
+
+// fragment is one piece of a word that secretInside judges. prose is true when
+// the piece came from a quoted span with whitespace in it.
+type fragment struct {
+	text  string
+	prose bool
+}
+
+// substitutionFragments cuts a word at the punctuation that wraps a path inside
+// another command, tracking quotes the way bash does: each `$(` and backtick
+// opens a fresh quoting context, and a quote inside the other kind is literal.
+// balanced is false when a quote, a substitution or a parenthesis is left open
+// or closed twice — a case pattern's `)`, say — so the caller can fall back to
+// the reading that exempts nothing.
+func substitutionFragments(word string) ([]fragment, bool) {
+	type context struct {
+		single, double, backtick bool
+		parens                   int
+	}
+	var stack []context
+	var cur context
+	var out []fragment
+	var span strings.Builder
+	balanced := true
+	flush := func() {
+		text := span.String()
+		span.Reset()
+		quoted := cur.single || cur.double
+		prose := quoted && strings.ContainsAny(text, " \t\n")
+		for _, f := range strings.FieldsFunc(text, func(r rune) bool {
+			return r == ' ' || r == '\t' || r == '\n' || r == '(' || r == ')' || r == '`' || r == '"' || r == '\''
+		}) {
+			out = append(out, fragment{text: f, prose: prose})
+		}
+	}
+	rs := []rune(word)
+	for i := 0; i < len(rs); i++ {
+		r := rs[i]
+		if cur.single {
+			if r == '\'' {
+				flush()
+				cur.single = false
+				continue
+			}
+			span.WriteRune(r)
+			continue
+		}
+		switch {
+		case r == '\\' && i+1 < len(rs):
+			span.WriteRune(rs[i+1])
+			i++
+			continue
+		case r == '\'' && !cur.double:
+			flush()
+			cur.single = true
+			continue
+		case r == '"':
+			flush()
+			cur.double = !cur.double
+			continue
+		case r == '$' && i+1 < len(rs) && rs[i+1] == '(':
+			flush()
+			stack = append(stack, cur)
+			cur = context{}
+			i++
+			continue
+		case r == '`':
+			flush()
+			if cur.backtick {
+				if len(stack) == 0 || cur.double || cur.parens != 0 {
+					balanced = false
+				}
+				if len(stack) > 0 {
+					cur, stack = stack[len(stack)-1], stack[:len(stack)-1]
+				}
+			} else {
+				stack = append(stack, cur)
+				cur = context{backtick: true}
+			}
+			continue
+		case r == '(' && !cur.double:
+			cur.parens++
+		case r == ')' && !cur.double:
+			if cur.parens > 0 {
+				cur.parens--
+				break
+			}
+			flush()
+			if len(stack) == 0 || cur.backtick {
+				balanced = false
+			}
+			if len(stack) > 0 {
+				cur, stack = stack[len(stack)-1], stack[:len(stack)-1]
+			}
+			continue
+		}
+		span.WriteRune(r)
+	}
+	flush()
+	if len(stack) != 0 || cur.single || cur.double || cur.parens != 0 {
+		balanced = false
+	}
+	return out, balanced
 }
 
 // names reports whether an argument references the shell variable.
