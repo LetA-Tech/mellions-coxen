@@ -583,6 +583,7 @@ func substitutionFragments(word string) ([]fragment, bool) {
 		}
 		switch {
 		case r == '\\' && i+1 < len(rs):
+			span.WriteRune(r)
 			span.WriteRune(rs[i+1])
 			i++
 			continue

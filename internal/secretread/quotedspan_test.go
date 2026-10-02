@@ -95,3 +95,13 @@ func TestSecretInside_CaseVoidsTheExemption(t *testing.T) {
 		t.Fatalf("secretInside(%q) = %q, want .*", word, got)
 	}
 }
+
+// An escape keeps its backslash in the fragment, as the split before quote
+// tracking did: `\s*` has the stem `\s`, and dropping the backslash made it
+// `s*`, whose stem prefixes secring.gpg.
+func TestScanBash_EscapeKeepsItsBackslash(t *testing.T) {
+	cmd := "grep -rnE '^\\s*\\|\\s*`?DENIED`?\\s*\\|' docs/"
+	if got := ScanBash(cmd); len(got) != 0 {
+		t.Fatalf("ScanBash(%q) denied on %q — it prints no credential", cmd, got[0].Path)
+	}
+}
