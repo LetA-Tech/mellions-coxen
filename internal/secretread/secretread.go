@@ -512,7 +512,8 @@ func secretInside(word string) string {
 var reparsers = map[string]bool{
 	"sh": true, "bash": true, "zsh": true, "dash": true, "ksh": true, "mksh": true,
 	"fish": true, "csh": true, "tcsh": true, "busybox": true, "eval": true,
-	"ssh": true, "su": true, "script": true, "watch": true,
+	"ssh": true, "su": true, "script": true, "watch": true, "flock": true,
+	"parallel": true, "expect": true, "tclsh": true,
 	"awk": true, "gawk": true, "mawk": true, "nawk": true,
 	"perl": true, "python": true, "ruby": true, "node": true, "php": true,
 }
