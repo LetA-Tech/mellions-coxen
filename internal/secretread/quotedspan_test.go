@@ -22,6 +22,8 @@ func TestScanBash_QuotedRegexInsideSubstitution(t *testing.T) {
 		{"printed directly", `echo "$(grep -E 'a .*b' notes.txt)"`, ""},
 		{"a sed script whose quotes the lexer stripped", "sed -i '7s|.*|// see `row` here|' f.go", ""},
 		{"piped into a pattern consumer", "x=$(sed -n p f | sed 's/.* x//')\necho $x", ""},
+		{"a separator ends no fragment", "sed -i 's/^| a | `65440fca`.*$/| b |/' f.md", ""},
+		{"a pattern consumer after a glued pipe", "x=$(sed -n p f|grep 'a .*b')\necho $x", ""},
 		{"backtick form", "echo `sed 's/.*= //' version.txt`", ""},
 		{"double-quoted regex", `echo "$(grep -E "a .*b" notes.txt)"`, ""},
 
