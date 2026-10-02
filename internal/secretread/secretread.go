@@ -475,12 +475,10 @@ func containsSecretRead(word string) bool {
 // secretInside returns the credential path embedded in a substitution, or "".
 //
 // One fragment shape is not read as a glob: `.*` or `.?` at the head of a
-// basename, inside a quoted span that has whitespace in it. That span reaches
-// the inner command as one argument, and no credential's name has whitespace,
-// so the shell cannot glob it onto a dotfile — it is a regex or a sed script.
-// The exemption lapses where the substitution names a program that re-parses a
-// quoted script or matches one against file names (a regex alternation needs no
-// whitespace in the branch that matches), and where the quoting does not balance.
+// basename, inside a quoted span with whitespace, handed to a program in
+// patternConsumers — a regex or a sed script the shell never globs. Any other
+// program may re-parse or path-match the span, so it gets no exemption; nor
+// does a word naming a re-parser or path matcher anywhere, or unbalanced quoting.
 func secretInside(word string) string {
 	if !strings.Contains(word, "$(") && !strings.Contains(word, "`") {
 		return ""
@@ -493,7 +491,7 @@ func secretInside(word string) string {
 		}
 	}
 	for _, f := range frags {
-		if exempt && f.prose && dotRegexHead(f.text) {
+		if exempt && f.prose && dotRegexHead(f.text) && consumesPattern(f) {
 			if secretByName(f.text) {
 				return f.text
 			}
@@ -504,6 +502,19 @@ func secretInside(word string) string {
 		}
 	}
 	return ""
+}
+
+// patternConsumers take a quoted argument as a regex or an edit script and
+// match it against text, never against file names or through a shell.
+var patternConsumers = map[string]bool{
+	"grep": true, "egrep": true, "fgrep": true, "rg": true, "sed": true,
+	"gsed": true, "pgrep": true, "jq": true,
+}
+
+// consumesPattern reports whether a fragment is an argument of a program in
+// patternConsumers, or of `git grep`.
+func consumesPattern(f fragment) bool {
+	return patternConsumers[f.cmd] || (f.cmd == "git" && f.gitGrep)
 }
 
 // reparsers run a quoted argument as a script of their own, where `.*` is a
@@ -540,10 +551,14 @@ func dotRegexHead(s string) bool {
 }
 
 // fragment is one piece of a word that secretInside judges. prose is true when
-// the piece came from a quoted span with whitespace in it.
+// the piece came from a quoted span with whitespace in it; cmd is the command
+// word of the simple command it belongs to, and gitGrep says that command is
+// `git … grep`.
 type fragment struct {
-	text  string
-	prose bool
+	text    string
+	prose   bool
+	cmd     string
+	gitGrep bool
 }
 
 // substitutionFragments cuts a word at the punctuation that wraps a path inside
@@ -557,9 +572,13 @@ func substitutionFragments(word string) ([]fragment, bool) {
 	type context struct {
 		single, double, backtick bool
 		parens                   int
+		// want is true until the next unquoted fragment, which is a command word.
+		want    bool
+		cmd     string
+		gitGrep bool
 	}
 	var stack []context
-	var cur context
+	cur := context{want: true}
 	var out []fragment
 	var span strings.Builder
 	balanced := true
@@ -574,7 +593,13 @@ func substitutionFragments(word string) ([]fragment, bool) {
 			if !quoted && f == "case" {
 				balanced = false
 			}
-			out = append(out, fragment{text: f, prose: prose})
+			switch {
+			case !quoted && cur.want:
+				cur.cmd, cur.want, cur.gitGrep = programName(f), false, false
+			case !quoted && cur.cmd == "git" && f == "grep":
+				cur.gitGrep = true
+			}
+			out = append(out, fragment{text: f, prose: prose, cmd: cur.cmd, gitGrep: cur.gitGrep})
 		}
 	}
 	rs := []rune(word)
@@ -606,7 +631,7 @@ func substitutionFragments(word string) ([]fragment, bool) {
 		case r == '$' && i+1 < len(rs) && rs[i+1] == '(':
 			flush()
 			stack = append(stack, cur)
-			cur = context{}
+			cur = context{want: true}
 			i++
 			continue
 		case r == '`':
@@ -620,8 +645,12 @@ func substitutionFragments(word string) ([]fragment, bool) {
 				}
 			} else {
 				stack = append(stack, cur)
-				cur = context{backtick: true}
+				cur = context{backtick: true, want: true}
 			}
+			continue
+		case !cur.double && (r == '|' || r == ';' || r == '&' || r == '\n'):
+			flush()
+			cur.want = true
 			continue
 		case r == '(' && !cur.double:
 			cur.parens++

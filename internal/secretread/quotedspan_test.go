@@ -43,6 +43,9 @@ func TestScanBash_QuotedRegexInsideSubstitution(t *testing.T) {
 		{"awk system", "x=$(awk 'BEGIN{system(\"cat .* \")}')\necho $x", ".*"},
 		{"python3 glob", "x=$(python3 -c \"import glob; print(glob.glob('.* x'))\")\necho $x", ".*"},
 		{"flock -c", "x=$(flock ./l -c 'cat .* 2>/dev/null')\necho $x", ".*"},
+		{"a shell under another name", "x=$(./myshell -c \"grep -h K .*\")\necho $x", ".*"},
+		{"git bang alias", "x=$(git -c alias.zz='!grep -h K .*' zz)\necho $x", ".*"},
+		{"a pattern consumer behind a wrapper", "x=$(sudo grep 'a .*b' f)\necho $x", ".*"},
 		{"ssh remote shell", "x=$(ssh h 'cat .* ')\necho $x", ".*"},
 		{"a quoted name in a script", "x=$(python3 -c \"import os; print(open('.env').read())\")\necho $x", ".env"},
 
