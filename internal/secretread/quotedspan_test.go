@@ -100,7 +100,7 @@ func TestSecretInside_CaseVoidsTheExemption(t *testing.T) {
 // tracking did: `\s*` has the stem `\s`, and dropping the backslash made it
 // `s*`, whose stem prefixes secring.gpg.
 func TestScanBash_EscapeKeepsItsBackslash(t *testing.T) {
-	cmd := "grep -rnE '^\\s*\\|\\s*`?DENIED`?\\s*\\|' docs/"
+	cmd := "grep -n '^```go\\|^```\\s*$\\|package main\\|func main' comment.md"
 	if got := ScanBash(cmd); len(got) != 0 {
 		t.Fatalf("ScanBash(%q) denied on %q — it prints no credential", cmd, got[0].Path)
 	}
