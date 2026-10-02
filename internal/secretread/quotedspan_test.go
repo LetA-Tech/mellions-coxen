@@ -33,6 +33,7 @@ func TestScanBash_QuotedRegexInsideSubstitution(t *testing.T) {
 		// Quoted globs a program expands itself: one argument, no whitespace.
 		{"find -name", "x=$(find . -name '.db_conn*' -exec cat {} +)\necho $x", ".db_conn*"},
 		{"find -name dot", "x=$(find . -name '.*' -exec cat {} +)\necho $x", ".*"},
+		{"find -regex alternation", "x=$(find . -regex '.* x\\|.*env' -exec cat {} +)\necho $x", ".*"},
 		{"git pathspec", "x=$(git grep -h K -- '.db_conn*')\necho $x", ".db_conn*"},
 
 		// A quoted script something re-parses, where `.*` is a glob again.

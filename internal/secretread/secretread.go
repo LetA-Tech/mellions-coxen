@@ -477,10 +477,10 @@ func containsSecretRead(word string) bool {
 // One fragment shape is not read as a glob: `.*` or `.?` at the head of a
 // basename, inside a quoted span that has whitespace in it. That span reaches
 // the inner command as one argument, and no credential's name has whitespace,
-// so neither the shell nor a program that expands its own operands can turn it
-// into a dotfile — it is a regex or a sed script. The exemption lapses where a
-// word in the substitution names a program that re-parses a quoted script, and
-// where the quoting does not balance.
+// so the shell cannot glob it onto a dotfile — it is a regex or a sed script.
+// The exemption lapses where the substitution names a program that re-parses a
+// quoted script or matches one against file names (a regex alternation needs no
+// whitespace in the branch that matches), and where the quoting does not balance.
 func secretInside(word string) string {
 	if !strings.Contains(word, "$(") && !strings.Contains(word, "`") {
 		return ""
@@ -488,7 +488,7 @@ func secretInside(word string) string {
 	frags, balanced := substitutionFragments(word)
 	exempt := balanced
 	for _, f := range frags {
-		if reparsers[programName(f.text)] {
+		if n := programName(f.text); reparsers[n] || pathMatchers[n] {
 			exempt = false
 		}
 	}
@@ -516,6 +516,13 @@ var reparsers = map[string]bool{
 	"parallel": true, "expect": true, "tclsh": true,
 	"awk": true, "gawk": true, "mawk": true, "nawk": true,
 	"perl": true, "python": true, "ruby": true, "node": true, "php": true,
+}
+
+// pathMatchers select files by a pattern they are handed, so a quoted regex
+// with whitespace in one branch still matches `.env` through another.
+var pathMatchers = map[string]bool{
+	"find": true, "fd": true, "fdfind": true, "ag": true, "locate": true,
+	"plocate": true, "tree": true, "rsync": true, "tar": true, "zip": true,
 }
 
 // programName lowers a fragment's basename and strips a version suffix, so
