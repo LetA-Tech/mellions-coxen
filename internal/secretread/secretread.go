@@ -595,7 +595,9 @@ func substitutionFragments(word string) ([]fragment, bool) {
 			}
 			switch {
 			case !quoted && cur.want:
-				cur.cmd, cur.want, cur.gitGrep = programName(f), false, false
+				if name := programName(strings.TrimLeft(f, "|;&\n")); name != "" {
+					cur.cmd, cur.want, cur.gitGrep = name, false, false
+				}
 			case !quoted && cur.cmd == "git" && f == "grep":
 				cur.gitGrep = true
 			}
@@ -649,9 +651,11 @@ func substitutionFragments(word string) ([]fragment, bool) {
 			}
 			continue
 		case !cur.double && (r == '|' || r == ';' || r == '&' || r == '\n'):
+			// The separator stays in the fragment, as it did before command words
+			// were tracked: the lexer has stripped this word's own quotes, so a
+			// sed script's `|` can land here, and `|.*|` must not become `.*`.
 			flush()
 			cur.want = true
-			continue
 		case r == '(' && !cur.double:
 			cur.parens++
 		case r == ')' && !cur.double:

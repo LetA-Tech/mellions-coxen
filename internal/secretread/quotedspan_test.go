@@ -20,6 +20,8 @@ func TestScanBash_QuotedRegexInsideSubstitution(t *testing.T) {
 		{"git grep regex with a space", "m=$(git -C x grep -nE 'install .*protoc-gen-go(-grpc)?@' ref -- Makefile)\necho \"$m\"", ""},
 		{"sed script with a space", "o=$(sed -n \"3p\" d/Makefile | sed 's/.*--go-grpc_out=[^ ]* //; s/[;)].*//')\necho $o", ""},
 		{"printed directly", `echo "$(grep -E 'a .*b' notes.txt)"`, ""},
+		{"a sed script whose quotes the lexer stripped", "sed -i '7s|.*|// see `row` here|' f.go", ""},
+		{"piped into a pattern consumer", "x=$(sed -n p f | sed 's/.* x//')\necho $x", ""},
 		{"backtick form", "echo `sed 's/.*= //' version.txt`", ""},
 		{"double-quoted regex", `echo "$(grep -E "a .*b" notes.txt)"`, ""},
 
