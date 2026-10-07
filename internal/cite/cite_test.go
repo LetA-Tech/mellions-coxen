@@ -766,3 +766,13 @@ func TestCheck_ACrossRepoRangeIsReportedNotDenied(t *testing.T) {
 		t.Fatalf("unresolved %v, want runtime/exec.go:1840-1850 named", unresolved)
 	}
 }
+
+// A clean result reports what it covered. Ranges is how a caller counts the
+// ranges Check held to existence, which Extract, being line citations only,
+// never returns.
+func TestRangesReturnsOnlyRanges(t *testing.T) {
+	got := Ranges("read goals.go:1-125 and goals.go:1-125 again, cited goals.go:64, then a/b.go:3–9")
+	if len(got) != 2 || got[0].Raw != "goals.go:1-125" || got[1].Raw != "a/b.go:3–9" {
+		t.Fatalf("Ranges = %+v, want goals.go:1-125 and a/b.go:3–9", got)
+	}
+}

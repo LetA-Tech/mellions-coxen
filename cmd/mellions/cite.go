@@ -79,6 +79,15 @@ func cmdCite(ctx context.Context, args []string) error {
 			}
 		}
 		fmt.Printf("cite: every citation this checkout can resolve is quoted in the body (%d cited).\n", cited)
+		ranges := 0
+		for _, c := range cite.Ranges(doc) {
+			if _, err := read(c.Path); err == nil {
+				ranges++
+			}
+		}
+		if ranges > 0 {
+			fmt.Printf("cite: %d line range(s) lie within their files; a range owes no quotation.\n", ranges)
+		}
 		return nil
 	}
 	for _, f := range findings {
