@@ -222,6 +222,22 @@ func Extract(doc string) []Citation {
 	return out
 }
 
+// Ranges returns every line range a document cites, in the order written: the
+// citations Check holds to existence alone, so a caller reporting a clean
+// result can say they were checked.
+func Ranges(doc string) []Citation {
+	var out []Citation
+	seen := map[string]bool{}
+	for _, c := range occurrences(doc) {
+		if !c.Ranged || seen[c.Raw] {
+			continue
+		}
+		seen[c.Raw] = true
+		out = append(out, c)
+	}
+	return out
+}
+
 // occurrences is every citation token as written, each carrying the document
 // line it sits on. The same citation written twice is two occurrences here
 // where Extract reports one: backing is anchored, so which of the two places
