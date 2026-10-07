@@ -11,10 +11,11 @@
 # retractable. A denial becomes a tool result the session must answer.
 #
 # What is denied is a citation this checkout can resolve and the body does not
-# quote. A path the checkout does not hold, a line range, and a path:line
-# inside a fenced block or a blockquote are not claims about this code and are
-# silent. Without the binary this hook is silent, which every session-start
-# hook says out loud at the top of the session.
+# quote, and a line range this checkout's file does not reach; a range owes no
+# quotation. A path the checkout does not hold, and a path:line inside a fenced
+# block or a blockquote, are not claims about this code and are silent. Without
+# the binary this hook is silent, which every session-start hook says out loud
+# at the top of the session.
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 [[ -x "$mellions" ]] || exit 0
 [[ -n "$payload" ]] || exit 0

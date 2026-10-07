@@ -683,3 +683,86 @@ func TestCheck_ATagSuffixDoesNotExemptThisTree(t *testing.T) {
 		t.Errorf("a cross-repo extensionless file under a host prefix: unresolved %v, want it named", unresolved)
 	}
 }
+
+// A range owes no quotation, and that exemption was implemented by dropping the
+// range before it was resolved — so a range into a region the file does not
+// have, or into a file that does not exist, passed as clean. It is still a
+// claim that the region exists.
+func TestCheck_ARangeIsHeldToExistence(t *testing.T) {
+	read := func(path string) ([]string, error) {
+		switch path {
+		case "a/one.go":
+			return []string{"package one", "func A() {}", "func B() {}"}, nil
+		case "a/gone.go":
+			return nil, ErrPathClaimsTree
+		}
+		return nil, errors.New("not a file in this checkout")
+	}
+	for _, tc := range []struct {
+		doc, raw string
+		want     Kind
+	}{
+		{"see `a/one.go:9-12` for it", "a/one.go:9-12", Missing},
+		{"see `a/one.go:2-4` for it", "a/one.go:2-4", Missing},
+		{"see a/one.go:2–40 for it", "a/one.go:2–40", Missing},
+		{"see `a/one.go:3-2` for it", "a/one.go:3-2", Inverted},
+		{"see `a/one.go:2-0` for it", "a/one.go:2-0", Inverted},
+		{"see `a/one.go:2-0` `func A() {}`", "a/one.go:2-0", Inverted},
+		{"see `a/gone.go:1-3` for it", "a/gone.go:1-3", Absent},
+	} {
+		findings, unresolved := Check(tc.doc, read)
+		if len(findings) != 1 || findings[0].Kind != tc.want || findings[0].Raw != tc.raw {
+			t.Errorf("%q: findings %+v, want one %v naming %q", tc.doc, findings, tc.want, tc.raw)
+			continue
+		}
+		if !strings.HasPrefix(findings[0].Reason(), tc.raw+": ") {
+			t.Errorf("%q: reason %q does not name the range", tc.doc, findings[0].Reason())
+		}
+		if len(unresolved) != 0 {
+			t.Errorf("%q: unresolved %v, want none", tc.doc, unresolved)
+		}
+	}
+}
+
+// The control the refusals need: a range inside the file, quoting nothing,
+// passes — reading a range as its first line would re-impose the quotation and
+// refuse every honest region citation.
+func TestCheck_AValidRangeOwesNoQuotation(t *testing.T) {
+	read := func(path string) ([]string, error) {
+		if path == "a/one.go" {
+			return []string{"package one", "func A() {}", "func B() {}"}, nil
+		}
+		return nil, errors.New("not a file in this checkout")
+	}
+	for _, doc := range []string{
+		"see `a/one.go:1-3` for the whole file",
+		"see a/one.go:2—2 for one line written as a range",
+		// The range takes no quotation the line citation beside it needs.
+		"`a/one.go:1-2` and `a/one.go:2`:\n\n```go\nfunc A() {}\n```\n",
+	} {
+		findings, unresolved := Check(doc, read)
+		if len(findings) != 0 || len(unresolved) != 0 {
+			t.Errorf("%q: findings %v, unresolved %v, want neither", doc, findings, unresolved)
+		}
+	}
+	// A continuation after a range is still a citation to a line, and checked.
+	findings, _ := Check("Lines `a/one.go:1-2` and `:3`:\n```go\nfunc A() {}\n```\n", read)
+	if len(findings) != 1 || findings[0].Raw != "a/one.go:3" || findings[0].Kind != Unbacked {
+		t.Errorf("continuation after a range: findings %+v, want a/one.go:3 Unbacked", findings)
+	}
+}
+
+// A range whose path this checkout cannot open, and does not claim, is not this
+// checkout's to deny; like a line citation there, it is named as unchecked. One
+// whose leading segment names a directory this checkout has is Absent, as a
+// line citation to it is.
+func TestCheck_ACrossRepoRangeIsReportedNotDenied(t *testing.T) {
+	read := func(string) ([]string, error) { return nil, errors.New("not a file in this checkout") }
+	findings, unresolved := Check("agentkit runtime/exec.go:1840-1850 abandons the tail", read)
+	if len(findings) != 0 {
+		t.Fatalf("findings %v, want none", findings)
+	}
+	if len(unresolved) != 1 || unresolved[0].Raw != "runtime/exec.go:1840-1850" {
+		t.Fatalf("unresolved %v, want runtime/exec.go:1840-1850 named", unresolved)
+	}
+}
