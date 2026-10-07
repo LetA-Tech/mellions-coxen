@@ -74,8 +74,11 @@ type Citation struct {
 	Path string
 	// Line is the line number claimed, or a range's first line.
 	Line int
-	// End is a range's last line, and zero for a citation to one line.
+	// End is a range's last line.
 	End int
+	// Ranged: the citation is a range rather than one line. Its own field,
+	// since an end written as 0 is a range too, and an inverted one.
+	Ranged bool
 	// At is the document line the citation is written on, which is what
 	// anchors a quotation to it.
 	At int
@@ -120,7 +123,7 @@ func (f Finding) Reason() string {
 		return f.Raw + ": no such file in this checkout, though the path names a directory it has. " +
 			"A citation nobody can open is a claim about code that is not there."
 	case Missing:
-		if f.End > 0 {
+		if f.Ranged {
 			return f.Raw + ": no such lines — the file ends before that range does."
 		}
 		return f.Raw + ": no such line — the file is shorter than that."
@@ -210,7 +213,7 @@ func Extract(doc string) []Citation {
 	var out []Citation
 	seen := map[string]bool{}
 	for _, c := range occurrences(doc) {
-		if c.End > 0 || seen[c.Raw] {
+		if c.Ranged || seen[c.Raw] {
 			continue
 		}
 		seen[c.Raw] = true
@@ -255,6 +258,7 @@ func occurrences(doc string) []Citation {
 			// author wrote. An end too long for an int parses as the largest
 			// one, which no file reaches.
 			c.End, _ = strconv.Atoi(strings.TrimLeft(claimed[m[8]:m[9]], "-–—"))
+			c.Ranged = true
 			c.Raw = claimed[m[4]:m[9]]
 		}
 		all = append(all, found{m[4], end, c})
@@ -376,7 +380,7 @@ func Check(doc string, read func(path string) ([]string, error)) ([]Finding, []C
 		if _, seen := first[c.Raw]; !seen {
 			order = append(order, c.Raw)
 		}
-		if c.End > 0 {
+		if c.Ranged {
 			// A range owes no quotation, and takes none another citation
 			// needs; existence is all it is held to.
 			switch {

@@ -706,6 +706,8 @@ func TestCheck_ARangeIsHeldToExistence(t *testing.T) {
 		{"see `a/one.go:2-4` for it", "a/one.go:2-4", Missing},
 		{"see a/one.go:2–40 for it", "a/one.go:2–40", Missing},
 		{"see `a/one.go:3-2` for it", "a/one.go:3-2", Inverted},
+		{"see `a/one.go:2-0` for it", "a/one.go:2-0", Inverted},
+		{"see `a/one.go:2-0` `func A() {}`", "a/one.go:2-0", Inverted},
 		{"see `a/gone.go:1-3` for it", "a/gone.go:1-3", Absent},
 	} {
 		findings, unresolved := Check(tc.doc, read)
@@ -750,8 +752,10 @@ func TestCheck_AValidRangeOwesNoQuotation(t *testing.T) {
 	}
 }
 
-// Another repository's range is not this checkout's to deny; like a line
-// citation there, it is named as unchecked.
+// A range whose path this checkout cannot open, and does not claim, is not this
+// checkout's to deny; like a line citation there, it is named as unchecked. One
+// whose leading segment names a directory this checkout has is Absent, as a
+// line citation to it is.
 func TestCheck_ACrossRepoRangeIsReportedNotDenied(t *testing.T) {
 	read := func(string) ([]string, error) { return nil, errors.New("not a file in this checkout") }
 	findings, unresolved := Check("agentkit runtime/exec.go:1840-1850 abandons the tail", read)
