@@ -49,9 +49,13 @@
 // What is deliberately not a citation, because a checker that denies on noise
 // gets disabled: a token whose path does not resolve to a file in the tree
 // (a URL's host, an IP and port, a clock time, `issues/656#issuecomment-…`,
-// another repository's path), a line range, which is honest about being a
-// region rather than a line, and a container image reference, whose tag is not
-// a line (image).
+// another repository's path), and a container image reference, whose tag is
+// not a line (image).
+//
+// A line range is honest about being a region rather than a line, so it owes
+// no quotation. It is still a claim that the region exists, held to the checks
+// that need none: its path resolves as a line's would, it ends no earlier than
+// it starts, and the file reaches its end.
 package cite
 
 import (
@@ -68,8 +72,10 @@ type Citation struct {
 	Raw string
 	// Path is what precedes the colon, repository-relative.
 	Path string
-	// Line is the line number claimed.
+	// Line is the line number claimed, or a range's first line.
 	Line int
+	// End is a range's last line, and zero for a citation to one line.
+	End int
 	// At is the document line the citation is written on, which is what
 	// anchors a quotation to it.
 	At int
@@ -95,6 +101,8 @@ const (
 	// this citation. The author did open the file; the quotation is where a
 	// reader cannot use it.
 	Unanchored
+	// Inverted: a range that ends before it starts, which names no lines.
+	Inverted
 )
 
 // Finding is a citation the document cannot back, with what the line says.
@@ -112,7 +120,12 @@ func (f Finding) Reason() string {
 		return f.Raw + ": no such file in this checkout, though the path names a directory it has. " +
 			"A citation nobody can open is a claim about code that is not there."
 	case Missing:
+		if f.End > 0 {
+			return f.Raw + ": no such lines — the file ends before that range does."
+		}
 		return f.Raw + ": no such line — the file is shorter than that."
+	case Inverted:
+		return f.Raw + ": that range ends before it starts, so it names no lines."
 	case Unanchored:
 		return f.Raw + ": that line says " + strconv.Quote(strings.TrimSpace(f.Actual)) +
 			", and the body does quote it — somewhere this citation cannot reach. " +
@@ -180,11 +193,13 @@ func NotACitation(c Citation, err error) bool {
 	return err != nil && !errors.Is(err, ErrPathClaimsTree) && (c.tagged || image(c.Path))
 }
 
-// Extract returns every citation a document makes, in the order written.
+// Extract returns every citation to a line a document makes, in the order
+// written.
 //
-// Two things that look like citations are not. A line range names a region,
-// and this package can say nothing about whether the author read any
-// particular line of one. And a path:line inside a fenced block or a
+// Two things that look like line citations are not. A line range names a
+// region, and this package can say nothing about whether the author read any
+// particular line of one; Check holds a range to existence alone. And a
+// path:line inside a fenced block or a
 // blockquote is quotation rather than claim — a `go test` failure or a
 // `go vet` line pasted as evidence carries a real file and a real number that
 // the author is reporting, not citing, and denying on those would deny the
@@ -195,7 +210,7 @@ func Extract(doc string) []Citation {
 	var out []Citation
 	seen := map[string]bool{}
 	for _, c := range occurrences(doc) {
-		if seen[c.Raw] {
+		if c.End > 0 || seen[c.Raw] {
 			continue
 		}
 		seen[c.Raw] = true
@@ -222,12 +237,11 @@ func occurrences(doc string) []Citation {
 		if err != nil || n < 1 {
 			continue
 		}
-		// A range still names its file for a continuation after it.
 		end := m[1]
 		if end < len(claimed) && claimed[end] == '`' {
 			end++
 		}
-		all = append(all, found{m[4], end, Citation{
+		c := Citation{
 			Raw:  path + ":" + strconv.Itoa(n),
 			Path: path,
 			Line: n,
@@ -235,10 +249,15 @@ func occurrences(doc string) []Citation {
 			// newline before a citation that opens a line.
 			At:     strings.Count(claimed[:m[4]], "\n"),
 			tagged: tagged.MatchString(claimed[m[1]:]),
-		}})
-		if m[8] >= 0 {
-			all[len(all)-1].c.Line = 0
 		}
+		if m[8] >= 0 {
+			// Raw as written, dash included, so a finding names what the
+			// author wrote. An end too long for an int parses as the largest
+			// one, which no file reaches.
+			c.End, _ = strconv.Atoi(strings.TrimLeft(claimed[m[8]:m[9]], "-–—"))
+			c.Raw = claimed[m[4]:m[9]]
+		}
+		all = append(all, found{m[4], end, c})
 	}
 	for _, m := range continuation.FindAllStringSubmatchIndex(claimed, -1) {
 		n, err := strconv.Atoi(claimed[m[2]:m[3]])
@@ -256,9 +275,7 @@ func occurrences(doc string) []Citation {
 		if f.c.Path != "" {
 			path = f.c.Path
 			prevEnd = f.end
-			if f.c.Line > 0 {
-				out = append(out, f.c)
-			}
+			out = append(out, f.c)
 			continue
 		}
 		// A continuation with no citation before it names no file.
@@ -358,6 +375,19 @@ func Check(doc string, read func(path string) ([]string, error)) ([]Finding, []C
 		}
 		if _, seen := first[c.Raw]; !seen {
 			order = append(order, c.Raw)
+		}
+		if c.End > 0 {
+			// A range owes no quotation, and takes none another citation
+			// needs; existence is all it is held to.
+			switch {
+			case c.End < c.Line:
+				note(Finding{Citation: c, Kind: Inverted})
+			case c.End > len(lines):
+				note(Finding{Citation: c, Kind: Missing})
+			default:
+				backed[c.Raw] = true
+			}
+			continue
 		}
 		if c.Line > len(lines) {
 			note(Finding{Citation: c, Kind: Missing})
