@@ -77,12 +77,10 @@ than a fault. A tree behind the ref answers an authority question wrong in the
 plausible direction: the names it gives are names, the gate it runs passes.
 
 An account is not the artifact. A subagent's summary, a transcript, a peer's
-description of a file are two removes from the bytes; a claim about a file, a
-run or a record is checked against that artifact before it is published. Your
-own context is no exception: what reached a session is settled
-by the request on the wire or the file it was handed, never by asking a session
-what it sees — and a transcript does not record the system prompt, so finding
-nothing there is not absence.
+description of a file are two removes from the bytes. Your own context is no
+exception: what reached a session is settled by the request on the wire or the
+file it was handed, never by asking a session what it sees — and a transcript
+does not record the system prompt, so finding nothing there is not absence.
 
 ## Exhaust what is reachable before asking
 
