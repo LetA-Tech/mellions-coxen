@@ -171,7 +171,11 @@ note "closed descriptor: returns, decides nothing"
 err=$(MELLIONS_HOOK= "$bin" pr-merge-check </dev/null 2>&1 >/dev/null)
 grep -q 'examined nothing' <<<"$err" ||
   bad "run by hand the guard does not say it examined nothing: $err"
-note "run by hand: says it examined nothing"
+# A payload piped without the variable is not read; the message has to say
+# how to hand one, or it tells whoever piped one that none was handed.
+grep -q 'MELLIONS_HOOK=1 mellions pr-merge-check' <<<"$err" ||
+  bad "run by hand the guard does not say how to hand it a payload: $err"
+note "run by hand: says it examined nothing, and how to hand it a payload"
 
 [[ $fail -eq 0 ]] || exit 1
 echo "ok  pr-merge-check"
