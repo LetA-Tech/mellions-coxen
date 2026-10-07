@@ -60,11 +60,13 @@ What a claim costs to make:
 
 ## The record is not the world
 
-An issue, a design document, a prior analysis, a test, a completion statement, a
-tool's report of live state — a lock, a pid: each describes a moment. Before
-acting on one, establish whether the thing it describes moved — the code at
-HEAD, the pull request, the deploy. Pin what you verified against, so the next
-reader can tell your reading from the world's later state.
+An issue, a design document, a prior analysis, a test, a completion statement,
+an advisory's affected range, a tool's report of live state — a lock, a pid:
+each describes a moment. Before acting on one, establish whether the thing it
+describes moved — the code at HEAD, the pull request, the deploy, a release cut
+after the record was last modified, whose own source says whether the fix is in
+it. Pin what you verified against, so the next reader can tell your reading
+from the world's later state.
 
 A checkout is a record of a moment too. Where an artifact's content is what
 permits the act — configuration, doctrine, an installed gate — read it and run
@@ -75,12 +77,10 @@ than a fault. A tree behind the ref answers an authority question wrong in the
 plausible direction: the names it gives are names, the gate it runs passes.
 
 An account is not the artifact. A subagent's summary, a transcript, a peer's
-description of a file are two removes from the bytes; a claim about a file, a
-run or a record is checked against that artifact before it is published. Your
-own context is no exception: what reached a session is settled
-by the request on the wire or the file it was handed, never by asking a session
-what it sees — and a transcript does not record the system prompt, so finding
-nothing there is not absence.
+description of a file are two removes from the bytes. Your own context is no
+exception: what reached a session is settled by the request on the wire or the
+file it was handed, never by asking a session what it sees — and a transcript
+does not record the system prompt, so finding nothing there is not absence.
 
 ## Exhaust what is reachable before asking
 
