@@ -2,7 +2,10 @@
 // Built and maintained by LetA Tech Ltd.
 // Contact: leta@letatech.ca
 
-// Package stale finds recorded claims the current tree contradicts.
+// Package stale finds recorded claims the current tree contradicts, where the
+// current tree is the commit the remote's working branch stands at after a
+// fetch — the one every lane is cut from — never a shared checkout's working
+// tree, which is whatever commit somebody last left it on.
 //
 // An issue is written against the code as it stood that day. Later code can
 // move while the issue's account remains unchanged, so the premise must be
