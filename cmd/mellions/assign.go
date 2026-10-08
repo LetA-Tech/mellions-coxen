@@ -389,8 +389,9 @@ func assignRecord(args []string) error {
 	if id == "" || len(text) == 0 {
 		return assignRecordUsageError()
 	}
-	// Written from inside another lane's tree, the note is a reader's, so the
-	// target lane's tracker claim is left as it stood rather than restated.
+	// Written from inside another lane's tree, the note may be a reader's:
+	// Annotate restates the target's claim only when this session already
+	// worked that lane.
 	foreign := here != nil && here.ID != id
 	write := store.Record
 	if foreign {
@@ -401,7 +402,7 @@ func assignRecord(args []string) error {
 	}
 	if foreign {
 		fmt.Fprintf(os.Stderr,
-			"mellions: recorded on %s, but this tree is %s's lane; %s's tracker claim was left as it stood.\n"+
+			"mellions: recorded on %s, but this tree is %s's lane; %s's tracker claim is restated only if this session already worked it.\n"+
 				"A record on a lane you are not working is working memory the next session reads under the wrong objective.\n",
 			id, here.ID, id)
 	}

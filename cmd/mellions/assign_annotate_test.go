@@ -25,6 +25,8 @@ func TestARecordFromAnotherLaneDoesNotReachTheTracker(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("CODEX_SESSION_ID", "")
+	t.Setenv("CLAUDE_CODE_SESSION_ID", "a-reader")
 
 	cfg := idShapeConfig(t, claimRepo(t))
 	raw, err := os.ReadFile(cfg)
@@ -89,9 +91,9 @@ func TestARecordFromAnotherLaneDoesNotReachTheTracker(t *testing.T) {
 		t.Fatalf("the note did not reach the lane it names: %d findings", len(fin.Findings))
 	}
 
-	// The control: the lane's own record still restates, so this gh is one the
-	// verb does reach.
-	if err := assignRecord([]string{"-config", cfg, "-kind", "note", "the lane's own work"}); err != nil {
+	// The control: the lane's own record, its id given explicitly, still
+	// restates, so this gh is one the verb does reach.
+	if err := assignRecord([]string{"-config", cfg, "-kind", "note", "reading-lane", "the lane's own work"}); err != nil {
 		t.Fatalf("assign record in the lane's own tree: %v", err)
 	}
 	if logged() == "" {
