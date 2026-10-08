@@ -6,9 +6,8 @@ description: How to run a repository work session, and how to review the work of
 
 # Running a session
 
-A session is a competent engineer who arrived this morning, has no memory of the
-programme, and cannot see your record. It has the repository, its own judgment,
-and whatever you tell it. That is the whole gap a dispatch has to close.
+A new session has its own judgment and repository, but not your record.
+A dispatch supplies that gap.
 
 ## What a dispatch carries
 
@@ -41,13 +40,15 @@ mellions assign open -id <id> -repo <repo> -objective "..."
 It prints a worktree on a branch of its own. That path is what the dispatch
 says, and it is the whole of what the session may write.
 
-A boundary written as a prohibition — *never touch `<path>`* — is not a
-boundary: it breaks when a failed `cd` leaves the rest of a compound command
-running in the tree it was told to stay out of.
+A prohibition such as *never touch `<path>`* is not a boundary: a failed
+`cd` can leave a compound command writing in the wrong tree.
 
-Keep it around two kilobytes; its own `CLAUDE.md` and the skills it names
-supply the rest. Tier is the runtime's, from the operator's standing
-configuration; never re-derived per dispatch.
+Keep the dispatch near two kilobytes; its `CLAUDE.md` and named skills
+supply the rest. Runtime owns model/effort; honor the operator's standing
+preference. Lead handles unknown causes, architecture, novel complex code and
+high-stakes independent validation; capable workers implement grounded fixes,
+maintenance and routine reviews. Reassign if findings reopen design; skip
+needless handoffs. Verify actual model/effort. Restricted tiers need approval.
 
 ## Judging what comes back
 
@@ -150,7 +151,6 @@ host, or a hypothesis worth separating from everything else. Name
 Close when the objective is met, or when the work has moved somewhere a fresh
 session would serve better than this one's accumulated context.
 
-An idle session holds a model context and memory; the reaper is a backstop.
 
 Record what was learned before closing. The session's context dies with it; your
 record is what survives.
