@@ -52,7 +52,8 @@ const Label = "mellions:claimed"
 // StaleAfter is how long a claim stands without being restated.
 //
 // A lane being worked writes to its record — a finding, a handoff, a state
-// change — and every one of those restates the claim. A lane that has said
+// change — and every one of those restates the claim; a note from another
+// lane's tree by a session that never worked this one does not. A lane that has said
 // nothing for a day is not evidence of work in flight; it is evidence of a
 // session that ended without releasing, which is the case this has to survive.
 const StaleAfter = 24 * time.Hour

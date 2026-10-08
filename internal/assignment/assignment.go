@@ -159,7 +159,8 @@ type Assignment struct {
 	// Discarded is what abandoning this work destroyed. Present only where the
 	// worktree was removed with material in it.
 	Discarded *Discarded `json:"discarded,omitempty"`
-	// Sessions is every runtime session that touched this work. It is how
+	// Sessions is every runtime session that worked this lane; a reader's note
+	// from another lane's tree adds none. It is how
 	// recovery reaches for the runtime's own resume before rebuilding anything
 	// from the record.
 	Sessions []Session `json:"sessions,omitempty"`
@@ -691,8 +692,10 @@ func (s *Store) ClaimPullRequest(ctx context.Context, id, pr string) error {
 // restateClaim pushes the lane's current state back onto the tracker, which is
 // what keeps the claim from going stale under it.
 //
-// Every write to the record restates it, because a lane being worked writes to
-// its record and a lane that has not is the one whose claim should expire.
+// Every write restates it, because a lane being worked writes to its record and
+// a lane that has not is the one whose claim should expire. The exception is a
+// note from another lane's tree by a session that never worked this one
+// (Annotate), which is no such evidence.
 // Failure is not fatal here: the claim is already published and the work is
 // already recorded, and the worst case is a claim that goes stale early and is
 // swept — which is the designed behaviour, not a defect.
@@ -1109,9 +1112,15 @@ func samePath(a, b string) bool {
 	return filepath.Clean(a) == filepath.Clean(b)
 }
 
-func (s *Store) save(a *Assignment) error {
+func (s *Store) save(a *Assignment) error { return s.persist(a, true) }
+
+// persist is save, with stamp false for a writer that is not one of the lane's
+// sessions.
+func (s *Store) persist(a *Assignment, stamp bool) error {
 	a.UpdatedAt = s.clock()
-	a.stamp(a.UpdatedAt)
+	if stamp {
+		a.stamp(a.UpdatedAt)
+	}
 	raw, err := json.MarshalIndent(a, "", "  ")
 	if err != nil {
 		return fmt.Errorf("assignment: encode %s: %w", a.ID, err)
@@ -1133,6 +1142,15 @@ func (s *Store) save(a *Assignment) error {
 // error anywhere — and overlapping sessions are exactly the situation the
 // record exists to survive.
 func (s *Store) update(id string, fn func(*Assignment) error) (*Assignment, error) {
+	return s.write(id, false, fn)
+}
+
+// write is update, with reader true for a note written from another lane's
+// tree. Such a note counts as the lane's own only when the writing runtime
+// session already worked this lane; otherwise it neither restates the claim
+// nor stamps the writer as one of the lane's sessions, either of which would
+// make a lane nobody works read as worked.
+func (s *Store) write(id string, reader bool, fn func(*Assignment) error) (*Assignment, error) {
 	var out *Assignment
 	err := durable.Guard(s.file(id), func() error {
 		a, err := s.Get(id)
@@ -1142,14 +1160,15 @@ func (s *Store) update(id string, fn func(*Assignment) error) (*Assignment, erro
 		if err := fn(a); err != nil {
 			return err
 		}
-		// Every write to the record restates the lane's hold, which is what
-		// keeps a lane being worked from expiring under it. A lane that has
-		// released — closed or abandoned — is not restated back onto the issue
-		// it just let go of.
-		if a.State != StateClosed && a.State != StateAbandoned {
+		own := !reader || a.workedBy(Here())
+		// A write the lane's own session makes restates the lane's hold, which
+		// is what keeps a lane being worked from expiring under it. A lane that
+		// has released — closed or abandoned — is not restated back onto the
+		// issue it just let go of.
+		if own && a.State != StateClosed && a.State != StateAbandoned {
 			s.restateClaim(a)
 		}
-		if err := s.save(a); err != nil {
+		if err := s.persist(a, own); err != nil {
 			return err
 		}
 		out = a
@@ -1233,8 +1252,18 @@ func (s *Store) ListWithDamage(includeClosed bool) ([]*Assignment, []string, err
 	return out, damaged, nil
 }
 
-// Record appends a finding to the engineer's working notes.
-func (s *Store) Record(id, kind, text string) error {
+// Record appends a finding to the engineer's working notes and restates the
+// lane's claim.
+func (s *Store) Record(id, kind, text string) error { return s.record(id, kind, text, false) }
+
+// Annotate appends a finding written from another lane's tree. Unless the
+// writing session already worked this lane, the claim is left as it stood and
+// the writer is not stamped: a reader's note says nothing about whether this
+// lane is worked, and restating it would keep a dead lane's hold from going
+// stale and post its claim again onto an issue that may long be closed.
+func (s *Store) Annotate(id, kind, text string) error { return s.record(id, kind, text, true) }
+
+func (s *Store) record(id, kind, text string, reader bool) error {
 	if strings.TrimSpace(text) == "" {
 		return errors.New("assignment: a finding needs text")
 	}
@@ -1243,7 +1272,7 @@ func (s *Store) Record(id, kind, text string) error {
 	default:
 		return fmt.Errorf("assignment: finding kind %q must be hypothesis, found, next or note", kind)
 	}
-	_, err := s.update(id, func(a *Assignment) error {
+	_, err := s.write(id, reader, func(a *Assignment) error {
 		a.Findings = append(a.Findings, Finding{At: s.clock(), Kind: kind, Text: strings.TrimSpace(text)})
 		return nil
 	})
@@ -1912,7 +1941,7 @@ func Here() []Session {
 	return out
 }
 
-// SessionsByRecency is every session that touched this work, newest first.
+// SessionsByRecency is every session that worked this lane, newest first.
 //
 // All of them rather than the last: recovery reaches for a resume and the newest
 // handle is the one most likely to fail — a transcript swept on its retention
@@ -1947,12 +1976,25 @@ func (a Assignment) Latest() (Session, bool) {
 	return best, true
 }
 
+// workedBy reports whether any of the given runtime sessions already touched
+// this lane.
+func (a *Assignment) workedBy(sessions []Session) bool {
+	for _, h := range sessions {
+		for _, s := range a.Sessions {
+			if s.Runtime == h.Runtime && s.ID == h.ID {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // stamp records the runtime session doing the writing.
 //
-// Called from every save rather than from the commands, because the point is to
-// hold when a session dies without finishing anything — and a session that dies
-// mid-thought is exactly the one that never reached the call it was supposed to
-// make.
+// Called from every save except a reader's note, rather than from the
+// commands, because the point is to hold when a session dies without finishing
+// anything — and a session that dies mid-thought is exactly the one that never
+// reached the call it was supposed to make.
 func (a *Assignment) stamp(now time.Time) {
 	for _, here := range Here() {
 		found := false
