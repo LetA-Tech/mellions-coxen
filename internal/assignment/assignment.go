@@ -159,7 +159,8 @@ type Assignment struct {
 	// Discarded is what abandoning this work destroyed. Present only where the
 	// worktree was removed with material in it.
 	Discarded *Discarded `json:"discarded,omitempty"`
-	// Sessions is every runtime session that touched this work. It is how
+	// Sessions is every runtime session that worked this lane; a reader's note
+	// from another lane's tree adds none. It is how
 	// recovery reaches for the runtime's own resume before rebuilding anything
 	// from the record.
 	Sessions []Session `json:"sessions,omitempty"`
@@ -1940,7 +1941,7 @@ func Here() []Session {
 	return out
 }
 
-// SessionsByRecency is every session that touched this work, newest first.
+// SessionsByRecency is every session that worked this lane, newest first.
 //
 // All of them rather than the last: recovery reaches for a resume and the newest
 // handle is the one most likely to fail — a transcript swept on its retention
@@ -1990,10 +1991,10 @@ func (a *Assignment) workedBy(sessions []Session) bool {
 
 // stamp records the runtime session doing the writing.
 //
-// Called from every save rather than from the commands, because the point is to
-// hold when a session dies without finishing anything — and a session that dies
-// mid-thought is exactly the one that never reached the call it was supposed to
-// make.
+// Called from every save except a reader's note, rather than from the
+// commands, because the point is to hold when a session dies without finishing
+// anything — and a session that dies mid-thought is exactly the one that never
+// reached the call it was supposed to make.
 func (a *Assignment) stamp(now time.Time) {
 	for _, here := range Here() {
 		found := false
