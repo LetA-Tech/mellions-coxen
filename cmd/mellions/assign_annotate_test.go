@@ -7,6 +7,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/LetA-Tech/mellions-coxen/internal/presence"
 )
 
 // TestARecordFromAnotherLaneDoesNotReachTheTracker.
@@ -201,9 +203,24 @@ func TestARecordFromNoLaneLeavesTheClaimUntilTheSessionTakesTheLaneUp(t *testing
 		t.Fatalf("the note did not reach the lane it names: %d findings", len(a.Findings))
 	}
 
-	// Taking the lane up is the act that makes this session the lane's own.
-	if _, handled, err := claimExisting(store, id); err != nil || !handled {
+	// While the holder runs, opening the lane meets the collision: the session
+	// is shown the holder and is not stamped as one of the lane's sessions.
+	live := map[string]presence.Session{"the-holder": {ID: "the-holder"}}
+	if _, handled, err := claimExisting(store, id, live); err != nil || !handled {
+		t.Fatalf("assign open on the live-held lane: handled=%v err=%v", handled, err)
+	}
+	if readerSeen() {
+		t.Error("assign open on a lane a live session holds stamped the session that only met the collision")
+	}
+
+	// Taking the lane up is the act that makes this session the lane's own,
+	// and the record it is shown still names who worked the lane before it.
+	got, handled, err := claimExisting(store, id, nil)
+	if err != nil || !handled {
 		t.Fatalf("assign open on the active lane: handled=%v err=%v", handled, err)
+	}
+	if last, ok := got.Latest(); !ok || last.ID != "the-holder" {
+		t.Errorf("assign open showed %+v as the lane's last session, not the holder it collided with", last)
 	}
 	if !readerSeen() {
 		t.Error("assign open on an active lane did not stamp the session taking it up")

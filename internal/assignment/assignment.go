@@ -160,7 +160,7 @@ type Assignment struct {
 	// worktree was removed with material in it.
 	Discarded *Discarded `json:"discarded,omitempty"`
 	// Sessions is every runtime session that worked this lane; a reader's note
-	// from another lane's tree adds none. It is how
+	// from outside the lane's tree adds none. It is how
 	// recovery reaches for the runtime's own resume before rebuilding anything
 	// from the record.
 	Sessions []Session `json:"sessions,omitempty"`
@@ -694,7 +694,7 @@ func (s *Store) ClaimPullRequest(ctx context.Context, id, pr string) error {
 //
 // Every write restates it, because a lane being worked writes to its record and
 // a lane that has not is the one whose claim should expire. The exception is a
-// note from another lane's tree by a session that never worked this one
+// note from outside this lane's tree by a session that never worked this one
 // (Annotate), which is no such evidence.
 // Failure is not fatal here: the claim is already published and the work is
 // already recorded, and the worst case is a claim that goes stale early and is
@@ -1146,7 +1146,7 @@ func (s *Store) update(id string, fn func(*Assignment) error) (*Assignment, erro
 }
 
 // write is update, with reader true for a note written from another lane's
-// tree. Such a note counts as the lane's own only when the writing runtime
+// tree, or by a runtime session from no lane's tree. Such a note counts as the lane's own only when the writing runtime
 // session already worked this lane; otherwise it neither restates the claim
 // nor stamps the writer as one of the lane's sessions, either of which would
 // make a lane nobody works read as worked.
@@ -1256,7 +1256,7 @@ func (s *Store) ListWithDamage(includeClosed bool) ([]*Assignment, []string, err
 // lane's claim.
 func (s *Store) Record(id, kind, text string) error { return s.record(id, kind, text, false) }
 
-// Annotate appends a finding written from another lane's tree. Unless the
+// Annotate appends a finding written from outside the lane's tree. Unless the
 // writing session already worked this lane, the claim is left as it stood and
 // the writer is not stamped: a reader's note says nothing about whether this
 // lane is worked, and restating it would keep a dead lane's hold from going

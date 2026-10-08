@@ -107,7 +107,8 @@ func assignOpen(args []string) error {
 	if err != nil {
 		return err
 	}
-	a, claimed, err := claimExisting(store, o.ID)
+	_, me := presence.Here()
+	a, claimed, err := claimExisting(store, o.ID, heldNow(cfg.presences().Live(), me, presence.SelfPID()))
 	if err != nil {
 		return err
 	}
@@ -166,10 +167,12 @@ func noteWorking(cfg *Config, a *assignment.Assignment) {
 // and the record prints who last worked it as read before this session was
 // stamped, so a second session meets the collision rather than an exit code.
 //
-// Either way the session becomes one of the lane's sessions here: a note it
-// later writes from outside the lane's tree restates the claim only for a
-// session the lane has seen.
-func claimExisting(store *assignment.Store, id string) (*assignment.Assignment, bool, error) {
+// Either way the session becomes one of the lane's sessions here, so a note it
+// later writes from outside the lane's tree restates the claim — unless
+// another live session holds the active lane, when this session has met the
+// collision rather than taken the lane up and is not stamped. held is the
+// running sessions other than this one, by session id.
+func claimExisting(store *assignment.Store, id string, held map[string]presence.Session) (*assignment.Assignment, bool, error) {
 	a, err := store.Get(id)
 	if errors.Is(err, assignment.ErrNotFound) {
 		return nil, false, nil
@@ -178,6 +181,9 @@ func claimExisting(store *assignment.Store, id string) (*assignment.Assignment, 
 		return nil, true, err
 	}
 	if a.State == assignment.StateActive {
+		if _, live := liveHolder(a, held); live {
+			return a, true, nil
+		}
 		if _, err := store.Take(id); err != nil {
 			return nil, true, err
 		}

@@ -119,7 +119,7 @@ expectation formed before.
 **7 — Take the lane up, then keep the record current as you go.**
 
 ```
-mellions assign open <id>    # until then, a note from outside its tree keeps no claim alive
+mellions assign open <id>    # until you have, a note from outside its tree is a reader's
 mellions assign record <id> -kind found "the branch merged; this worktree is 9 behind the base"
 ```
 
