@@ -954,6 +954,34 @@ func declaredWorkingBranch(source string) string {
 
 var developmentBranchKey = regexp.MustCompile(`(?m)^development_branch:[ \t]*["']?([A-Za-z0-9._/-]+)`)
 
+// approvalGate reads the approval authorities and approval model that the
+// lane's own tree, at the base it was cut from, declares in
+// .claude/repo-binding.yaml. An absent model reads "not declared": what that
+// defaults to is the repository's proposal method to say.
+func approvalGate(tree string) (authorities, model string) {
+	if tree == "" {
+		return "", ""
+	}
+	raw, err := os.ReadFile(filepath.Join(tree, ".claude", "repo-binding.yaml"))
+	if err != nil {
+		return "", ""
+	}
+	m := approvalAuthoritiesKey.FindSubmatch(raw)
+	if m == nil {
+		return "", ""
+	}
+	model = "not declared"
+	if mm := approvalModelKey.FindSubmatch(raw); mm != nil {
+		model = string(mm[1])
+	}
+	return string(m[1]), model
+}
+
+var (
+	approvalAuthoritiesKey = regexp.MustCompile(`(?m)^approval_authorities:[ \t]*(\[[^\]\n]*\])`)
+	approvalModelKey       = regexp.MustCompile(`(?m)^[ \t]*approval_model:[ \t]*["']?([A-Za-z0-9_-]+)`)
+)
+
 // resolveRemoteBranch fetches one branch and resolves it, returning "" when the
 // remote does not carry it. The fetch is what makes the pin current; a branch
 // resolved out of a stale remote-tracking ref is the defect this whole function
@@ -1752,6 +1780,12 @@ func (a Assignment) Text(now time.Time) string {
 			fmt.Fprintf(&b, "- method: `mellions skills <what you are doing>` says what this installation carries; `mellions:mellions-issue-remediation` where the work is larger than an edit you can hold in one reading, `mellions:mellions-territory` where another lane may hold what you are about to change")
 		}
 		b.WriteString("\n")
+		// A binding naming approval authorities is a fact about this lane, as an
+		// adopted tree is: whether a plan must be approved on the issue before
+		// any change is written is its approval model's, whatever the size.
+		if authorities, model := approvalGate(a.Worktree); authorities != "" {
+			fmt.Fprintf(&b, "- gate: .claude/repo-binding.yaml names approval authorities %s and approval_model %s — `Skill(skill: \"mellions:mellions-issue-resolution-proposal\")` before the first edit, whatever the size of the change\n", authorities, model)
+		}
 	}
 	if a.Because != "" {
 		fmt.Fprintf(&b, "\n**Chosen because** %s\n", a.Because)
