@@ -6,9 +6,11 @@ package stale
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -223,5 +225,37 @@ func TestRefusedFetchStillReadsTheRemoteCommitItAlreadyHas(t *testing.T) {
 	}
 	if len(got) != 1 || got[0].Attrs["checked_commit"] != dev {
 		t.Fatalf("want #7 reported at %s; got %+v", dev, got)
+	}
+}
+
+// TestEveryUnreadCheckoutIsReportedAndAPrefixedCitationStillCounts: a scanned
+// repository that cannot be read and has nothing to examine still silences
+// unprefixed findings everywhere, so it is reported; a citation prefixed into a
+// repository that was read can only live there, so its absence still counts.
+func TestEveryUnreadCheckoutIsReportedAndAPrefixedCitationStillCounts(t *testing.T) {
+	co, _ := behind(t)
+	ledger, _ := behind(t)
+	git(t, ledger, "remote", "set-url", "origin", filepath.Join(t.TempDir(), "gone.git"))
+	raw, err := json.Marshal([]item{{Number: 8, Title: "cites a deleted file, prefixed", CreatedAt: old(),
+		Body: "`payments-api/internal/gone/x.go:3` is wrong.\n\n`internal/elsewhere/y.go:4` too."}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := New(Options{
+		Owner: "example-org", Repos: []string{"payments-api", "ledger"},
+		Checkouts: map[string]string{"payments-api": co, "ledger": ledger},
+		Run: func(_ context.Context, args ...string) ([]byte, error) {
+			if slices.Contains(args, "example-org/ledger") {
+				return []byte("[]"), nil
+			}
+			return raw, nil
+		},
+	})
+	got, err := s.Collect(context.Background(), signal.Scope{})
+	if err == nil || !strings.Contains(err.Error(), "ledger") {
+		t.Errorf("err = %v; want the unread scanned checkout ledger reported", err)
+	}
+	if len(got) != 1 || got[0].Attrs["path_absent"] != "1" || got[0].Attrs["unchecked"] != "1" {
+		t.Fatalf("want #8 reported with the prefixed citation absent and the bare one unchecked; got %+v", got)
 	}
 }

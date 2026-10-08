@@ -136,8 +136,8 @@ func (s *Source) Collect(ctx context.Context, scope signal.Scope) ([]signal.Sign
 	// citation in a tree at an unknown commit is the defect reading the working
 	// branch exists to remove. Its absence is not a fact about any citation
 	// either — a path not found may live in it — so examine counts every
-	// unlocated citation unchecked while one has failed, and the failure is
-	// reported whether or not that repository was itself scanned.
+	// unlocated citation without a repository prefix unchecked while one has
+	// failed, and every failure is reported, scanned repository or not.
 	dirs := make(map[string]string, len(trees))
 	for repo, t := range trees {
 		dirs[repo] = t.Dir
@@ -153,6 +153,7 @@ func (s *Source) Collect(ctx context.Context, scope signal.Scope) ([]signal.Sign
 	// returned beside the error, and the survey says which repositories are
 	// unaccounted for.
 	var unreadable []string
+	reported := map[string]bool{}
 	for _, repo := range repos {
 		short := shortName(repo)
 		if _, ok := s.opts.Checkouts[short]; !ok {
@@ -173,6 +174,7 @@ func (s *Source) Collect(ctx context.Context, scope signal.Scope) ([]signal.Sign
 		}
 		if err, ok := failed[short]; ok {
 			unreadable = append(unreadable, short+": its code could not be read at the working branch: "+err.Error())
+			reported[short] = true
 			continue
 		}
 		for _, it := range items {
@@ -184,7 +186,7 @@ func (s *Source) Collect(ctx context.Context, scope signal.Scope) ([]signal.Sign
 	}
 	var siblings []string
 	for repo, err := range failed {
-		if !slices.ContainsFunc(repos, func(r string) bool { return shortName(r) == repo }) {
+		if !reported[repo] {
 			siblings = append(siblings, repo+": "+err.Error())
 		}
 	}
@@ -196,7 +198,8 @@ func (s *Source) Collect(ctx context.Context, scope signal.Scope) ([]signal.Sign
 	}
 	if len(siblings) > 0 {
 		parts = append(parts, fmt.Sprintf("%d further checkout(s) could not be read at the working branch, so "+
-			"citations that may resolve in them are unchecked — %s", len(siblings), strings.Join(siblings, "; ")))
+			"no citation without a repository prefix that went unfound this run is reported moved — %s",
+			len(siblings), strings.Join(siblings, "; ")))
 	}
 	if len(parts) > 0 {
 		return out, fmt.Errorf("stale: %s", strings.Join(parts, "; and "))
@@ -269,7 +272,7 @@ func (s *Source) examine(repo string, it item, scan scanTrees) (signal.Signal, b
 			continue
 		}
 		path, ok := issuegate.Locate(c, repo, dirs)
-		if !ok && len(scan.failed) > 0 {
+		if !ok && c.Repo == "" && len(scan.failed) > 0 {
 			unchecked++
 			continue
 		}
