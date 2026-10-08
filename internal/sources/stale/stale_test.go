@@ -61,7 +61,7 @@ func old() time.Time { return time.Now().Add(-30 * 24 * time.Hour) }
 
 func scan(t *testing.T, co map[string]string, items ...item) []signal.Signal {
 	t.Helper()
-	s := New(Options{Owner: "example-org", Repos: []string{"payments-api"}, Checkouts: co, Run: runnerFor(t, items...)})
+	s := New(Options{Read: InPlace, Owner: "example-org", Repos: []string{"payments-api"}, Checkouts: co, Run: runnerFor(t, items...)})
 	got, err := s.Collect(context.Background(), signal.Scope{})
 	if err != nil {
 		t.Fatalf("Collect: %v", err)
@@ -181,7 +181,7 @@ func TestBodyWithoutCitationsIsNotJudged(t *testing.T) {
 
 func TestRecentIssuesAreSkipped(t *testing.T) {
 	co := checkout(t, map[string]string{"internal/a.go": lines(10, nil)})
-	s := New(Options{
+	s := New(Options{Read: InPlace,
 		Owner: "example-org", Repos: []string{"payments-api"}, Checkouts: co,
 		MinAge: 7 * 24 * time.Hour,
 		Run: runnerFor(t, item{
@@ -203,7 +203,7 @@ func TestRecentIssuesAreSkipped(t *testing.T) {
 // to prevent, applied to itself.
 func TestMissingCheckoutIsAnErrorNotASilentSkip(t *testing.T) {
 	co := checkout(t, map[string]string{"internal/a.go": lines(10, nil)})
-	s := New(Options{
+	s := New(Options{Read: InPlace,
 		Owner: "example-org",
 		Repos: []string{"payments-api", "analytics-service"},
 		Run:   runnerFor(t), Checkouts: co,
@@ -218,7 +218,7 @@ func TestMissingCheckoutIsAnErrorNotASilentSkip(t *testing.T) {
 }
 
 func TestNoCheckoutsAtAllIsAnError(t *testing.T) {
-	s := New(Options{Owner: "o", Repos: []string{"r"}, Run: runnerFor(t)})
+	s := New(Options{Read: InPlace, Owner: "o", Repos: []string{"r"}, Run: runnerFor(t)})
 	if _, err := s.Collect(context.Background(), signal.Scope{}); err == nil {
 		t.Fatal("scanning with no checkouts succeeded")
 	}
@@ -226,7 +226,7 @@ func TestNoCheckoutsAtAllIsAnError(t *testing.T) {
 
 func TestProviderFailurePropagates(t *testing.T) {
 	co := checkout(t, map[string]string{"a.go": lines(3, nil)})
-	s := New(Options{Owner: "o", Repos: []string{"payments-api"}, Checkouts: co,
+	s := New(Options{Read: InPlace, Owner: "o", Repos: []string{"payments-api"}, Checkouts: co,
 		Run: func(context.Context, ...string) ([]byte, error) {
 			return nil, fmt.Errorf("gh: not authenticated")
 		}})
@@ -275,7 +275,7 @@ func TestOneUnreadableRepositoryDoesNotSilenceTheScan(t *testing.T) {
 		}
 		return []byte(`[{"number":7,"title":"t","body":"see a.go:99","url":"u","createdAt":"` + old + `","updatedAt":"` + old + `"}]`), nil
 	}
-	src := New(Options{Owner: "acme", Repos: []string{"broken", "quiet", "ok"},
+	src := New(Options{Read: InPlace, Owner: "acme", Repos: []string{"broken", "quiet", "ok"},
 		Checkouts: map[string]string{"broken": dir, "quiet": dir, "ok": dir}, Run: run})
 	got, err := src.Collect(context.Background(), signal.Scope{})
 	if err == nil || !strings.Contains(err.Error(), "broken") || strings.Contains(err.Error(), "quiet") {

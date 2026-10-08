@@ -43,7 +43,7 @@ const usage = `mellions — the second engineer's deterministic surface
         What needs attention across the estate: open work, changes under
         review, failing checks, work waiting on the owner, recent change, and
         stale premises — issues whose own account of the code no longer matches
-        the tree. Collected, never ranked: deciding what matters is yours.
+        the remote's working branch. Collected, never ranked: deciding what matters is yours.
 
   mellions assign open <id> -repo R [-issue "#N"] -objective "..." -because "..."
                       [-not-chosen "..."] [-branch b] [-base ref] [-worktree dir]
