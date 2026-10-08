@@ -81,7 +81,7 @@ func TestAssignOpenClaimsWorkThatAlreadyExists(t *testing.T) {
 	store, id := claimed(t, assignment.StateHandedOff)
 
 	// No repository, no objective, no reason: everything the record holds.
-	_, handled, err := claimExisting(store, id)
+	_, handled, _, err := claimExisting(store, id, nil)
 	if err != nil {
 		t.Fatalf("claiming handed-off work: %v", err)
 	}
@@ -103,7 +103,7 @@ func TestAssignOpenClaimsWorkThatAlreadyExists(t *testing.T) {
 func TestAssignOpenOnActiveWorkIsNotARefusal(t *testing.T) {
 	store, id := claimed(t, assignment.StateActive)
 
-	_, handled, err := claimExisting(store, id)
+	_, handled, _, err := claimExisting(store, id, nil)
 	if err != nil {
 		t.Fatalf("claiming active work: %v", err)
 	}
@@ -118,7 +118,7 @@ func TestAssignOpenOnActiveWorkIsNotARefusal(t *testing.T) {
 func TestAssignOpenSaysWhyClosedWorkCannotBeClaimed(t *testing.T) {
 	store, id := claimed(t, assignment.StateClosed)
 
-	_, handled, err := claimExisting(store, id)
+	_, handled, _, err := claimExisting(store, id, nil)
 	if !handled {
 		t.Fatal("claimExisting passed a closed lane through to Open")
 	}
@@ -141,7 +141,7 @@ func TestAssignOpenStillOpensNewWork(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, handled, err := claimExisting(store, "never-opened")
+	_, handled, _, err := claimExisting(store, "never-opened", nil)
 	if err != nil {
 		t.Fatalf("looking up work that does not exist: %v", err)
 	}

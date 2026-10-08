@@ -160,7 +160,7 @@ type Assignment struct {
 	// worktree was removed with material in it.
 	Discarded *Discarded `json:"discarded,omitempty"`
 	// Sessions is every runtime session that worked this lane; a reader's note
-	// from another lane's tree adds none. It is how
+	// from outside the lane's tree adds none. It is how
 	// recovery reaches for the runtime's own resume before rebuilding anything
 	// from the record.
 	Sessions []Session `json:"sessions,omitempty"`
@@ -694,7 +694,7 @@ func (s *Store) ClaimPullRequest(ctx context.Context, id, pr string) error {
 //
 // Every write restates it, because a lane being worked writes to its record and
 // a lane that has not is the one whose claim should expire. The exception is a
-// note from another lane's tree by a session that never worked this one
+// note from outside this lane's tree by a session that never worked this one
 // (Annotate), which is no such evidence.
 // Failure is not fatal here: the claim is already published and the work is
 // already recorded, and the worst case is a claim that goes stale early and is
@@ -1146,10 +1146,11 @@ func (s *Store) update(id string, fn func(*Assignment) error) (*Assignment, erro
 }
 
 // write is update, with reader true for a note written from another lane's
-// tree. Such a note counts as the lane's own only when the writing runtime
-// session already worked this lane; otherwise it neither restates the claim
-// nor stamps the writer as one of the lane's sessions, either of which would
-// make a lane nobody works read as worked.
+// tree, or by a runtime session from no lane's tree. Such a note counts as the
+// lane's own only when the writing runtime session already worked this lane;
+// otherwise it neither restates the claim nor stamps the writer as one of the
+// lane's sessions, either of which would make a lane nobody works read as
+// worked.
 func (s *Store) write(id string, reader bool, fn func(*Assignment) error) (*Assignment, error) {
 	var out *Assignment
 	err := durable.Guard(s.file(id), func() error {
@@ -1256,7 +1257,7 @@ func (s *Store) ListWithDamage(includeClosed bool) ([]*Assignment, []string, err
 // lane's claim.
 func (s *Store) Record(id, kind, text string) error { return s.record(id, kind, text, false) }
 
-// Annotate appends a finding written from another lane's tree. Unless the
+// Annotate appends a finding written from outside the lane's tree. Unless the
 // writing session already worked this lane, the claim is left as it stood and
 // the writer is not stamped: a reader's note says nothing about whether this
 // lane is worked, and restating it would keep a dead lane's hold from going
@@ -1337,6 +1338,18 @@ func (s *Store) Resume(id string) (*Assignment, error) {
 			}
 		}
 		a.State = StateActive
+		return nil
+	})
+}
+
+// Take stamps the writing session onto a lane already in progress and restates
+// its claim. An active lane has nothing to reopen, so this is the act by which
+// a session continuing one becomes one of its sessions.
+func (s *Store) Take(id string) (*Assignment, error) {
+	return s.update(id, func(a *Assignment) error {
+		if a.State != StateActive {
+			return fmt.Errorf("assignment: %s is %s, not active", id, a.State)
+		}
 		return nil
 	})
 }
@@ -1975,6 +1988,10 @@ func (a Assignment) Latest() (Session, bool) {
 	}
 	return best, true
 }
+
+// WorkedHere reports whether the runtime session running now already touched
+// this lane.
+func (a *Assignment) WorkedHere() bool { return a.workedBy(Here()) }
 
 // workedBy reports whether any of the given runtime sessions already touched
 // this lane.
