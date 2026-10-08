@@ -1782,9 +1782,9 @@ func (a Assignment) Text(now time.Time) string {
 		b.WriteString("\n")
 		// A binding naming approval authorities is a fact about this lane, as an
 		// adopted tree is: whether a plan must be approved on the issue before
-		// the first commit is its approval model's, whatever the change's size.
+		// any change is written is its approval model's, whatever the size.
 		if authorities, model := approvalGate(a.Worktree); authorities != "" {
-			fmt.Fprintf(&b, "- gate: .claude/repo-binding.yaml names approval authorities %s and approval_model %s — `Skill(skill: \"mellions:mellions-issue-resolution-proposal\")` before the first commit, whatever the size of the change\n", authorities, model)
+			fmt.Fprintf(&b, "- gate: .claude/repo-binding.yaml names approval authorities %s and approval_model %s — `Skill(skill: \"mellions:mellions-issue-resolution-proposal\")` before the first edit, whatever the size of the change\n", authorities, model)
 		}
 	}
 	if a.Because != "" {

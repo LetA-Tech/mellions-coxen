@@ -809,7 +809,7 @@ func TestAnActiveLaneNamesItsMethodAtTheMoment(t *testing.T) {
 }
 
 // A repository whose binding names approval authorities may require a plan
-// approved on the issue before the first commit, and that holds for a one-line
+// approved on the issue before any change is written, and that holds for a one-line
 // change as much as a large one; a size-conditioned hint lets a small lane
 // commit first. The binding is read from the lane's own tree, so the record
 // states it as a fact and names the proposal method; a lane whose tree
@@ -833,7 +833,7 @@ func TestALaneUnderApprovalAuthoritiesNamesTheProposalGate(t *testing.T) {
 		got := a.Text(time.Now())
 		if !strings.Contains(got, c.want) ||
 			!strings.Contains(got, `Skill(skill: "mellions:mellions-issue-resolution-proposal")`) ||
-			!strings.Contains(got, "before the first commit") {
+			!strings.Contains(got, "before the first edit") {
 			t.Errorf("binding %q: the lane's record does not name the proposal gate (want %q):\n%s", c.yaml, c.want, got)
 		}
 	}
