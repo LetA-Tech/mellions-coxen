@@ -1341,6 +1341,18 @@ func (s *Store) Resume(id string) (*Assignment, error) {
 	})
 }
 
+// Take stamps the writing session onto a lane already in progress and restates
+// its claim. An active lane has nothing to reopen, so this is the act by which
+// a session continuing one becomes one of its sessions.
+func (s *Store) Take(id string) (*Assignment, error) {
+	return s.update(id, func(a *Assignment) error {
+		if a.State != StateActive {
+			return fmt.Errorf("assignment: %s is %s, not active", id, a.State)
+		}
+		return nil
+	})
+}
+
 // Reopen takes handed-off or blocked work back into progress, re-cutting the
 // worktree from the branch when a cleanup removed it.
 //
@@ -1975,6 +1987,10 @@ func (a Assignment) Latest() (Session, bool) {
 	}
 	return best, true
 }
+
+// WorkedHere reports whether the runtime session running now already touched
+// this lane.
+func (a *Assignment) WorkedHere() bool { return a.workedBy(Here()) }
 
 // workedBy reports whether any of the given runtime sessions already touched
 // this lane.

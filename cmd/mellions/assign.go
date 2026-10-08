@@ -163,8 +163,12 @@ func noteWorking(cfg *Config, a *assignment.Assignment) {
 // Reopen decides what may be taken up: it re-cuts a worktree that has gone, and
 // it refuses a closed or abandoned lane in the words that say a new assignment
 // is the answer. Active is not a refusal — a lane you already hold is claimed,
-// and the record prints who last worked it, so a second session meets the
-// collision rather than an exit code.
+// and the record prints who last worked it as read before this session was
+// stamped, so a second session meets the collision rather than an exit code.
+//
+// Either way the session becomes one of the lane's sessions here: a note it
+// later writes from outside the lane's tree restates the claim only for a
+// session the lane has seen.
 func claimExisting(store *assignment.Store, id string) (*assignment.Assignment, bool, error) {
 	a, err := store.Get(id)
 	if errors.Is(err, assignment.ErrNotFound) {
@@ -173,10 +177,14 @@ func claimExisting(store *assignment.Store, id string) (*assignment.Assignment, 
 	if err != nil {
 		return nil, true, err
 	}
-	if a.State != assignment.StateActive {
-		if a, err = store.Reopen(id); err != nil {
+	if a.State == assignment.StateActive {
+		if _, err := store.Take(id); err != nil {
 			return nil, true, err
 		}
+		return a, true, nil
+	}
+	if a, err = store.Reopen(id); err != nil {
+		return nil, true, err
 	}
 	return a, true, nil
 }
@@ -389,13 +397,19 @@ func assignRecord(args []string) error {
 	if id == "" || len(text) == 0 {
 		return assignRecordUsageError()
 	}
-	// Written from inside another lane's tree, the note may be a reader's:
-	// Annotate restates the target's claim only when this session already
-	// worked that lane.
+	// Written from inside another lane's tree, or by a runtime session from no
+	// lane's tree at all, the note may be a reader's: Annotate restates the
+	// target's claim only when this session already worked that lane. A write
+	// with no runtime session behind it has no session to judge and restates.
 	foreign := here != nil && here.ID != id
+	unplaced := here == nil && len(assignment.Here()) > 0
 	write := store.Record
-	if foreign {
+	if foreign || unplaced {
 		write = store.Annotate
+	}
+	worked := false
+	if a, err := store.Get(id); err == nil {
+		worked = a.WorkedHere()
 	}
 	if err := write(id, *kind, strings.Join(text, " ")); err != nil {
 		return err
@@ -405,6 +419,12 @@ func assignRecord(args []string) error {
 			"mellions: recorded on %s, but this tree is %s's lane; %s's tracker claim is restated only if this session already worked it.\n"+
 				"A record on a lane you are not working is working memory the next session reads under the wrong objective.\n",
 			id, here.ID, id)
+	}
+	if unplaced && !worked {
+		fmt.Fprintf(os.Stderr,
+			"mellions: recorded on %s from outside its tree by a session that has not worked it; its tracker claim was left as it stood.\n"+
+				"Taking the lane up is `mellions assign open %s`; a note alone keeps no lane's claim alive.\n",
+			id, id)
 	}
 	return nil
 }

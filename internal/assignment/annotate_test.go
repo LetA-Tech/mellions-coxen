@@ -78,3 +78,52 @@ func TestANoteFromAnotherLaneLeavesTheClaimAsItStood(t *testing.T) {
 		t.Fatalf("the lane's own record did not restate the claim at %s: %+v", at, got)
 	}
 }
+
+// Taking up an active lane stamps the session and restates the claim, so that
+// session's later notes, wherever written, are the lane's own.
+func TestTakingUpAnActiveLaneMakesTheSessionItsOwn(t *testing.T) {
+	src := gitFixture(t)
+	s, err := newStoreT(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	f := trackerOf(t, s)
+	at := time.Date(2026, 10, 8, 7, 0, 0, 0, time.UTC)
+	f.now = func() time.Time { return at }
+	t.Setenv("CODEX_SESSION_ID", "")
+	t.Setenv("CLAUDE_CODE_SESSION_ID", "opener")
+	if _, err := s.Open(OpenOptions{
+		ID: "svc-8", Repo: "svc", Issue: "#8", Source: src,
+		Objective: "a lane whose session died", Because: "it had work",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	at = at.Add(time.Hour)
+	t.Setenv("CLAUDE_CODE_SESSION_ID", "continuer")
+	a, err := s.Take("svc-8")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !a.WorkedHere() {
+		t.Fatalf("Take did not stamp the continuing session: %+v", a.Sessions)
+	}
+	if got := f.claims[key("svc", "#8")]; len(got) != 1 || !got[0].At.Equal(at) {
+		t.Fatalf("Take did not restate the claim at %s: %+v", at, got)
+	}
+
+	at = at.Add(time.Hour)
+	if err := s.Annotate("svc-8", "found", "from outside the tree"); err != nil {
+		t.Fatal(err)
+	}
+	if got := f.claims[key("svc", "#8")]; len(got) != 1 || !got[0].At.Equal(at) {
+		t.Fatalf("the continuing session's note was treated as a reader's: want %s, got %+v", at, got)
+	}
+
+	if err := s.Handoff("svc-8", "stands"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Take("svc-8"); err == nil {
+		t.Fatal("Take accepted a handed-off lane, which is reopened, not taken")
+	}
+}
