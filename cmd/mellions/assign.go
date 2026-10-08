@@ -389,14 +389,21 @@ func assignRecord(args []string) error {
 	if id == "" || len(text) == 0 {
 		return assignRecordUsageError()
 	}
-	if err := store.Record(id, *kind, strings.Join(text, " ")); err != nil {
+	// Written from inside another lane's tree, the note is a reader's, so the
+	// target lane's tracker claim is left as it stood rather than restated.
+	foreign := here != nil && here.ID != id
+	write := store.Record
+	if foreign {
+		write = store.Annotate
+	}
+	if err := write(id, *kind, strings.Join(text, " ")); err != nil {
 		return err
 	}
-	if here != nil && here.ID != id {
+	if foreign {
 		fmt.Fprintf(os.Stderr,
-			"mellions: recorded on %s, but this tree is %s's lane.\n"+
+			"mellions: recorded on %s, but this tree is %s's lane; %s's tracker claim was left as it stood.\n"+
 				"A record on a lane you are not working is working memory the next session reads under the wrong objective.\n",
-			id, here.ID)
+			id, here.ID, id)
 	}
 	return nil
 }

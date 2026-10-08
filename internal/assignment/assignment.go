@@ -691,8 +691,9 @@ func (s *Store) ClaimPullRequest(ctx context.Context, id, pr string) error {
 // restateClaim pushes the lane's current state back onto the tracker, which is
 // what keeps the claim from going stale under it.
 //
-// Every write to the record restates it, because a lane being worked writes to
-// its record and a lane that has not is the one whose claim should expire.
+// Every write the lane's own session makes restates it, because a lane being
+// worked writes to its record and a lane that has not is the one whose claim
+// should expire. A note from another lane (Annotate) is not that evidence.
 // Failure is not fatal here: the claim is already published and the work is
 // already recorded, and the worst case is a claim that goes stale early and is
 // swept — which is the designed behaviour, not a defect.
@@ -1133,6 +1134,12 @@ func (s *Store) save(a *Assignment) error {
 // error anywhere — and overlapping sessions are exactly the situation the
 // record exists to survive.
 func (s *Store) update(id string, fn func(*Assignment) error) (*Assignment, error) {
+	return s.write(id, true, fn)
+}
+
+// write is update, with restate false for a write that is no evidence the lane
+// is being worked.
+func (s *Store) write(id string, restate bool, fn func(*Assignment) error) (*Assignment, error) {
 	var out *Assignment
 	err := durable.Guard(s.file(id), func() error {
 		a, err := s.Get(id)
@@ -1142,11 +1149,11 @@ func (s *Store) update(id string, fn func(*Assignment) error) (*Assignment, erro
 		if err := fn(a); err != nil {
 			return err
 		}
-		// Every write to the record restates the lane's hold, which is what
-		// keeps a lane being worked from expiring under it. A lane that has
-		// released — closed or abandoned — is not restated back onto the issue
-		// it just let go of.
-		if a.State != StateClosed && a.State != StateAbandoned {
+		// A write the lane's own session makes restates the lane's hold, which
+		// is what keeps a lane being worked from expiring under it. A lane that
+		// has released — closed or abandoned — is not restated back onto the
+		// issue it just let go of.
+		if restate && a.State != StateClosed && a.State != StateAbandoned {
 			s.restateClaim(a)
 		}
 		if err := s.save(a); err != nil {
@@ -1233,8 +1240,17 @@ func (s *Store) ListWithDamage(includeClosed bool) ([]*Assignment, []string, err
 	return out, damaged, nil
 }
 
-// Record appends a finding to the engineer's working notes.
-func (s *Store) Record(id, kind, text string) error {
+// Record appends a finding to the engineer's working notes, written by the
+// session working the lane, and restates the lane's claim.
+func (s *Store) Record(id, kind, text string) error { return s.record(id, kind, text, true) }
+
+// Annotate appends a finding written by a session working another lane, and
+// leaves the claim as it stood: a reader's note says nothing about whether this
+// lane is worked, and restating it would keep a dead lane's hold from going
+// stale and post its claim again onto an issue that may long be closed.
+func (s *Store) Annotate(id, kind, text string) error { return s.record(id, kind, text, false) }
+
+func (s *Store) record(id, kind, text string, restate bool) error {
 	if strings.TrimSpace(text) == "" {
 		return errors.New("assignment: a finding needs text")
 	}
@@ -1243,7 +1259,7 @@ func (s *Store) Record(id, kind, text string) error {
 	default:
 		return fmt.Errorf("assignment: finding kind %q must be hypothesis, found, next or note", kind)
 	}
-	_, err := s.update(id, func(a *Assignment) error {
+	_, err := s.write(id, restate, func(a *Assignment) error {
 		a.Findings = append(a.Findings, Finding{At: s.clock(), Kind: kind, Text: strings.TrimSpace(text)})
 		return nil
 	})
