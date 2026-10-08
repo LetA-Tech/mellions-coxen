@@ -48,6 +48,9 @@ type Options struct {
 	// Checkouts maps repository name to a local checkout path. A body cites
 	// code; without a checkout there is nothing to compare it against.
 	Checkouts map[string]string
+	// Read turns each checkout into the tree its citations are checked
+	// against; nil reads the remote's working branch (AtWorkingBranch).
+	Read Reader
 	// Limit caps issues examined per repository.
 	Limit int
 	// MinAge skips issues younger than this. A body written this morning
@@ -71,6 +74,9 @@ func New(o Options) *Source {
 	}
 	if o.Run == nil {
 		o.Run = ghRun
+	}
+	if o.Read == nil {
+		o.Read = AtWorkingBranch
 	}
 	return &Source{opts: o}
 }
@@ -113,6 +119,22 @@ func (s *Source) Collect(ctx context.Context, scope signal.Scope) ([]signal.Sign
 		return nil, fmt.Errorf("stale: no checkouts configured; a citation cannot be checked without the code")
 	}
 
+	trees, failed := readAll(ctx, s.opts.Read, s.opts.Checkouts)
+	defer func() {
+		for _, t := range trees {
+			if t.Cleanup != nil {
+				t.Cleanup()
+			}
+		}
+	}()
+	// A checkout that could not be read is left out of resolution as well as
+	// out of the scan: resolving a sibling's citation in a tree at an unknown
+	// commit is the defect reading the working branch exists to remove.
+	dirs := make(map[string]string, len(trees))
+	for repo, t := range trees {
+		dirs[repo] = t.Dir
+	}
+
 	now := time.Now()
 	var out []signal.Signal
 	// Per repository, and the failures are collected rather than fatal. One
@@ -136,11 +158,16 @@ func (s *Source) Collect(ctx context.Context, scope signal.Scope) ([]signal.Sign
 			unreadable = append(unreadable, short+": "+err.Error())
 			continue
 		}
+		items = slices.DeleteFunc(items, func(it item) bool { return now.Sub(it.CreatedAt) < s.opts.MinAge })
+		if len(items) == 0 {
+			continue
+		}
+		if err, ok := failed[short]; ok {
+			unreadable = append(unreadable, short+": its code could not be read at the working branch: "+err.Error())
+			continue
+		}
 		for _, it := range items {
-			if now.Sub(it.CreatedAt) < s.opts.MinAge {
-				continue
-			}
-			sig, ok := s.examine(short, it)
+			sig, ok := s.examine(short, it, dirs, trees[short])
 			if ok {
 				out = append(out, sig)
 			}
@@ -153,13 +180,14 @@ func (s *Source) Collect(ctx context.Context, scope signal.Scope) ([]signal.Sign
 	return out, nil
 }
 
-// examine compares one body against the current tree.
+// examine compares one body against the repository's tree. dirs locates every
+// readable repository, so a citation into a sibling resolves there too.
 //
 // Only a citation whose file was actually located counts as evidence. A file
 // this checkout cannot find proves nothing: the body may be citing a sibling
 // repository. Unlocated citations are counted as unchecked rather than moved.
-func (s *Source) examine(repo string, it item) (signal.Signal, bool) {
-	cites := issuegate.Citations(it.Body, s.opts.Checkouts)
+func (s *Source) examine(repo string, it item, dirs map[string]string, tree Tree) (signal.Signal, bool) {
+	cites := issuegate.Citations(it.Body, dirs)
 	if len(cites) == 0 {
 		return signal.Signal{}, false
 	}
@@ -167,7 +195,7 @@ func (s *Source) examine(repo string, it item) (signal.Signal, bool) {
 	var moved []string
 	unchecked, absentPath, inFile := 0, 0, 0
 	for _, c := range cites {
-		path, ok := issuegate.Locate(c, repo, s.opts.Checkouts)
+		path, ok := issuegate.Locate(c, repo, dirs)
 		if !ok {
 			// How the citation was written decides whether its absence means
 			// anything. A bare basename is resolved by searching this checkout,
@@ -179,7 +207,7 @@ func (s *Source) examine(repo string, it item) (signal.Signal, bool) {
 			// one nobody actually made. An elided path — `internal/.../x.go` —
 			// and a name that matches two files are both prose, and counting
 			// them as moved reported stale premises about files nobody named.
-			if strings.Contains(c.Path, "/") && issuegate.Checkable(c, repo, s.opts.Checkouts) {
+			if strings.Contains(c.Path, "/") && issuegate.Checkable(c, repo, dirs) {
 				absentPath++
 				moved = append(moved, fmt.Sprintf(
 					"%s — no such path in this repository (deleted, moved, or a path in a dependency or "+
@@ -202,7 +230,7 @@ func (s *Source) examine(repo string, it item) (signal.Signal, bool) {
 
 	// Quote mismatches are sound on their own: the gate raises one only when it
 	// located the file and the quoted text is not in it.
-	for _, f := range issuegate.Check(it.Body, repo, s.opts.Checkouts) {
+	for _, f := range issuegate.Check(it.Body, repo, dirs) {
 		if slices.Contains(staleRules, f.Rule) {
 			inFile++
 			moved = append(moved, f.Detail)
@@ -214,9 +242,13 @@ func (s *Source) examine(repo string, it item) (signal.Signal, bool) {
 	}
 
 	var detail strings.Builder
-	detail.WriteString("the issue's own citations no longer match the tree:\n")
+	at := "the tree"
+	if tree.Commit != "" {
+		at = tree.Ref + " at " + tree.Commit
+	}
+	fmt.Fprintf(&detail, "the issue's own citations no longer match %s:\n", at)
 	for _, m := range moved {
-		fmt.Fprintf(&detail, "  - %s\n", m)
+		fmt.Fprintf(&detail, "  - %s\n", tree.name(m, repo))
 	}
 	if unchecked > 0 {
 		fmt.Fprintf(&detail, "  (%d further citation(s) could not be checked here — no checkout holds them, "+
@@ -243,6 +275,8 @@ func (s *Source) examine(repo string, it item) (signal.Signal, bool) {
 			"unchecked":             strconv.Itoa(unchecked),
 			"checked_at":            time.Now().UTC().Format(time.RFC3339),
 			"checkout_path":         s.opts.Checkouts[repo],
+			"checked_ref":           tree.Ref,
+			"checked_commit":        tree.Commit,
 		},
 		Detail: detail.String(),
 	}, true
@@ -260,6 +294,19 @@ func (s *Source) list(ctx context.Context, full string) ([]item, error) {
 		return nil, fmt.Errorf("stale: decode issues for %s: %w", full, err)
 	}
 	return items, nil
+}
+
+// name rewrites the extraction directory in a finding into the repository and
+// commit it holds; the directory is gone once the scan returns.
+func (t Tree) name(s, repo string) string {
+	if t.Commit == "" || t.Dir == "" {
+		return s
+	}
+	c := t.Commit
+	if len(c) > 12 {
+		c = c[:12]
+	}
+	return strings.ReplaceAll(s, t.Dir, repo+"@"+c)
 }
 
 // countLines reports how many lines a file has, so a citation past the end can

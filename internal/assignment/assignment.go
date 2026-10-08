@@ -905,7 +905,7 @@ func (s *Store) baseFor(source, ref string) (base, pin string) {
 		remote = r
 	}
 
-	for _, want := range workingBranchCandidates(source) {
+	for _, want := range WorkingBranchCandidates(source) {
 		if want == "" || remote+"/"+want == upstream {
 			continue
 		}
@@ -924,11 +924,11 @@ func (s *Store) baseFor(source, ref string) (base, pin string) {
 	return local, "local HEAD — " + short(local) + "; " + upstream + " could not be read"
 }
 
-// workingBranchCandidates names the branches a lane should be cut from, best
-// first. The repository's own declaration wins over the estate convention,
+// WorkingBranchCandidates names the branches a lane should be cut from, best
+// first, and so the branch a claim about the repository's code is read at. The repository's own declaration wins over the estate convention,
 // because a repository saying where its work happens is evidence and a
 // convention is an assumption.
-func workingBranchCandidates(source string) []string {
+func WorkingBranchCandidates(source string) []string {
 	declared := declaredWorkingBranch(source)
 	if declared == "dev" {
 		return []string{"dev"}
