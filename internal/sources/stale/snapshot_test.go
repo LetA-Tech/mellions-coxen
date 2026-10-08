@@ -136,3 +136,92 @@ func TestUnreachableWorkingBranchIsUnreadableNotReadInPlace(t *testing.T) {
 		t.Fatalf("err = %v; want payments-api reported unscanned at its working branch", err)
 	}
 }
+
+// TestUnreadableSiblingLeavesItsCitationsUncheckedAndIsReported: a checkout
+// that is only there to resolve citations into it, and cannot be read, must
+// neither turn those citations into "no such path" findings in the repository
+// that cites them nor drop out of the report of what went unread.
+func TestUnreadableSiblingLeavesItsCitationsUncheckedAndIsReported(t *testing.T) {
+	co, _ := behind(t)
+	ledger, _ := behind(t)
+	write(t, ledger, "internal/ledger/post.go", lines(40, nil))
+	git(t, ledger, "remote", "set-url", "origin", filepath.Join(t.TempDir(), "gone.git"))
+	s := New(Options{
+		Owner: "example-org", Repos: []string{"payments-api"},
+		Checkouts: map[string]string{"payments-api": co, "ledger": ledger},
+		Run: runnerFor(t,
+			item{Number: 4, Title: "cites the sibling by prefix", CreatedAt: old(),
+				Body: "`ledger/internal/ledger/post.go:30` posts the entry."},
+			item{Number: 5, Title: "cites a path only the sibling holds", CreatedAt: old(),
+				Body: "`internal/ledger/post.go:30` posts the entry."},
+		),
+	})
+	got, err := s.Collect(context.Background(), signal.Scope{})
+	for _, g := range got {
+		t.Errorf("%s reported from a sibling that could not be read:\n%s", g.ID, g.Detail)
+	}
+	if err == nil || !strings.Contains(err.Error(), "ledger") {
+		t.Fatalf("err = %v; want the unread sibling ledger reported", err)
+	}
+}
+
+// TestFindingInASiblingNamesThatSiblingAtItsCommit: a quote that resolves in a
+// sibling's tree is attributed to that sibling and the commit it was read at,
+// never to the extraction directory that no longer exists.
+func TestFindingInASiblingNamesThatSiblingAtItsCommit(t *testing.T) {
+	co, _ := behind(t)
+	ledger, ledgerDev := behind(t)
+	tmp := t.TempDir()
+	t.Setenv("TMPDIR", tmp)
+	s := New(Options{
+		Owner: "example-org", Repos: []string{"payments-api"},
+		Checkouts: map[string]string{"payments-api": co, "ledger": ledger},
+		Run: runnerFor(t, item{Number: 6, Title: "quotes the sibling", CreatedAt: old(),
+			Body: "`ledger/internal/a.go:3`:\n\n```go\nold := legacy()\n```\n"}),
+	})
+	got, err := s.Collect(context.Background(), signal.Scope{})
+	if err != nil {
+		t.Fatalf("Collect: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("a quote the sibling's working branch removed was not reported: %+v", got)
+	}
+	g := got[0]
+	if strings.Contains(g.Detail, tmp) || !strings.Contains(g.Detail, "ledger@"+ledgerDev[:12]+"/internal/a.go") {
+		t.Errorf("the finding does not name the sibling at its commit:\n%s", g.Detail)
+	}
+	if g.Attrs["sibling_commits"] != "ledger@"+ledgerDev {
+		t.Errorf("sibling_commits = %q, want ledger@%s", g.Attrs["sibling_commits"], ledgerDev)
+	}
+}
+
+// TestRefusedFetchStillReadsTheRemoteCommitItAlreadyHas: concurrent fetches
+// into one shared checkout leave all but one refused, usually after the winner
+// brought the commit. The commit the remote names is read whenever the
+// checkout holds it, whatever its remote-tracking ref says.
+func TestRefusedFetchStillReadsTheRemoteCommitItAlreadyHas(t *testing.T) {
+	co, dev := behind(t)
+	git(t, co, "fetch", "--quiet", "--refmap=", "origin", "dev:refs/side/dev")
+	gitDir := git(t, co, "rev-parse", "--absolute-git-dir")
+	lock := filepath.Join(gitDir, "refs", "remotes", "origin", "dev.lock")
+	if err := os.MkdirAll(filepath.Dir(lock), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	write(t, filepath.Dir(lock), "dev.lock", "")
+	if out, err := exec.Command("git", "-C", co, "fetch", "--quiet", "origin", "dev").CombinedOutput(); err == nil {
+		t.Fatalf("precondition: a fetch with origin/dev locked succeeded:\n%s", out)
+	}
+	s := New(Options{
+		Owner: "example-org", Repos: []string{"payments-api"},
+		Checkouts: map[string]string{"payments-api": co},
+		Run: runnerFor(t, item{Number: 7, Title: "cites code dev removed", CreatedAt: old(),
+			Body: "`internal/a.go:3`:\n\n```go\nold := legacy()\n```\n"}),
+	})
+	got, err := s.Collect(context.Background(), signal.Scope{})
+	if err != nil {
+		t.Fatalf("a refused fetch made a checkout that holds the commit unreadable: %v", err)
+	}
+	if len(got) != 1 || got[0].Attrs["checked_commit"] != dev {
+		t.Fatalf("want #7 reported at %s; got %+v", dev, got)
+	}
+}
