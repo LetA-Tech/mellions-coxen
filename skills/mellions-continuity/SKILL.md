@@ -116,11 +116,11 @@ If a written next step is no longer something the owner has delegated, the step
 is out of date — put it to them as a decision rather than carrying it out on an
 expectation formed before.
 
-**7 — Then continue, and keep the record current as you go.**
+**7 — Take the lane up, then keep the record current as you go.**
 
 ```
+mellions assign open <id>    # until then, a note from outside its tree keeps no claim alive
 mellions assign record <id> -kind found "the branch merged; this worktree is 9 behind the base"
-mellions assign record <id> -kind next  "re-cut from dev, then falsify against the three known rows"
 ```
 
 ## Renewal — a boundary you choose, never a question you ask

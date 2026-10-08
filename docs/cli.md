@@ -115,7 +115,11 @@ steps, handoff, the sessions that worked it and how to resume the last one.
 
 **`record`** — a finding (`-kind found`), a hypothesis, a next step or a note,
 appended to the record with a timestamp. The engineer writes these as it
-establishes things; they are what the next session reads.
+establishes things; they are what the next session reads. A note restates the
+lane's claim when written from the lane's worktree, by a session that already
+worked the lane, or with no runtime session behind it. From anywhere else it is
+a reader's and leaves the claim as it stood; `open <id>` on an existing lane is
+how a session continuing it becomes one of its sessions.
 
 **`claim`** — this lane holds that pull request. It publishes the same
 `mellions:claimed` label and machine-readable comment `open -issue` publishes
