@@ -60,10 +60,7 @@ Three things still stop and ask, and none of them is the sandbox itself:
   production endpoint, a shared database, an image push, anything the owner has
   kept for themselves. The container does not make a reserved action reversible.
 
-A sandbox is useful both when an experiment might do damage **and** when a
-technical uncertainty can be settled by a clean, disposable reproduction,
-mutation, dependency probe, or competing-hypothesis test. It is evidence
-machinery, not merely a security wrapper. `mellions-sandbox` is the method.
+`mellions-sandbox` is the method.
 
 Whether that machinery is reachable is a property of this moment, not of the
 repository, and it decides which work is *finishable* in a window rather than
@@ -116,10 +113,14 @@ Concurrency is bounded by whichever runs out first: cores, where several builds
 each assuming the whole machine thrash, or a metered model quota, which several
 sessions on a large model exhaust long before the RAM. Cap it per session.
 
-The Bash tool's shell is not `bash -c`: its snapshot can define functions over
-ordinary names. There `grep` is Claude Code's bundled ugrep with `--hidden`,
-which searches a directory operand without `-r`; a script gets `/usr/bin/grep`.
-Establish what a session's command does in that shell, after `type <name>`.
+The Bash tool's shell is the user's (`echo $SHELL`; zsh here), not `bash -c`,
+and its snapshot can define functions over ordinary names: `grep` there is
+Claude Code's bundled ugrep with `--hidden`, which searches a directory operand
+without `-r`; a script gets `/usr/bin/grep`. Check with `type <name>`. zsh does
+not word-split an unquoted `$VAR`: `docker rm -f $NAMES` gets one argument, and
+a trap that silences its errors removes nothing. Hold lists in arrays, `N=(a b)`
+and `"${N[@]}"`, or put the block, trap included, under `bash -c`; a bash
+script is unaffected.
 
 `/tmp` here is a small tmpfs under a per-user quota, where Go's build and
 `-race` scratch and any `mktemp`ing suite land by default. Full, writes fail
