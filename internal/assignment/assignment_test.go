@@ -807,3 +807,40 @@ func TestAnActiveLaneNamesItsMethodAtTheMoment(t *testing.T) {
 		t.Errorf("a closed lane still tells a reader to load the remediation method:\n%s", closed.Text(time.Now()))
 	}
 }
+
+// A repository whose binding names approval authorities may require a plan
+// approved on the issue before the first commit, and that holds for a one-line
+// change as much as a large one; a size-conditioned hint lets a small lane
+// commit first. The binding is read from the lane's own tree, so the record
+// states it as a fact and names the proposal method; a lane whose tree
+// declares no authorities says nothing about a gate.
+func TestALaneUnderApprovalAuthoritiesNamesTheProposalGate(t *testing.T) {
+	_, a := opened(t)
+	if got := a.Text(time.Now()); strings.Contains(got, "- gate:") {
+		t.Fatalf("a lane whose tree has no binding names a gate:\n%s", got)
+	}
+	binding := filepath.Join(a.Worktree, ".claude", "repo-binding.yaml")
+	if err := os.MkdirAll(filepath.Dir(binding), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct{ yaml, want string }{
+		{"repo: x\napproval_authorities: [Lucas, Antony]\n", "approval authorities [Lucas, Antony] and approval_model not declared"},
+		{"approval_authorities: [Lucas]\nworkflow:\n  approval_model: merge-gate\n", "approval authorities [Lucas] and approval_model merge-gate"},
+	} {
+		if err := os.WriteFile(binding, []byte(c.yaml), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		got := a.Text(time.Now())
+		if !strings.Contains(got, c.want) ||
+			!strings.Contains(got, `Skill(skill: "mellions:mellions-issue-resolution-proposal")`) ||
+			!strings.Contains(got, "before the first commit") {
+			t.Errorf("binding %q: the lane's record does not name the proposal gate (want %q):\n%s", c.yaml, c.want, got)
+		}
+	}
+	if err := os.WriteFile(binding, []byte("repo: x\ndevelopment_branch: dev\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := a.Text(time.Now()); strings.Contains(got, "- gate:") {
+		t.Errorf("a binding with no approval authorities names a gate:\n%s", got)
+	}
+}
