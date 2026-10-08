@@ -120,7 +120,8 @@ lane's claim when written from the lane's worktree, by a session that already
 worked the lane, or from no lane's tree with no runtime session behind it (the
 shift runner, a terminal). Otherwise it is a reader's and leaves the claim as it
 stood. `open <id>` on an existing lane is how a session continuing it becomes
-one of its sessions, unless another live session holds it.
+one of its sessions; when another live session holds it, it says so and stamps
+nothing.
 
 **`claim`** — this lane holds that pull request. It publishes the same
 `mellions:claimed` label and machine-readable comment `open -issue` publishes

@@ -1146,10 +1146,11 @@ func (s *Store) update(id string, fn func(*Assignment) error) (*Assignment, erro
 }
 
 // write is update, with reader true for a note written from another lane's
-// tree, or by a runtime session from no lane's tree. Such a note counts as the lane's own only when the writing runtime
-// session already worked this lane; otherwise it neither restates the claim
-// nor stamps the writer as one of the lane's sessions, either of which would
-// make a lane nobody works read as worked.
+// tree, or by a runtime session from no lane's tree. Such a note counts as the
+// lane's own only when the writing runtime session already worked this lane;
+// otherwise it neither restates the claim nor stamps the writer as one of the
+// lane's sessions, either of which would make a lane nobody works read as
+// worked.
 func (s *Store) write(id string, reader bool, fn func(*Assignment) error) (*Assignment, error) {
 	var out *Assignment
 	err := durable.Guard(s.file(id), func() error {

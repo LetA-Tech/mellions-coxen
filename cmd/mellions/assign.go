@@ -108,9 +108,12 @@ func assignOpen(args []string) error {
 		return err
 	}
 	_, me := presence.Here()
-	a, claimed, err := claimExisting(store, o.ID, heldNow(cfg.presences().Live(), me, presence.SelfPID()))
+	a, claimed, holder, err := claimExisting(store, o.ID, heldNow(cfg.presences().Live(), me, presence.SelfPID()))
 	if err != nil {
 		return err
+	}
+	if holder != nil {
+		fmt.Fprint(os.Stderr, heldElsewhere(a.ID, *holder))
 	}
 	if !claimed {
 		if o.Source, err = cfg.checkout(o.Repo); err != nil {
@@ -170,29 +173,39 @@ func noteWorking(cfg *Config, a *assignment.Assignment) {
 // Either way the session becomes one of the lane's sessions here, so a note it
 // later writes from outside the lane's tree restates the claim — unless
 // another live session holds the active lane, when this session has met the
-// collision rather than taken the lane up and is not stamped. held is the
-// running sessions other than this one, by session id.
-func claimExisting(store *assignment.Store, id string, held map[string]presence.Session) (*assignment.Assignment, bool, error) {
+// collision rather than taken the lane up, is not stamped, and is handed the
+// holder to be told about. held is the running sessions other than this one,
+// by session id.
+func claimExisting(store *assignment.Store, id string, held map[string]presence.Session) (*assignment.Assignment, bool, *presence.Session, error) {
 	a, err := store.Get(id)
 	if errors.Is(err, assignment.ErrNotFound) {
-		return nil, false, nil
+		return nil, false, nil, nil
 	}
 	if err != nil {
-		return nil, true, err
+		return nil, true, nil, err
 	}
 	if a.State == assignment.StateActive {
-		if _, live := liveHolder(a, held); live {
-			return a, true, nil
+		if p, live := liveHolder(a, held); live {
+			return a, true, &p, nil
 		}
 		if _, err := store.Take(id); err != nil {
-			return nil, true, err
+			return nil, true, nil, err
 		}
-		return a, true, nil
+		return a, true, nil, nil
 	}
 	if a, err = store.Reopen(id); err != nil {
-		return nil, true, err
+		return nil, true, nil, err
 	}
-	return a, true, nil
+	return a, true, nil, nil
+}
+
+// heldElsewhere is what a session is told when the lane it opened is held by
+// another running session: it was not taken up, so its notes from outside the
+// lane's tree leave the claim to the holder.
+func heldElsewhere(id string, holder presence.Session) string {
+	return fmt.Sprintf("mellions: %s is held right now by %s session %s, so this session was not taken up as one of its sessions;\n"+
+		"its notes from outside the lane's tree leave the claim to that session. Reach it before working beside it.\n",
+		id, holder.Runtime, holder.ID)
 }
 
 // parseOpen reads what `assign open` was asked for. Separate from opening it so
@@ -378,7 +391,7 @@ func assignRecord(args []string) error {
 	if len(rest) == 0 {
 		return assignRecordUsageError()
 	}
-	store, _, err := assignStore(*cfgPath)
+	store, cfg, err := assignStore(*cfgPath)
 	if err != nil {
 		return err
 	}
@@ -413,10 +426,11 @@ func assignRecord(args []string) error {
 	if foreign || unplaced {
 		write = store.Annotate
 	}
-	worked := false
+	var before *assignment.Assignment
 	if a, err := store.Get(id); err == nil {
-		worked = a.WorkedHere()
+		before = a
 	}
+	worked := before != nil && before.WorkedHere()
 	if err := write(id, *kind, strings.Join(text, " ")); err != nil {
 		return err
 	}
@@ -426,7 +440,12 @@ func assignRecord(args []string) error {
 				"A record on a lane you are not working is working memory the next session reads under the wrong objective.\n",
 			id, here.ID, id)
 	}
-	if unplaced && !worked {
+	if unplaced && !worked && before != nil {
+		_, me := presence.Here()
+		if p, live := liveHolder(before, heldNow(cfg.presences().Live(), me, presence.SelfPID())); live {
+			fmt.Fprint(os.Stderr, heldElsewhere(id, p))
+			return nil
+		}
 		fmt.Fprintf(os.Stderr,
 			"mellions: recorded on %s from outside its tree by a session that has not worked it; its tracker claim was left as it stood.\n"+
 				"Taking the lane up is `mellions assign open %s`; a note alone keeps no lane's claim alive.\n",

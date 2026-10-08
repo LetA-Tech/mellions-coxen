@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/LetA-Tech/mellions-coxen/internal/presence"
@@ -205,9 +206,15 @@ func TestARecordFromNoLaneLeavesTheClaimUntilTheSessionTakesTheLaneUp(t *testing
 
 	// While the holder runs, opening the lane meets the collision: the session
 	// is shown the holder and is not stamped as one of the lane's sessions.
-	live := map[string]presence.Session{"the-holder": {ID: "the-holder"}}
-	if _, handled, err := claimExisting(store, id, live); err != nil || !handled {
+	live := map[string]presence.Session{"the-holder": {Runtime: "claude", ID: "the-holder"}}
+	_, handled, holder, err := claimExisting(store, id, live)
+	if err != nil || !handled {
 		t.Fatalf("assign open on the live-held lane: handled=%v err=%v", handled, err)
+	}
+	if holder == nil || holder.ID != "the-holder" {
+		t.Errorf("assign open on a live-held lane did not report its holder, so the session is never told it was not taken up: %+v", holder)
+	} else if note := heldElsewhere(id, *holder); !strings.Contains(note, "the-holder") || !strings.Contains(note, "not taken up") {
+		t.Errorf("the collision note does not name the holder and say the session was not taken up:\n%s", note)
 	}
 	if readerSeen() {
 		t.Error("assign open on a lane a live session holds stamped the session that only met the collision")
@@ -215,9 +222,12 @@ func TestARecordFromNoLaneLeavesTheClaimUntilTheSessionTakesTheLaneUp(t *testing
 
 	// Taking the lane up is the act that makes this session the lane's own,
 	// and the record it is shown still names who worked the lane before it.
-	got, handled, err := claimExisting(store, id, nil)
+	got, handled, holder, err := claimExisting(store, id, nil)
 	if err != nil || !handled {
 		t.Fatalf("assign open on the active lane: handled=%v err=%v", handled, err)
+	}
+	if holder != nil {
+		t.Errorf("assign open with no live holder reported one: %+v", holder)
 	}
 	if last, ok := got.Latest(); !ok || last.ID != "the-holder" {
 		t.Errorf("assign open showed %+v as the lane's last session, not the holder it collided with", last)
