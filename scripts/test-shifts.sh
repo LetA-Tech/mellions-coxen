@@ -804,18 +804,37 @@ run_l "$lhome"
 [ -d "$lhome/tmp/go" ] || bad "L1: $lhome/tmp/go was never created, so Go falls back to /tmp"
 
 # L2: what earlier shifts left there is collected, and only that. A live build
-# holds a directory whose mtime is now, so age is what separates them.
-mkdir -p "$lhome/tmp/go/go-build-old" "$lhome/tmp/go/go-build-fresh" "$lhome/tmp/go/keep-me"
-touch "$lhome/tmp/go/go-build-old/f"
-touch -d '2 days ago' "$lhome/tmp/go/go-build-old" 2>/dev/null \
-  || touch -t "$(date -u -v-2d '+%Y%m%d%H%M')" "$lhome/tmp/go/go-build-old"
+# holds a directory whose mtime is now, so age is what separates them. A test
+# killed without an exit leaves its t.TempDir() parent, named as Go's testing
+# package names it, beside the work directories. The directories that are not
+# Go's are as old as the abandoned ones, so only their names can keep them.
+l_age() { touch -d '2 days ago' "$1" 2>/dev/null || touch -t "$(date -u -v-2d '+%Y%m%d%H%M')" "$1"; }
+lgo="$lhome/tmp/go"
+mkdir -p "$lgo/go-build-old" "$lgo/go-build-fresh" "$lgo/keep-me" "$lgo/Test-notes" \
+  "$lgo/TestEveryConcurrentFindingSurvives999133963/001" "$lgo/BenchmarkSweep42/001" \
+  "$lgo/FuzzSweepcorpus7/001" "$lgo/TestALiveOne3175345655/001"
+touch "$lgo/go-build-old/f" "$lgo/TestEveryConcurrentFindingSurvives999133963/001/f"
+for d in go-build-old keep-me Test-notes TestEveryConcurrentFindingSurvives999133963 \
+         BenchmarkSweep42 FuzzSweepcorpus7; do
+  l_age "$lgo/$d"
+done
 run_l "$lhome"
-[ -e "$lhome/tmp/go/go-build-old" ] \
+[ -e "$lgo/go-build-old" ] \
   && bad "L2: a work directory two days old survived the shift, so the scratch only ever grows"
-[ -d "$lhome/tmp/go/go-build-fresh" ] \
+[ -d "$lgo/go-build-fresh" ] \
   || bad "L2: a work directory written this minute was collected — that is a live build losing its scratch"
-[ -d "$lhome/tmp/go/keep-me" ] \
-  || bad "L2: the sweep removed a directory that is not a Go work directory"
+[ -e "$lgo/TestEveryConcurrentFindingSurvives999133963" ] \
+  && bad "L2: a test's TempDir two days old survived the shift — a test killed without an exit leaks into the scratch forever"
+[ -e "$lgo/BenchmarkSweep42" ] \
+  && bad "L2: a benchmark's TempDir two days old survived the shift"
+[ -e "$lgo/FuzzSweepcorpus7" ] \
+  && bad "L2: a fuzz target's TempDir two days old survived the shift"
+[ -d "$lgo/TestALiveOne3175345655/001" ] \
+  || bad "L2: a test's TempDir made this minute was collected — that is a live test losing its files"
+[ -d "$lgo/keep-me" ] \
+  || bad "L2: the sweep removed an old directory that is not Go's"
+[ -d "$lgo/Test-notes" ] \
+  || bad "L2: the sweep removed an old directory named Test… that Go's testing package cannot have made: its names end in the digits MkdirTemp appends"
 
 # L3: an explicit choice is not overridden. A lane that points Go somewhere
 # with room, or at a filesystem it needs, keeps what it set.
@@ -886,7 +905,7 @@ grep -qF "refused by the stub" "$tmp/l.out" \
   || bad "L9: an uncorrectable mode cost the session its scratch directory (GOTMPDIR=$saw)"
 umask "$umask_was"
 
-note "L: the session's builds scratch on disk under the home, what earlier shifts left is collected and nothing younger is, an explicit GOTMPDIR stands, it does not switch the collector off, a scratch directory that cannot be made is said rather than swallowed, and the scratch and its parent are never writable by another identity"
+note "L: the session's builds scratch on disk under the home, what earlier shifts left — work directories and the TempDirs of killed tests — is collected and nothing younger or not Go's is, an explicit GOTMPDIR stands, it does not switch the collector off, a scratch directory that cannot be made is said rather than swallowed, and the scratch and its parent are never writable by another identity"
 
 # ---- M. the user bus a shift's session is handed -----------------------------
 # The DB harness bounds each test with `systemd-run --user`, which refuses

@@ -165,9 +165,18 @@ say "shift $stamp starting (model=$MODEL budget=$BUDGET settings=$SETTINGS)"
 # Go's testing package makes t.TempDir() under $GOTMPDIR, so a test that refuses
 # an ancestor another identity can write fails on this directory or its parent
 # when a group-write umask made them; every shift removes that bit from both.
+#
+# The same package names that directory after the test and a decimal it appends:
+# Test, Benchmark or Fuzz, then the name, then digits. A test killed without an
+# exit leaves it as surely as a build leaves go-build, so the sweep takes those
+# shapes too and nothing else at the top level. A test's directory gains entries
+# only when it calls TempDir again, so age protects a live one only because no
+# shift runs for half a day.
 scratch="$HOME_DIR/tmp/go"
 [ -d "$scratch" ] &&
-  find "$scratch" -maxdepth 1 -type d -name 'go-build*' -mmin +720 -exec rm -rf {} + 2>/dev/null
+  find "$scratch" -maxdepth 1 -type d \
+    \( -name 'go-build*' -o -name 'Test*[0-9]' -o -name 'Benchmark*[0-9]' -o -name 'Fuzz*[0-9]' \) \
+    -mmin +720 -exec rm -rf {} + 2>/dev/null
 if [ -z "${GOTMPDIR:-}" ]; then
   if scratch_err=$(mkdir -p "$scratch" 2>&1); then
     export GOTMPDIR="$scratch"
