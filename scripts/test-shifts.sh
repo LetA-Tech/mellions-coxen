@@ -28,7 +28,7 @@ cleanup() {
     p=$(cat "$tmp/stub/hang.pid"); pkill -P "$p" 2>/dev/null; kill "$p" 2>/dev/null
   fi
   [ "${sleeper:-0}" -gt 0 ] && kill "$sleeper" 2>/dev/null
-  chmod -R u+w "$tmp" 2>/dev/null
+  chmod -R u+rwx "$tmp" 2>/dev/null
   rm -rf "$tmp"
 }
 trap cleanup EXIT INT TERM HUP
@@ -818,8 +818,11 @@ touch "$lgo/go-build-old/f" "$lgo/TestEveryConcurrentFindingSurvives999133963/00
 mkdir -p "$lgo/TestFilledAModCache8675309/001/pkg/mod/m@v1"
 touch "$lgo/TestFilledAModCache8675309/001/pkg/mod/m@v1/go.mod"
 chmod 555 "$lgo/TestFilledAModCache8675309/001/pkg/mod/m@v1" "$lgo/TestFilledAModCache8675309/001/pkg/mod"
+mkdir -p "$lgo/TestARefusedRead4242/001/locked"
+touch "$lgo/TestARefusedRead4242/001/locked/f"
+chmod 000 "$lgo/TestARefusedRead4242/001/locked"
 for d in go-build-old keep-me keep-me-2 Test-notes TestEveryConcurrentFindingSurvives999133963 \
-         BenchmarkSweep42 FuzzSweepcorpus7 TestFilledAModCache8675309; do
+         BenchmarkSweep42 FuzzSweepcorpus7 TestFilledAModCache8675309 TestARefusedRead4242; do
   l_age "$lgo/$d"
 done
 run_l "$lhome"
@@ -831,6 +834,8 @@ run_l "$lhome"
   && bad "L2: a test's TempDir two days old survived the shift — a test killed without an exit leaks into the scratch forever"
 [ -e "$lgo/TestFilledAModCache8675309" ] \
   && bad "L2: a test's TempDir holding a read-only tree, as a module cache is, survived the shift — rm -rf cannot empty a directory it cannot write"
+[ -e "$lgo/TestARefusedRead4242" ] \
+  && bad "L2: a test's TempDir holding a directory mode 000, as a permission test leaves, survived the shift"
 [ -e "$lgo/BenchmarkSweep42" ] \
   && bad "L2: a benchmark's TempDir two days old survived the shift"
 [ -e "$lgo/FuzzSweepcorpus7" ] \
