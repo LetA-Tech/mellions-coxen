@@ -82,12 +82,10 @@ grep -rn '<name>' ~/workspace --include='*.sh'   # what creates it
 mellions who                                     # and whether that lane is live
 ```
 
-`leta.sandbox=1` does **not** establish that a Mellions turn started it: any
-repository harness that must provision on a host refusing an unlabelled
-`docker run -d` applies it too, so the label marks "findable for teardown",
-not "mine". Under gVisor a container the wrapper started also carries `--rm`
-and `--runtime=runsc`; that tells nothing where `runc` is the only runtime,
-and there the script that names it says where.
+`leta.sandbox=1` does **not** establish that a Mellions turn started it: a
+harness provisioning on a host that refuses an unlabelled `docker run -d`
+applies it too, so it marks "findable for teardown", not "mine". The wrapper's
+`--rm` and `--runtime=runsc` tell nothing where `runc` is the only runtime.
 
 A labelled container is a question, not a verdict: a repository's test
 database belongs to whoever is running that suite, and tearing it down mid-run
@@ -110,17 +108,22 @@ The Bash tool's shell is the user's (`echo $SHELL`; zsh here), not `bash -c`,
 and its snapshot can define functions over ordinary names: `grep` there is
 Claude Code's bundled ugrep with `--hidden`, which searches a directory operand
 without `-r`; a script gets `/usr/bin/grep`. Check with `type <name>`. Three
-zsh expansions differ from bash there and in zsh scripts, never in a file run
-by `bash`; put the block, trap included, under `bash -c`, or:
+zsh expansions differ from bash there, in zsh scripts and in `source`d files,
+never in a file run by `bash` — a block under `bash -c`, trap included, escapes
+them:
 
-- an unquoted `$VAR` is one word: `docker rm -f $NAMES` gets one argument, and
-  a trap silencing its errors removes nothing. Use arrays, `"${N[@]}"`;
+- an unquoted `$VAR` is one word, in `N=($VAR)` too: `docker rm -f $NAMES`
+  gets one argument, and a trap silencing its errors removes nothing. Split
+  with `N=(${=NAMES})`; expand `"${N[@]}"`;
 - a word or assigned value starting `=` becomes the path of the command it
-  names: `echo ====`, `[ "$rc" == 0 ]` and `FOO==bar` fail `not found` and
-  nothing after them runs; `echo =ls` quietly prints `/usr/bin/ls`. Quote it;
-  compare with `=` or `[[ ]]`;
-- a glob matching nothing is an error, not a literal: `--include=*.sql` with
-  no such file skips that command. Quote the pattern.
+  names: `echo ====`, `[ "$rc" == 0 ]` and `FOO==bar` fail `not found`;
+  `echo =ls` quietly prints `/usr/bin/ls`. Quote it; compare with `=` or `[[ ]]`;
+- a glob matching nothing, a URL's `?` or `[ ]` too, is an error, not a
+  literal: `--include=*.sql` with no such file. Quote the pattern.
+
+Either error ends everything after it, `||` and later lines too, except a glob
+on an external binary, which fails that command alone; `grep` and `find` here
+are functions.
 
 `/tmp` here is a small tmpfs under a per-user quota, where Go's build and
 `-race` scratch and any `mktemp`ing suite land by default. Full, writes fail
@@ -131,11 +134,10 @@ wider than a package; keep tree copies off `/tmp`.
 ## Establishing what a session actually receives
 
 A session cannot report what reached it, only what it believes. The request
-on the wire settles it: `scripts/capture-wire.sh`, in
-the mellions-coxen checkout, runs one headless session against a loopback
-server that records the request body and answers 400 — nothing forwarded, no
-credential written. It prints model, system-prompt size and tool count, and
-leaves `req-NNN.json` beside the extracted `req-NNN.system.txt`.
+on the wire settles it: `scripts/capture-wire.sh`, in the mellions-coxen
+checkout, runs one headless session against a loopback server that records
+the request body and answers 400 — nothing forwarded, no credential written —
+and prints model, system-prompt size and tool count.
 
 One capture usually answers it, and the tool array is often the decisive half:
 a tool absent from it was never offered, which a session reports as a
