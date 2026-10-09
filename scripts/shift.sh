@@ -161,12 +161,18 @@ say "shift $stamp starting (model=$MODEL budget=$BUDGET settings=$SETTINGS)"
 # created, which puts Go back on the tmpfs this exists to keep it off — and
 # unreported that is indistinguishable from a shift that worked. Said, it is a
 # degraded shift rather than a broken one, so it does not refuse.
+#
+# Go's testing package makes t.TempDir() under $GOTMPDIR, so a test that refuses
+# an ancestor another identity can write fails on this directory or its parent
+# when a group-write umask made them; every shift removes that bit from both.
 scratch="$HOME_DIR/tmp/go"
 [ -d "$scratch" ] &&
   find "$scratch" -maxdepth 1 -type d -name 'go-build*' -mmin +720 -exec rm -rf {} + 2>/dev/null
 if [ -z "${GOTMPDIR:-}" ]; then
   if scratch_err=$(mkdir -p "$scratch" 2>&1); then
     export GOTMPDIR="$scratch"
+    mode_err=$(chmod go-w "$HOME_DIR/tmp" "$scratch" 2>&1) ||
+      say "cannot remove group/other write from $HOME_DIR/tmp or $scratch ($mode_err) — a test that refuses a writable ancestor of its t.TempDir() fails in this shift for that reason alone"
   else
     say "cannot create $scratch ($scratch_err) — this shift's Go builds scratch in \${TMPDIR:-/tmp} instead, and what a build killed without an exit leaves there is collected by nothing"
   fi

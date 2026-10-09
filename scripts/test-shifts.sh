@@ -850,7 +850,43 @@ grep -qF "$l5/tmp/go" "$tmp/l.out" \
 [ -s "$STUB_DIR/l.gotmpdir" ] \
   || bad "L5: the shift refused rather than running on Go's default, which is degraded and not broken"
 
-note "L: the session's builds scratch on disk under the home, what earlier shifts left is collected and nothing younger is, an explicit GOTMPDIR stands, it does not switch the collector off, and a scratch directory that cannot be made is said rather than swallowed"
+# L6-L8: t.TempDir() lives under the scratch, and a test that refuses a
+# writable ancestor (a deploy reader does) fails on the runner's directory
+# rather than on the tree. Run under the host's group-write umask.
+other_writable() { find "$1" -prune \( -perm -020 -o -perm -002 \) | grep -q .; }
+umask_was=$(umask); umask 002
+l6="$tmp/l6/state"; mkdir -p "$l6"; chmod 755 "$l6"
+run_l "$l6"
+for d in "$l6/tmp" "$l6/tmp/go"; do
+  other_writable "$d" \
+    && bad "L6: the shift created $d as $(ls -ld "$d" | cut -c1-10), so every test under its t.TempDir() sits below a directory another identity can write"
+done
+[ "$saw" = "$l6/tmp/go" ] || bad "L6: the session was handed GOTMPDIR=$saw"
+
+l7="$tmp/l7/state"; mkdir -p "$l7/tmp/go"; chmod 775 "$l7/tmp" "$l7/tmp/go"
+run_l "$l7"
+for d in "$l7/tmp" "$l7/tmp/go"; do
+  other_writable "$d" \
+    && bad "L7: $d was left $(ls -ld "$d" | cut -c1-10) by an earlier shift and this one did not correct it"
+done
+
+l8="$tmp/l8/mine"; mkdir -p "$l8" "$tmp/l8/state"; chmod 775 "$l8"
+run_l "$tmp/l8/state" GOTMPDIR="$l8"
+other_writable "$l8" \
+  || bad "L8: an explicit GOTMPDIR had its mode changed to $(ls -ld "$l8" | cut -c1-10); whoever set it chose it as it is"
+
+# L9: a mode that cannot be corrected is said, and the shift still runs.
+l9="$tmp/l9/state"; mkdir -p "$l9" "$tmp/l9/bin"
+printf '#!/bin/sh\necho "chmod: refused by the stub" >&2\nexit 1\n' > "$tmp/l9/bin/chmod"
+chmod +x "$tmp/l9/bin/chmod"
+run_l "$l9" PATH="$tmp/l9/bin:$PATH"
+grep -qF "refused by the stub" "$tmp/l.out" \
+  || bad "L9: the scratch's mode could not be corrected and the shift did not say so: $(tail -3 "$tmp/l.out")"
+[ "$saw" = "$l9/tmp/go" ] \
+  || bad "L9: an uncorrectable mode cost the session its scratch directory (GOTMPDIR=$saw)"
+umask "$umask_was"
+
+note "L: the session's builds scratch on disk under the home, what earlier shifts left is collected and nothing younger is, an explicit GOTMPDIR stands, it does not switch the collector off, a scratch directory that cannot be made is said rather than swallowed, and the scratch and its parent are never writable by another identity"
 
 # ---- M. the user bus a shift's session is handed -----------------------------
 # The DB harness bounds each test with `systemd-run --user`, which refuses
