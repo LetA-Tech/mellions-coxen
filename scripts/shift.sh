@@ -162,10 +162,9 @@ say "shift $stamp starting (model=$MODEL budget=$BUDGET settings=$SETTINGS)"
 # unreported that is indistinguishable from a shift that worked. Said, it is a
 # degraded shift rather than a broken one, so it does not refuse.
 #
-# `go test` makes each test's t.TempDir() under this directory, so its mode and
-# its parent's are inputs to any test that checks its own ancestors — a deploy
-# reader refuses a directory another identity can write. Under a group-write
-# umask both are created group-writable, so every shift removes that bit.
+# Go's testing package makes t.TempDir() under $GOTMPDIR, so a test that refuses
+# an ancestor another identity can write fails on this directory or its parent
+# when a group-write umask made them; every shift removes that bit from both.
 scratch="$HOME_DIR/tmp/go"
 [ -d "$scratch" ] &&
   find "$scratch" -maxdepth 1 -type d -name 'go-build*' -mmin +720 -exec rm -rf {} + 2>/dev/null
