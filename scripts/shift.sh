@@ -169,9 +169,10 @@ say "shift $stamp starting (model=$MODEL budget=$BUDGET settings=$SETTINGS)"
 # The same package names that directory after the test and a decimal it appends:
 # Test, Benchmark or Fuzz, then the name, then digits. A test killed without an
 # exit leaves it as surely as a build leaves go-build, so the sweep takes those
-# shapes too and nothing else at the top level. A test's directory gains entries
-# only when it calls TempDir again, so age protects a live one only because no
-# shift runs for half a day.
+# shapes too and nothing else at the top level; a testing.Benchmark run inside a
+# test has no name, and its bare decimal is left. A test's directory gains entries
+# only when it calls TempDir again, so age protects a live one only while shifts
+# stay far shorter than half a day, as the default MELLIONS_TIMEOUT keeps them.
 scratch="$HOME_DIR/tmp/go"
 [ -d "$scratch" ] &&
   find "$scratch" -maxdepth 1 -type d \

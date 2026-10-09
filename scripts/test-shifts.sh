@@ -810,11 +810,11 @@ run_l "$lhome"
 # Go's are as old as the abandoned ones, so only their names can keep them.
 l_age() { touch -d '2 days ago' "$1" 2>/dev/null || touch -t "$(date -u -v-2d '+%Y%m%d%H%M')" "$1"; }
 lgo="$lhome/tmp/go"
-mkdir -p "$lgo/go-build-old" "$lgo/go-build-fresh" "$lgo/keep-me" "$lgo/Test-notes" \
+mkdir -p "$lgo/go-build-old" "$lgo/go-build-fresh" "$lgo/keep-me" "$lgo/keep-me-2" "$lgo/Test-notes" \
   "$lgo/TestEveryConcurrentFindingSurvives999133963/001" "$lgo/BenchmarkSweep42/001" \
   "$lgo/FuzzSweepcorpus7/001" "$lgo/TestALiveOne3175345655/001"
 touch "$lgo/go-build-old/f" "$lgo/TestEveryConcurrentFindingSurvives999133963/001/f"
-for d in go-build-old keep-me Test-notes TestEveryConcurrentFindingSurvives999133963 \
+for d in go-build-old keep-me keep-me-2 Test-notes TestEveryConcurrentFindingSurvives999133963 \
          BenchmarkSweep42 FuzzSweepcorpus7; do
   l_age "$lgo/$d"
 done
@@ -833,6 +833,8 @@ run_l "$lhome"
   || bad "L2: a test's TempDir made this minute was collected — that is a live test losing its files"
 [ -d "$lgo/keep-me" ] \
   || bad "L2: the sweep removed an old directory that is not Go's"
+[ -d "$lgo/keep-me-2" ] \
+  || bad "L2: the sweep removed an old directory that ends in digits but carries none of the prefixes Go's testing package gives a TempDir"
 [ -d "$lgo/Test-notes" ] \
   || bad "L2: the sweep removed an old directory named Test… that Go's testing package cannot have made: its names end in the digits MkdirTemp appends"
 
