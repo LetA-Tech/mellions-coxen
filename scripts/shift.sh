@@ -173,11 +173,13 @@ say "shift $stamp starting (model=$MODEL budget=$BUDGET settings=$SETTINGS)"
 # test has no name, and its bare decimal is left. A test's directory gains entries
 # only when it calls TempDir again, so age protects a live one only while shifts
 # stay far shorter than half a day, as the default MELLIONS_TIMEOUT keeps them.
+# Owner write is restored before removal: a test that filled a module cache
+# leaves directories mode 555, which rm -rf alone cannot empty.
 scratch="$HOME_DIR/tmp/go"
 [ -d "$scratch" ] &&
   find "$scratch" -maxdepth 1 -type d \
     \( -name 'go-build*' -o -name 'Test*[0-9]' -o -name 'Benchmark*[0-9]' -o -name 'Fuzz*[0-9]' \) \
-    -mmin +720 -exec rm -rf {} + 2>/dev/null
+    -mmin +720 -exec sh -c 'chmod -R u+w "$@"; rm -rf "$@"' sweep {} + 2>/dev/null
 if [ -z "${GOTMPDIR:-}" ]; then
   if scratch_err=$(mkdir -p "$scratch" 2>&1); then
     export GOTMPDIR="$scratch"
