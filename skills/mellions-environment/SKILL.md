@@ -37,12 +37,11 @@ A repository absent from the filesystem can usually be cloned.
 
 ## Whether the sandbox needs a word first is the owner's to say
 
-Investigation, reproduction, running a test, falsifying a claim and validating a
-fix inside a container that is thrown away afterwards have no external effect
-and no owner decision in them. Where the owner has said nothing about it, use
-the sandbox the way you would use a temporary directory: without asking, and
-without announcing it. An engineer that has a sandbox and believes it must ask
-behaves exactly like one that has none.
+Reproducing, testing, falsifying and validating a fix inside a container thrown
+away afterwards have no external effect and no owner decision in them. Where
+the owner has said nothing, use the sandbox as you would a temporary
+directory: without asking, and without announcing it. An engineer that has a
+sandbox and believes it must ask behaves exactly like one that has none.
 
 Where the owner has said something — the partnership, or this machine's
 runtime instructions — that wins. Where starting a container for engineering
@@ -107,7 +106,7 @@ sessions on a large model exhaust long before the RAM. Cap it per session.
 The Bash tool's shell is the user's (`echo $SHELL`; zsh here), not `bash -c`,
 and its snapshot can define functions over ordinary names: `grep` there is
 Claude Code's bundled ugrep with `--hidden`, which searches a directory operand
-without `-r`; a script gets `/usr/bin/grep`. Check with `type <name>`. Three
+without `-r`; a script gets `/usr/bin/grep`. Check with `type <name>`. Four
 zsh expansions differ from bash there, in zsh scripts and in `source`d files,
 never in a file run by `bash` — a block under `bash -c`, trap included, escapes
 them:
@@ -118,6 +117,8 @@ them:
 - a word or assigned value starting `=` becomes the path of the command it
   names: `echo ====`, `[ "$rc" == 0 ]` and `FOO==bar` fail `not found`;
   `echo =ls` quietly prints `/usr/bin/ls`. Quote it; compare with `=` or `[[ ]]`;
+- a `NAME=~/x` argument keeps a literal `~`, silently: `make PREFIX=~/x`. Use
+  `$HOME`;
 - a glob matching nothing, a URL's `?` or `[ ]` too, is an error, not a
   literal: `--include=*.sql` with no such file. Quote the pattern.
 
@@ -127,8 +128,8 @@ are functions.
 
 `/tmp` here is a small tmpfs under a per-user quota, where Go's build and
 `-race` scratch and any `mktemp`ing suite land by default. Full, writes fail
-`disk quota exceeded` and your shell returns a silent exit 1, reading as a
-broken build or harness. Put `GOTMPDIR`/`TMPDIR` under `$HOME` for a gate
+`disk quota exceeded` with a silent exit 1, reading as a broken build or
+harness. Put `GOTMPDIR`/`TMPDIR` under `$HOME` for a gate
 wider than a package; keep tree copies off `/tmp`.
 
 ## Establishing what a session actually receives
@@ -147,5 +148,4 @@ exists.
 
 The 400 stops the session at its first turn, so hook output and anything
 injected later appear in no capture, and a subagent's prompt is not a
-top-level `claude -p`'s. Absence in a capture is absence from turn one; say
-that when reporting one.
+top-level `claude -p`'s: absence in a capture is absence from turn one.

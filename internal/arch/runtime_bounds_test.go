@@ -137,7 +137,7 @@ const skillReserveBytes = 500
 // only by a commit that says what was spent and why.
 var skillsInReserve = map[string]int{
 	"mellions-continuity":        7999,
-	"mellions-environment":       7981,
+	"mellions-environment":       7965,
 	"mellions-self-learning":     7987,
 	"mellions-territory":         7983,
 	"mellions-delegation":        7961,
