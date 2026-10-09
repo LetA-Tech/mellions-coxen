@@ -874,6 +874,16 @@ l8="$tmp/l8/mine"; mkdir -p "$l8" "$tmp/l8/state"; chmod 775 "$l8"
 run_l "$tmp/l8/state" GOTMPDIR="$l8"
 other_writable "$l8" \
   || bad "L8: an explicit GOTMPDIR had its mode changed to $(ls -ld "$l8" | cut -c1-10); whoever set it chose it as it is"
+
+# L9: a mode that cannot be corrected is said, and the shift still runs.
+l9="$tmp/l9/state"; mkdir -p "$l9" "$tmp/l9/bin"
+printf '#!/bin/sh\necho "chmod: refused by the stub" >&2\nexit 1\n' > "$tmp/l9/bin/chmod"
+chmod +x "$tmp/l9/bin/chmod"
+run_l "$l9" PATH="$tmp/l9/bin:$PATH"
+grep -qF "refused by the stub" "$tmp/l.out" \
+  || bad "L9: the scratch's mode could not be corrected and the shift did not say so: $(tail -3 "$tmp/l.out")"
+[ "$saw" = "$l9/tmp/go" ] \
+  || bad "L9: an uncorrectable mode cost the session its scratch directory (GOTMPDIR=$saw)"
 umask "$umask_was"
 
 note "L: the session's builds scratch on disk under the home, what earlier shifts left is collected and nothing younger is, an explicit GOTMPDIR stands, it does not switch the collector off, a scratch directory that cannot be made is said rather than swallowed, and the scratch and its parent are never writable by another identity"
