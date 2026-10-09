@@ -44,12 +44,10 @@ the sandbox the way you would use a temporary directory: without asking, and
 without announcing it. An engineer that has a sandbox and believes it must ask
 behaves exactly like one that has none.
 
-Where the owner has said something — the partnership, or the runtime's own
-instructions for this machine — that wins, and this Skill does not argue with
-it. Read the partnership for what this installation's owner granted: where
-starting a container for engineering work is delegated, waiting for a word is
-not caution, it is the work not getting done. What no grant ever covers is the
-exit.
+Where the owner has said something — the partnership, or this machine's
+runtime instructions — that wins. Where starting a container for engineering
+work is delegated, waiting for a word is not caution but the work not getting
+done; no grant covers leaving it behind.
 
 Three things still stop and ask, and none of them is the sandbox itself:
 
@@ -62,13 +60,11 @@ Three things still stop and ask, and none of them is the sandbox itself:
 
 `mellions-sandbox` is the method.
 
-Whether that machinery is reachable is a property of this moment, not of the
-repository, and it decides which work is *finishable* in a window rather than
-only how it is done. `colima status` is one command and belongs with the
-choice of work, not with the implementation: a shift that picks a defect whose
-proof needs Postgres, writes the fix, and only then finds the runtime stopped
-has already spent the window. A stopped runtime costs a start and an image
-pull — price that into the choice; it is never a reason to downgrade the proof.
+Whether the container runtime is up (`docker info`) is a property of this
+moment that decides which work is *finishable* in a window: check it when
+choosing the work, not once the fix whose proof needs Postgres is written. A
+stopped runtime costs a start and an image pull — price that in; it is never a
+reason to downgrade the proof.
 
 Whatever is started belongs to the turn that started it. Tear it down in the
 same turn and say what remains: a stopped container still holds disk, a running
@@ -98,14 +94,11 @@ database belongs to whoever is running that suite, and tearing it down mid-run
 is worse than leaving it up overnight.
 
 A loop waiting on work you delegated is a background job your turn spawned.
-`kill` followed by `wait` on a busy loop hangs the shell that spawned it, so a
-run that already produced its evidence burns the rest of the budget and is
-killed on timeout, leaving the cleanup unproven. A pattern matches the shell
-issuing it: `pgrep -f X` never
-goes false and `pkill -f X` takes itself, because X is in their own argv. Act
-on the pid you started.
-Signal them, then establish they are gone: `kill -0` per pid, and a sweep for
-survivors. A timed-out teardown is not a completed one.
+`kill` then `wait` on a busy loop hangs its shell until the timeout, leaving
+the cleanup unproven. A pattern matches the shell issuing it: `pgrep -f X`
+never goes false and `pkill -f X` takes itself, X being in their own argv. Act
+on the pid you started, then establish it is gone: `kill -0` per pid, and a
+sweep for survivors. A timed-out teardown is not a completed one.
 
 ## Limits worth knowing before promising something
 
@@ -116,11 +109,18 @@ sessions on a large model exhaust long before the RAM. Cap it per session.
 The Bash tool's shell is the user's (`echo $SHELL`; zsh here), not `bash -c`,
 and its snapshot can define functions over ordinary names: `grep` there is
 Claude Code's bundled ugrep with `--hidden`, which searches a directory operand
-without `-r`; a script gets `/usr/bin/grep`. Check with `type <name>`. zsh does
-not word-split an unquoted `$VAR`: `docker rm -f $NAMES` gets one argument, and
-a trap that silences its errors removes nothing. Hold lists in arrays, `N=(a b)`
-and `"${N[@]}"`, or put the block, trap included, under `bash -c`; a bash
-script is unaffected.
+without `-r`; a script gets `/usr/bin/grep`. Check with `type <name>`. Three
+zsh expansions differ from bash there and in zsh scripts, never in a file run
+by `bash`; put the block, trap included, under `bash -c`, or:
+
+- an unquoted `$VAR` is one word: `docker rm -f $NAMES` gets one argument, and
+  a trap silencing its errors removes nothing. Use arrays, `"${N[@]}"`;
+- a word or assigned value starting `=` becomes the path of the command it
+  names: `echo ====`, `[ "$rc" == 0 ]` and `FOO==bar` fail `not found` and
+  nothing after them runs; `echo =ls` quietly prints `/usr/bin/ls`. Quote it;
+  compare with `=` or `[[ ]]`;
+- a glob matching nothing is an error, not a literal: `--include=*.sql` with
+  no such file skips that command. Quote the pattern.
 
 `/tmp` here is a small tmpfs under a per-user quota, where Go's build and
 `-race` scratch and any `mktemp`ing suite land by default. Full, writes fail
