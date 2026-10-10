@@ -191,6 +191,32 @@ if [ -z "${GOTMPDIR:-}" ]; then
   fi
 fi
 
+# The runtime runs the session's Bash tool under $SHELL where that names bash
+# or zsh, and otherwise picks one itself, zsh first. cron's SHELL is /bin/sh,
+# so the user's login shell is handed over; an inherited bash or zsh stands.
+#
+# The inherited value is read from the environment: started with none, bash
+# gives itself an unexported SHELL that the session never receives.
+inherited=$(printenv SHELL 2>/dev/null)
+stands=""
+case "$inherited" in */bash|*/zsh) [ -x "$inherited" ] && stands=1 ;; esac
+if [ -z "$stands" ]; then
+  login="${MELLIONS_LOGIN_SHELL:-}"
+  [ -n "$login" ] || login=$(${ASK[@]+"${ASK[@]}"} "$PYTHON" -c 'import os, pwd; print(pwd.getpwuid(os.getuid()).pw_shell)' 2>/dev/null)
+  picks="the session's Bash tool runs under a shell the runtime picks, with SHELL=${inherited:-<unset>}; MELLIONS_LOGIN_SHELL names one"
+  case "$login" in
+    */bash|*/zsh)
+      if [ -x "$login" ]; then
+        export SHELL="$login"
+      else
+        say "login shell $login is not executable — $picks"
+      fi
+      ;;
+    "") say "the login shell of $(id -un) could not be read — $picks" ;;
+    *)  say "login shell $login is neither bash nor zsh — $picks" ;;
+  esac
+fi
+
 # cron starts a shift with neither XDG_RUNTIME_DIR nor DBUS_SESSION_BUS_ADDRESS,
 # and `systemd-run --user` — how the platform PostgreSQL harness bounds a test's
 # memory — refuses without them, so every DB lane exits 1 before a test runs.
