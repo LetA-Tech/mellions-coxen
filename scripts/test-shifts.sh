@@ -1019,7 +1019,7 @@ printf '#!/bin/sh\n' > "$tmp/o/nox/bash"; chmod -x "$tmp/o/nox/bash"
 cat > "$STUB_DIR/claude-o" <<'STUB'
 #!/usr/bin/env bash
 cat > /dev/null
-printf '%s\n' "${SHELL-<unset>}" > "$STUB_DIR/o.env"
+printenv SHELL > "$STUB_DIR/o.env" || echo '<unset>' > "$STUB_DIR/o.env"
 printf '{"type":"result","result":"ready — the stub shift replied"}\n'
 STUB
 chmod +x "$STUB_DIR/claude-o"
