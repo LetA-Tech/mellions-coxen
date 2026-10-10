@@ -14,11 +14,12 @@
 #
 # What is denied is a state established rather than guessed — mergeability
 # GitHub has not finished computing, and a branch behind its base in files the
-# pull request also changes and whose content differs at the two tips. Being
+# pull request also changes and whose content differs at the two tips, or in
+# changed files while the pull request's own changes could not be read whole. Being
 # behind alone passes, and so does a file both sides merely name, because a
 # guard that fires on correct work is turned off and then protects nothing.
 #
-# The decision is a parse and up to three reads of the tracker, so it lives in the
+# The decision is a parse and up to four reads of the tracker, so it lives in the
 # binary. Without the binary this hook is silent, which every session-start hook
 # says out loud at the top of the session.
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"

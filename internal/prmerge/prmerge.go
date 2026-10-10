@@ -24,6 +24,7 @@
 //     answer that a decision can rest on; it is the absence of one, and it
 //     appears for seconds after a push, which is when a session is most likely
 //     to be looking.
+//
 //   - a branch behind its base where the base's commits since the divergence
 //     touch files this pull request also changes, and the two tips disagree
 //     about their content. Both sides naming a file is not that: a promotion
@@ -31,6 +32,12 @@
 //     same bytes, and identical content cannot be written over. What is left is
 //     the hazard stated concretely — the files where one side is about to be
 //     written over the other.
+//
+//   - a branch behind its base in changed files where one side of the
+//     comparison could not be read whole: the base's list at the tracker's
+//     page size, the read of the pull request's own changes failing, or that
+//     list at the page size leaving one of the base's files unaccounted for.
+//     No file is named, and the refusal says the overlap was not established.
 //
 // Being behind on its own is not refused. It is ordinary, usually harmless, and
 // a guard that fires on correct work is turned off and then protects nothing.
@@ -40,9 +47,9 @@
 // regression. A pull request that changes A while the base changed B, where A is
 // wrong given the new B, has no file in common and passes here.
 //
-// Anything it cannot read — the tracker unreachable, the comparison too large to
-// enumerate, a selector naming no pull request — leaves it silent, because a
-// deny on a guess blocks legitimate work and is how a guard gets removed.
+// Where it cannot read what the pull request is or how far behind — the tracker
+// unreachable, a selector naming no pull request — it is silent, because a deny
+// on a guess blocks legitimate work and is how a guard gets removed.
 package prmerge
 
 import (
@@ -88,9 +95,15 @@ type State struct {
 	// file the caller could not establish the content of at either tip is
 	// here, because an overlap cleared on a gap is a false clean.
 	Overlap []string
-	// Truncated says the comparison could not enumerate every base-side file,
-	// so an empty Overlap does not establish that there is none.
+	// Truncated says a comparison at the tracker's page size left a file
+	// undecided: the base's side could not be enumerated, or the pull request's
+	// own diff does not name a base-side file and is not the whole diff. An
+	// empty Overlap does not establish that there is none.
 	Truncated bool
+	// Unread says the base has changed files since the divergence and the pull
+	// request's own diff could not be read, so an empty Overlap does not
+	// establish that there is none.
+	Unread bool
 }
 
 // Deny returns the reason to refuse a PreToolUse payload, or "" to stay silent.
@@ -185,10 +198,19 @@ func refuse(s State) string {
 		return "Merging " + where + ", which is " + plural(s.BehindBy, "commit") + " behind " + s.Base +
 			", and the comparison is too large to enumerate — so whether those commits touch " +
 			"files this pull request also changes could not be established here.\n\n" +
-			"A branch this far behind is reconciled rather than merged on the strength of git " +
+			"A divergence this large is reconciled rather than merged on the strength of git " +
 			"being able to resolve it. Rebase it on " + s.Base + ", or read the divergence and " +
 			"say why it does not overlap:\n\n" +
 			"    git fetch origin && git diff --name-only origin/" + s.Base + "...HEAD"
+
+	case s.BehindBy > 0 && s.Unread:
+		return "Merging " + where + ", which is " + plural(s.BehindBy, "commit") + " behind " + s.Base +
+			", and the tracker did not answer with this pull request's own diff — so whether those " +
+			"commits touch files this pull request also changes could not be established here.\n\n" +
+			"Nothing was found, and nothing was ruled out. Ask again; if the answer still does not " +
+			"come, read both sides of the divergence and say why they do not overlap:\n\n" +
+			"    git fetch origin && git diff --name-only origin/" + s.Base + "...HEAD && " +
+			"git diff --name-only HEAD...origin/" + s.Base
 
 	case s.BehindBy > 0 && len(s.Overlap) > 0:
 		return "Merging " + where + ", which is " + plural(s.BehindBy, "commit") + " behind " + s.Base +
