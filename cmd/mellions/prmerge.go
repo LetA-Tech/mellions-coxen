@@ -20,9 +20,10 @@ import (
 // is declared with a 5s timeout in hooks/hooks.json, under this, so the runtime
 // kills the hook first and a tracker slower than that is silence rather than a
 // late deny. What this bounds is a run with no runtime over it, and the reads
-// after a slow one. A read that fails rather than expires is answered: the
-// first two failing are silence, nothing being established to refuse on, and
-// the third failing refuses, saying the pull request's side was not read.
+// after a slow one. A read that fails rather than expires is answered: any
+// read up to the base's side of the comparison failing is silence, nothing
+// being established to refuse on, and the read of the pull request's own diff
+// failing refuses, saying that side was not read.
 const mergeLookBudget = 6 * time.Second
 
 // compareFileCap is GitHub's own page size for the files in a comparison. At

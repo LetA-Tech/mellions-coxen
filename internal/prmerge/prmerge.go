@@ -33,9 +33,10 @@
 //     the hazard stated concretely — the files where one side is about to be
 //     written over the other.
 //
-//   - a branch behind its base in changed files where the pull request's own
-//     changes could not be read whole: the read failing, or a list at the
-//     tracker's page size that leaves one of the base's files unaccounted for.
+//   - a branch behind its base in changed files where one side of the
+//     comparison could not be read whole: the base's list at the tracker's
+//     page size, the read of the pull request's own changes failing, or that
+//     list at the page size leaving one of the base's files unaccounted for.
 //     No file is named, and the refusal says the overlap was not established.
 //
 // Being behind on its own is not refused. It is ordinary, usually harmless, and
