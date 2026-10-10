@@ -132,7 +132,7 @@ func (f Finding) Reason() string {
 	case Unanchored:
 		return f.Raw + ": that line says " + strconv.Quote(strings.TrimSpace(f.Actual)) +
 			", and the body does quote it — somewhere this citation cannot reach. " +
-			"Backing is anchored: a citation is backed by a span on its own line, or by the block its own paragraph introduces, " +
+			"Backing is anchored: a citation is backed by a span on its own line, or by the first line of the block its own paragraph introduces, " +
 			"and a quotation already spent on an earlier citation is not free to back a second. " +
 			"Put the quotation under this citation, repeating it if another one already uses it."
 	default:
@@ -479,6 +479,9 @@ type quoted struct {
 	// and as the text after its path:N: prefix, since either may be what
 	// the file's line holds.
 	texts []string
+	// rest are the readings of a block's lines after its first. They back
+	// nothing: they let a refusal say the line is in the body, misplaced.
+	rest []string
 	// block is true where this is a quoted block rather than a span on a
 	// prose line, which decides how a citation reaches it.
 	block bool
@@ -497,10 +500,15 @@ func quotations(doc string) *quotedText {
 	q := &quotedText{lines: strings.Split(doc, "\n")}
 	fence := ""
 	open := -1
-	// head records a block's first non-blank line and nothing after it: a
-	// citation names one line, and the block under it starts there.
+	// head records a block's first non-blank line as what the block quotes,
+	// and each later line as present but backing nothing: a citation names
+	// one line, and the block under it starts there.
 	head := func(s string) {
-		if open < 0 || len(q.all[open].texts) > 0 {
+		if open < 0 {
+			return
+		}
+		if len(q.all[open].texts) > 0 {
+			q.all[open].rest = append(q.all[open].rest, readings(s)...)
 			return
 		}
 		q.all[open].texts = readings(s)
@@ -529,10 +537,14 @@ func quotations(doc string) *quotedText {
 			quote := strings.TrimPrefix(trimmed, ">")
 			fresh := len(q.all[open].texts) == 0
 			head(quote)
-			// A block's first line written as one inline code span quotes the
-			// span's text: the backticks are Markdown, not the line.
-			if k := normalize(wholeSpan(quote)); fresh && k != "" {
-				q.all[open].texts = append(q.all[open].texts, k)
+			// A block line written as one inline code span quotes the span's
+			// text: the backticks are Markdown, not the line.
+			if k := normalize(wholeSpan(quote)); k != "" {
+				if fresh {
+					q.all[open].texts = append(q.all[open].texts, k)
+				} else {
+					q.all[open].rest = append(q.all[open].rest, k)
+				}
 			}
 		case strings.HasPrefix(line, "    "), strings.HasPrefix(line, "\t"):
 			// an indented code block
@@ -588,6 +600,11 @@ func (q *quotedText) exhibits(want string) bool {
 	}
 	for i := range q.all {
 		for _, t := range q.all[i].texts {
+			if t == want {
+				return true
+			}
+		}
+		for _, t := range q.all[i].rest {
 			if t == want {
 				return true
 			}

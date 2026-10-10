@@ -109,16 +109,20 @@ func TestQuotedCitationPasses(t *testing.T) {
 
 // A block quoting one code span is read as the span's text, and only that: a
 // span holding another line, a span that is not the whole line, and a span
-// below the block's first line back nothing.
+// below the block's first line back nothing. The last is in the body, so it
+// is reported as misplaced.
 func TestABlockquotedSpanBacksOnlyTheLineItHolds(t *testing.T) {
 	files := tree{"goals.go": strings.Repeat("x\n", 63) + "\tcache.Set(key, out)\n"}
-	for name, doc := range map[string]string{
-		"another line":       "The write at goals.go:64:\n\n> `return out, nil`\n",
-		"not the whole line": "The write at goals.go:64:\n\n> `cache.Set(key, out)` caches it\n",
-		"below the head":     "The write at goals.go:64:\n\n> it caches\n> `cache.Set(key, out)`\n",
+	for name, c := range map[string]struct {
+		doc  string
+		kind Kind
+	}{
+		"another line":       {"The write at goals.go:64:\n\n> `return out, nil`\n", Unbacked},
+		"not the whole line": {"The write at goals.go:64:\n\n> `cache.Set(key, out)` caches it\n", Unbacked},
+		"below the head":     {"The write at goals.go:64:\n\n> it caches\n> `cache.Set(key, out)`\n", Unanchored},
 	} {
-		if f := firstOnly(Check(doc, files.read)); len(f) != 1 || f[0].Kind != Unbacked {
-			t.Errorf("%s: findings = %v, want one Unbacked", name, f)
+		if f := firstOnly(Check(c.doc, files.read)); len(f) != 1 || f[0].Kind != c.kind {
+			t.Errorf("%s: findings = %v, want one of kind %v", name, f, c.kind)
 		}
 	}
 }
@@ -277,8 +281,8 @@ func TestARangePasteDoesNotBackALineInsideIt(t *testing.T) {
 		"type Finding struct {\n" +
 		"```\n"
 	f := firstOnly(Check(doc, files.read))
-	if len(f) != 1 || f[0].Kind != Unbacked {
-		t.Fatalf("got %v, want the citation reported unbacked", f)
+	if len(f) != 1 || f[0].Kind != Unanchored {
+		t.Fatalf("got %v, want the citation reported as quoted where it cannot reach", f)
 	}
 	if !strings.Contains(f[0].Reason(), "type Finding struct {") {
 		t.Errorf("Reason() = %q, want it to report what line 9 says", f[0].Reason())
@@ -431,6 +435,35 @@ func TestSpentQuotationReadsAsMisplacedNotAsAbsent(t *testing.T) {
 // findings and says so more clearly without a discarded second value on every
 // line.
 func firstOnly(f []Finding, _ []Citation) []Finding { return f }
+
+// A line quoted further down a block than its first is in the body, so the
+// refusal says the quotation is misplaced, and the block still backs one
+// citation by its first line.
+func TestALaterLineOfABlockIsQuotedButBacksNothing(t *testing.T) {
+	files := tree{"pkg/run.go": "first()\nsecond()\nthird()\n"}
+	doc := "`pkg/run.go:1`, `pkg/run.go:2` and `pkg/run.go:3`:\n\n```go\nfirst()\nsecond()\n```\n"
+
+	fs := firstOnly(Check(doc, files.read))
+	if len(fs) != 2 {
+		t.Fatalf("got %d findings, want 2: the block backs line 1 and nothing else (%#v)", len(fs), fs)
+	}
+	if fs[0].Raw != "pkg/run.go:2" || fs[0].Kind != Unanchored {
+		t.Fatalf("line 2 is the block's second line: got %s kind %v, want pkg/run.go:2 Unanchored", fs[0].Raw, fs[0].Kind)
+	}
+	if r := fs[0].Reason(); !strings.Contains(r, "does quote it") || strings.Contains(r, "quotes no line equal to it") ||
+		!strings.Contains(r, "first line of the block") {
+		t.Errorf("reason for a line quoted further down a block: %q", r)
+	}
+	if fs[1].Raw != "pkg/run.go:3" || fs[1].Kind != Unbacked {
+		t.Fatalf("line 3 is quoted nowhere: got %s kind %v, want pkg/run.go:3 Unbacked", fs[1].Raw, fs[1].Kind)
+	}
+
+	spans := "`pkg/run.go:1` and `pkg/run.go:2`:\n\n> `first()`\n> `second()`\n"
+	fs = firstOnly(Check(spans, files.read))
+	if len(fs) != 1 || fs[0].Raw != "pkg/run.go:2" || fs[0].Kind != Unanchored {
+		t.Fatalf("a later line of a > block written as one code span: got %#v, want pkg/run.go:2 Unanchored alone", fs)
+	}
+}
 
 // TestCheck_APathClaimingThisTreeIsAFinding is the defect this pair closes. A
 // wrong same-repo path — a typo, a file that moved, a directory renamed — read
