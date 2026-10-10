@@ -103,13 +103,16 @@ Concurrency is bounded by whichever runs out first: cores, where several builds
 each assuming the whole machine thrash, or a metered model quota, which several
 sessions on a large model exhaust long before the RAM. Cap it per session.
 
-The Bash tool's shell is the user's (`echo $SHELL`; zsh here), not `bash -c`,
-and its snapshot can define functions over ordinary names: `grep` there is
+The Bash tool's shell is the user's login shell, bash or zsh, not `bash -c` —
+in a shift too, which the runner hands it because cron's own is `/bin/sh`. Read
+which before writing for it: `echo ${ZSH_VERSION:+zsh}${BASH_VERSION:+bash}`.
+Its snapshot can define functions over ordinary names: `grep` there is
 Claude Code's bundled ugrep with `--hidden`, which searches a directory operand
-without `-r`; a script gets `/usr/bin/grep`. Check with `type <name>`. Four
-zsh expansions differ from bash there, in zsh scripts and in `source`d files,
-never in a file run by `bash` — a block under `bash -c`, trap included, escapes
-them:
+without `-r`; a script gets `/usr/bin/grep`. Check with `type <name>`. Where it
+is zsh, four expansions differ from bash — in the tool, in zsh scripts and in
+`source`d files, never in a file run by `bash`; a block under `bash -c`, trap
+included, escapes them, and their zsh spellings (`${=NAMES}`) are errors in
+bash:
 
 - an unquoted `$VAR` is one word, in `N=($VAR)` too: `docker rm -f $NAMES`
   gets one argument, and a trap silencing its errors removes nothing. Split
