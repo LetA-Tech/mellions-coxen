@@ -316,40 +316,91 @@ func TestMergeStateTruncatedDoesNotSpendTheNarrowingRead(t *testing.T) {
 
 // The pull request's own diff at the page size is not the whole diff, so a
 // base-side file it does not name is not established as untouched. That is
-// refused as a comparison that cannot be enumerated, not read as clean.
+// refused as a comparison that cannot be enumerated, not read as clean. One
+// file under the page size the list is whole, and the same file is cleared.
 func TestMergeStateOwnDiffAtThePageSizeIsTruncated(t *testing.T) {
 	const (
 		repo = "LetA-Tech/mellions-coxen"
 		head = "0123456789abcdef0123456789abcdef01234567"
 		base = "main"
 	)
-	var own []string
-	for i := 0; i < compareFileCap; i++ {
-		own = append(own, `{"name":"`+fmt.Sprintf("f%03d.go", i)+`","sha":"s`+strconv.Itoa(i)+`","status":"modified"}`)
-	}
 	prView := `{"number":97,"url":"u","baseRefName":"` + base + `","headRefOid":"` + head + `",` +
 		`"mergeStateStatus":"CLEAN","state":"OPEN"}`
 	atBase := `{"ahead":3,"files":[{"name":"beyond-the-page.go","sha":"bbb","status":"modified"}]}`
 
+	for _, tc := range []struct {
+		name          string
+		files         int
+		wantTruncated bool
+	}{
+		{"at the page size", compareFileCap, true},
+		{"one under the page size", compareFileCap - 1, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var own []string
+			for i := 0; i < tc.files; i++ {
+				own = append(own, `{"name":"`+fmt.Sprintf("f%03d.go", i)+`","sha":"s`+strconv.Itoa(i)+`","status":"modified"}`)
+			}
+			state, err := mergeStateFrom(context.Background(), t.TempDir(),
+				prmerge.Call{Selector: "97", Repo: repo},
+				stubLook(t, prView, atBase, "["+strings.Join(own, ",")+"]", head, base, repo))
+			if err != nil {
+				t.Fatalf("mergeStateFrom: %v", err)
+			}
+			if state.Truncated != tc.wantTruncated {
+				t.Errorf("Truncated = %v with %d files in the pull request's diff, want %v",
+					state.Truncated, tc.files, tc.wantTruncated)
+			}
+			payload, err := json.Marshal(map[string]any{
+				"tool_name":  "Bash",
+				"cwd":        t.TempDir(),
+				"tool_input": map[string]string{"command": "gh pr merge 97 --repo " + repo},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			reason := prmerge.Deny(payload, func(string, prmerge.Call) (prmerge.State, error) { return state, nil })
+			if refused := strings.Contains(reason, "could not be established"); refused != tc.wantTruncated {
+				t.Errorf("refused as not established = %v, want %v: %q", refused, tc.wantTruncated, reason)
+			}
+			if !tc.wantTruncated && reason != "" {
+				t.Errorf("a base-side file a whole diff does not name was refused: %q", reason)
+			}
+		})
+	}
+}
+
+// A base that gained commits and changed no file has no side of an overlap, so
+// the read of the pull request's own diff cannot change the answer and is not
+// made.
+func TestMergeStateBaseChangingNoFileDoesNotSpendTheThirdRead(t *testing.T) {
+	const (
+		repo = "LetA-Tech/mellions-coxen"
+		head = "0123456789abcdef0123456789abcdef01234567"
+		base = "main"
+	)
+	prView := `{"number":97,"url":"u","baseRefName":"` + base + `","headRefOid":"` + head + `",` +
+		`"mergeStateStatus":"CLEAN","state":"OPEN"}`
+	read := func(_ context.Context, _, name string, args ...string) (string, error) {
+		joined := strings.Join(args, " ")
+		switch {
+		case name == "gh" && len(args) > 1 && args[0] == "pr" && args[1] == "view":
+			return prView, nil
+		case strings.Contains(joined, "compare/"+head+"..."+base):
+			return `{"ahead":60,"files":[]}`, nil
+		case strings.Contains(joined, "compare/"+base+"..."+head):
+			t.Error("the pull request's own diff was read with no base-side file to compare it to")
+			return `{"ahead":1,"files":[]}`, nil
+		}
+		t.Errorf("unexpected read: %s %s", name, joined)
+		return "", context.Canceled
+	}
 	state, err := mergeStateFrom(context.Background(), t.TempDir(),
-		prmerge.Call{Selector: "97", Repo: repo},
-		stubLook(t, prView, atBase, "["+strings.Join(own, ",")+"]", head, base, repo))
+		prmerge.Call{Selector: "97", Repo: repo}, read)
 	if err != nil {
 		t.Fatalf("mergeStateFrom: %v", err)
 	}
-	if !state.Truncated {
-		t.Errorf("a pull request's diff at the page size was read as the whole diff")
-	}
-	payload, err := json.Marshal(map[string]any{
-		"tool_name":  "Bash",
-		"cwd":        t.TempDir(),
-		"tool_input": map[string]string{"command": "gh pr merge 97 --repo " + repo},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	reason := prmerge.Deny(payload, func(string, prmerge.Call) (prmerge.State, error) { return state, nil })
-	if !strings.Contains(reason, "could not be established") {
-		t.Errorf("a base-side file the truncated diff could not rule out was read as no overlap: %q", reason)
+	if state.BehindBy != 60 || state.Unread || state.Truncated || len(state.Overlap) != 0 {
+		t.Errorf("state = %+v, want 60 behind and nothing else", state)
 	}
 }

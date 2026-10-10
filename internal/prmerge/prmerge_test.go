@@ -208,9 +208,9 @@ func TestWhatCannotBeEstablishedIsSilent(t *testing.T) {
 
 // TestATruncatedComparisonIsRefusedRatherThanReadAsClean. GitHub pages the
 // files in a comparison, so at the cap an empty overlap is not evidence of
-// none — and this is the one unknown that is refused rather than passed,
-// because a branch that far behind is reconciled rather than merged on the
-// strength of git being able to resolve it.
+// none. It is refused rather than passed, because a divergence that large on
+// either side is reconciled rather than merged on the strength of git being
+// able to resolve it.
 func TestATruncatedComparisonIsRefusedRatherThanReadAsClean(t *testing.T) {
 	got := Deny(payloadFor("gh pr merge 4"), answering(State{
 		Number:     4,

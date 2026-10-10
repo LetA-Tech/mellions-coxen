@@ -190,7 +190,7 @@ func refuse(s State) string {
 		return "Merging " + where + ", which is " + plural(s.BehindBy, "commit") + " behind " + s.Base +
 			", and the comparison is too large to enumerate — so whether those commits touch " +
 			"files this pull request also changes could not be established here.\n\n" +
-			"A branch this far behind is reconciled rather than merged on the strength of git " +
+			"A divergence this large is reconciled rather than merged on the strength of git " +
 			"being able to resolve it. Rebase it on " + s.Base + ", or read the divergence and " +
 			"say why it does not overlap:\n\n" +
 			"    git fetch origin && git diff --name-only origin/" + s.Base + "...HEAD"
