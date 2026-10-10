@@ -1013,9 +1013,17 @@ note "N: the session's PATH carries the Go install directory (GOBIN, else the fi
 # The runtime runs the tool under $SHELL where that names bash or zsh and picks
 # one itself otherwise; cron's SHELL is /bin/sh. Asserted on the SHELL the
 # session was handed, read out of the stub it was started as.
-mkdir -p "$tmp/o/bin" "$tmp/o/nox" "$tmp/o/h1" "$tmp/o/h2" "$tmp/o/h3" "$tmp/o/h4" "$tmp/o/h5" "$tmp/o/h6" "$tmp/o/h7"
-for s in bash zsh fish; do printf '#!/bin/sh\n' > "$tmp/o/bin/$s"; chmod +x "$tmp/o/bin/$s"; done
-printf '#!/bin/sh\n' > "$tmp/o/nox/bash"; chmod -x "$tmp/o/nox/bash"
+mkdir -p "$tmp/o/bin" "$tmp/o/nox" "$tmp/o/bashes" "$tmp/o/h1" "$tmp/o/h2" "$tmp/o/h3" "$tmp/o/h4" "$tmp/o/h5" "$tmp/o/h6" "$tmp/o/h7" "$tmp/o/h8" "$tmp/o/h9" "$tmp/o/h10"
+# A fish whose path, not its name, carries "bash": a substring test takes it for one.
+for s in bin/bash bin/zsh bashes/fish; do printf '#!/bin/sh\n' > "$tmp/o/$s"; chmod +x "$tmp/o/$s"; done
+for s in bash zsh; do printf '#!/bin/sh\n' > "$tmp/o/nox/$s"; chmod -x "$tmp/o/nox/$s"; done
+# A python3 whose account lookup fails and which is python3 for everything else.
+cat > "$tmp/o/py" <<'STUB'
+#!/usr/bin/env bash
+case "$*" in *pw_shell*) exit 1 ;; esac
+exec python3 "$@"
+STUB
+chmod +x "$tmp/o/py"
 cat > "$STUB_DIR/claude-o" <<'STUB'
 #!/usr/bin/env bash
 cat > /dev/null
@@ -1048,9 +1056,9 @@ run_o "$tmp/o/h4" SHELL="$tmp/o/bin/bash" MELLIONS_LOGIN_SHELL="$tmp/o/bin/zsh"
 [ "$saw" = "$tmp/o/bin/bash" ] || bad "O3: an inherited bash was replaced: '$saw'"
 
 # O4: a login shell that is neither is not handed over, and the shift says so.
-run_o "$tmp/o/h5" SHELL=/bin/sh MELLIONS_LOGIN_SHELL="$tmp/o/bin/fish"
+run_o "$tmp/o/h5" SHELL=/bin/sh MELLIONS_LOGIN_SHELL="$tmp/o/bashes/fish"
 [ "$saw" = /bin/sh ] || bad "O4: a login shell the runtime does not run was handed over: '$saw'"
-grep -qF "login shell $tmp/o/bin/fish is neither bash nor zsh" "$tmp/o.out" \
+grep -qF "login shell $tmp/o/bashes/fish is neither bash nor zsh" "$tmp/o.out" \
   || bad "O4: the runtime picks this shift's shell and the shift did not say so: $(tail -3 "$tmp/o.out")"
 
 # O5: nor is one that cannot be executed.
@@ -1071,7 +1079,21 @@ case "$o_login" in
   *) note "O6 not run: this account's login shell is '${o_login:-unknown}', neither bash nor zsh" ;;
 esac
 
-note "O: started with cron's /bin/sh or no SHELL the session is handed the login shell, an inherited bash or zsh stands, and a login shell that is neither or cannot run is said rather than handed over"
+# O7: an inherited zsh that cannot be executed does not stand.
+run_o "$tmp/o/h8" SHELL="$tmp/o/nox/zsh" MELLIONS_LOGIN_SHELL="$tmp/o/bin/bash"
+[ "$saw" = "$tmp/o/bin/bash" ] || bad "O7: an inherited zsh that is not executable stood, so the runtime picks: '$saw'"
+
+# O8: nor does an inherited shell that is bash only somewhere in its path.
+run_o "$tmp/o/h9" SHELL="$tmp/o/bashes/fish" MELLIONS_LOGIN_SHELL="$tmp/o/bin/zsh"
+[ "$saw" = "$tmp/o/bin/zsh" ] || bad "O8: a fish under a directory named for bash was taken for bash: '$saw'"
+
+# O9: an account lookup that fails is said as that, and the shift still runs.
+run_o "$tmp/o/h10" SHELL=/bin/sh MELLIONS_PYTHON="$tmp/o/py"
+[ "$saw" = /bin/sh ] || bad "O9: with no login shell read the session was handed '$saw': $(tail -3 "$tmp/o.out")"
+grep -qF "could not be read" "$tmp/o.out" \
+  || bad "O9: the login shell could not be read and the shift did not say so: $(tail -3 "$tmp/o.out")"
+
+note "O: started with cron's /bin/sh or no SHELL the session is handed the login shell, an inherited bash or zsh stands unless it cannot run or is one only by its path, and a login shell that is neither, cannot run or cannot be read is said rather than handed over"
 
 # make check has to run this, or everything above is about a file nothing invokes.
 grep -q 'scripts/test-\*.sh' "$root/Makefile" || bad "the Makefile does not run scripts/test-*.sh"

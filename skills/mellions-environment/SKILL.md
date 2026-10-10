@@ -106,14 +106,14 @@ sessions on a large model exhaust long before the RAM. Cap it per session.
 The Bash tool's shell is the login shell (`echo $SHELL`), not `bash -c`, and
 its snapshot can define functions over ordinary names: `grep` there is Claude
 Code's bundled ugrep with `--hidden`, which searches a directory operand
-without `-r`; a script gets `/usr/bin/grep`. Check with `type <name>`. Under
+without `-r`; a script gets `/usr/bin/grep`. Check: `type <name>`. Under
 zsh four expansions differ from bash, in zsh scripts and `source`d files too,
 never in a file run by `bash` — a block under `bash -c`, trap included, escapes
 them:
 
 - an unquoted `$VAR` is one word, in `N=($VAR)` too: `docker rm -f $NAMES`
   gets one argument, and a trap silencing its errors removes nothing. Split
-  with `N=(${=NAMES})`; expand `"${N[@]}"`;
+  with `N=($(echo $NAMES))`; expand `"${N[@]}"`;
 - a word or assigned value starting `=` becomes the path of the command it
   names: `echo ====`, `[ "$rc" == 0 ]` and `FOO==bar` fail `not found`;
   `echo =ls` quietly prints `/usr/bin/ls`. Quote it; compare with `=` or `[[ ]]`;

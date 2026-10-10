@@ -198,22 +198,24 @@ fi
 # The inherited value is read from the environment: started with none, bash
 # gives itself an unexported SHELL that the session never receives.
 inherited=$(printenv SHELL 2>/dev/null)
-case "$inherited" in
-  */bash|*/zsh) ;;
-  *)
-    login="${MELLIONS_LOGIN_SHELL:-$(${ASK[@]+"${ASK[@]}"} "$PYTHON" -c 'import os, pwd; print(pwd.getpwuid(os.getuid()).pw_shell)' 2>/dev/null)}"
-    case "$login" in
-      */bash|*/zsh)
-        if [ -x "$login" ]; then
-          export SHELL="$login"
-        else
-          say "login shell $login is not executable — the session's Bash tool runs under a shell the runtime picks, with SHELL=${inherited:-<unset>}"
-        fi
-        ;;
-      *) say "login shell ${login:-<unknown>} is neither bash nor zsh — the session's Bash tool runs under a shell the runtime picks, with SHELL=${inherited:-<unset>}" ;;
-    esac
-    ;;
-esac
+stands=""
+case "$inherited" in */bash|*/zsh) [ -x "$inherited" ] && stands=1 ;; esac
+if [ -z "$stands" ]; then
+  login="${MELLIONS_LOGIN_SHELL:-}"
+  [ -n "$login" ] || login=$(${ASK[@]+"${ASK[@]}"} "$PYTHON" -c 'import os, pwd; print(pwd.getpwuid(os.getuid()).pw_shell)' 2>/dev/null)
+  picks="the session's Bash tool runs under a shell the runtime picks, with SHELL=${inherited:-<unset>}; MELLIONS_LOGIN_SHELL names one"
+  case "$login" in
+    */bash|*/zsh)
+      if [ -x "$login" ]; then
+        export SHELL="$login"
+      else
+        say "login shell $login is not executable — $picks"
+      fi
+      ;;
+    "") say "the login shell of $(id -un) could not be read — $picks" ;;
+    *)  say "login shell $login is neither bash nor zsh — $picks" ;;
+  esac
+fi
 
 # cron starts a shift with neither XDG_RUNTIME_DIR nor DBUS_SESSION_BUS_ADDRESS,
 # and `systemd-run --user` — how the platform PostgreSQL harness bounds a test's

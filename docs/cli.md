@@ -456,6 +456,7 @@ scripts/shift.sh
 | `MELLIONS_WORKDIR` | `$MELLIONS_HOME` | the session's working directory |
 | `MELLIONS_SETTINGS` | `deploy/unattended-settings.json` | the runtime settings: the tools an engineer needs allowed, a short list of never-ordinary actions denied |
 | `MELLIONS_SURVEY_ARGS` | *(none)* | extra words for `mellions survey -save`, such as `-repos mellions-coxen`; the runner sets it for a method shift |
+| `MELLIONS_LOGIN_SHELL` | the account's login shell | the bash or zsh handed to the session as `SHELL`, which is what its Bash tool runs under, when the scheduler's `SHELL` is not an executable bash or zsh (cron's is `/bin/sh`); one that is stands |
 | `MELLIONS_BIN`, `CLAUDE_BIN`, `MELLIONS_PYTHON` | from `PATH` | the binaries |
 
 It runs `claude -p` with those settings and `--permission-mode acceptEdits`,
