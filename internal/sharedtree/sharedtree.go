@@ -139,7 +139,13 @@ func Deny(payload []byte, e Estate) string {
 		ToolName string `json:"tool_name"`
 		Cwd      string `json:"cwd"`
 		Session  string `json:"session_id"`
-		Input    struct {
+		// Transcript is where the runtime keeps this session's transcript,
+		// under a directory named for the directory the session was started in.
+		Transcript string `json:"transcript_path"`
+		// Agent is set when a subagent makes the call; its payload carries the
+		// parent's session and transcript.
+		Agent string `json:"agent_id"`
+		Input struct {
 			Command      string `json:"command"`
 			FilePath     string `json:"file_path"`
 			NotebookPath string `json:"notebook_path"`
@@ -153,7 +159,11 @@ func Deny(payload []byte, e Estate) string {
 		if target == "" {
 			target = ev.Input.NotebookPath
 		}
-		fw := FindFileWrite(ev.ToolName, target, ev.Session, ev.Cwd, e)
+		transcript := ev.Transcript
+		if ev.Agent != "" {
+			transcript = ""
+		}
+		fw := FindFileWrite(ev.ToolName, target, ev.Session, ev.Cwd, transcript, e)
 		if fw == nil {
 			return ""
 		}
@@ -190,7 +200,13 @@ type FileWrite struct {
 // exempt from exactly one Bash verb, the deployment pull, which has no
 // file-tool equivalent: an edit there changes what every later session loads,
 // and Mellions' own changes are made in lanes like any other.
-func FindFileWrite(tool, path, session, cwd string, e Estate) *FileWrite {
+//
+// A session started in a shared checkout is working in that checkout, and a
+// record it once saved on an assignment does not make the checkout someone
+// else's: its writes there pass. Its writes into another checkout, and into
+// the load path, do not. A subagent is not the session that was started there:
+// Deny passes it no transcript, so it keeps no exemption.
+func FindFileWrite(tool, path, session, cwd, transcript string, e Estate) *FileWrite {
 	if !fileTools[tool] || path == "" || e.Assigned == nil {
 		return nil
 	}
@@ -216,6 +232,9 @@ func FindFileWrite(tool, path, session, cwd string, e Estate) *FileWrite {
 	}
 	repo, checkout, ok := shared(filepath.Dir(target), guarded)
 	if !ok || memoryState(target, checkout, e) {
+		return nil
+	}
+	if !loadTree(checkout, e) && launchedIn(transcript, checkout) {
 		return nil
 	}
 	// Asked last: it reads the assignment store, and most writes land in no
@@ -757,4 +776,32 @@ func isLoadPath(at string, e Estate) bool {
 	}
 	other, _, ok := shared(at, e)
 	return ok && other == repo
+}
+
+// loadTree reports that dir is the load path under any of its names.
+func loadTree(dir string, e Estate) bool {
+	for _, d := range append([]string{e.LoadPath}, e.LoadAliases...) {
+		if d != "" && filepath.Clean(d) == filepath.Clean(dir) {
+			return true
+		}
+	}
+	return false
+}
+
+// launchedIn reports that the session whose transcript is at transcript was
+// started in dir. The runtime keeps a transcript in a directory named for the
+// session's start directory with every character but a letter or digit
+// written as '-', under a directory named projects; a transcript kept anywhere
+// else answers no.
+func launchedIn(transcript, dir string) bool {
+	if transcript == "" || dir == "" || filepath.Base(filepath.Dir(filepath.Dir(transcript))) != "projects" {
+		return false
+	}
+	name := []rune(filepath.Clean(dir))
+	for i, r := range name {
+		if !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9') {
+			name[i] = '-'
+		}
+	}
+	return filepath.Base(filepath.Dir(transcript)) == string(name)
 }
