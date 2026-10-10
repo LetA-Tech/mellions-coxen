@@ -59,7 +59,8 @@ func cmdCite(ctx context.Context, args []string) error {
 	if err := requireRef(ctx, root, *commit); err != nil {
 		return err
 	}
-	findings, unresolved := cite.Check(doc, resolverAt(ctx, root, *commit))
+	read := resolverAt(ctx, root, *commit)
+	findings, unresolved := cite.Check(doc, read)
 
 	// Say which tree answered, always. A citation is graded against whatever
 	// checkout the check happened to read, and a shared checkout sitting behind
@@ -71,7 +72,22 @@ func cmdCite(ctx context.Context, args []string) error {
 	reportUnresolved(unresolved)
 
 	if len(findings) == 0 {
-		fmt.Printf("cite: every citation this checkout can resolve is quoted in the body (%d cited).\n", len(cite.Extract(doc)))
+		cited := 0
+		for _, c := range cite.Extract(doc) {
+			if _, err := read(c.Path); !cite.NotACitation(c, err) {
+				cited++
+			}
+		}
+		fmt.Printf("cite: every citation this checkout can resolve is quoted in the body (%d cited).\n", cited)
+		ranges := 0
+		for _, c := range cite.Ranges(doc) {
+			if _, err := read(c.Path); err == nil {
+				ranges++
+			}
+		}
+		if ranges > 0 {
+			fmt.Printf("cite: %d line range(s) lie within their files; a range owes no quotation.\n", ranges)
+		}
 		return nil
 	}
 	for _, f := range findings {

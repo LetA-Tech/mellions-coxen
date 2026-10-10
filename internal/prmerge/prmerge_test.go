@@ -208,9 +208,9 @@ func TestWhatCannotBeEstablishedIsSilent(t *testing.T) {
 
 // TestATruncatedComparisonIsRefusedRatherThanReadAsClean. GitHub pages the
 // files in a comparison, so at the cap an empty overlap is not evidence of
-// none — and this is the one unknown that is refused rather than passed,
-// because a branch that far behind is reconciled rather than merged on the
-// strength of git being able to resolve it.
+// none. It is refused rather than passed, because a divergence that large on
+// either side is reconciled rather than merged on the strength of git being
+// able to resolve it.
 func TestATruncatedComparisonIsRefusedRatherThanReadAsClean(t *testing.T) {
 	got := Deny(payloadFor("gh pr merge 4"), answering(State{
 		Number:     4,
@@ -224,6 +224,38 @@ func TestATruncatedComparisonIsRefusedRatherThanReadAsClean(t *testing.T) {
 	}
 	if !strings.Contains(got, "could not be established") {
 		t.Errorf("the refusal claims more than it established: %q", got)
+	}
+}
+
+// TestAnUnreadPullRequestSideIsRefusedRatherThanReadAsClean. The base changed
+// files and the pull request's own diff did not arrive, so no overlap was found
+// and none was ruled out. The refusal says that, and names no file.
+func TestAnUnreadPullRequestSideIsRefusedRatherThanReadAsClean(t *testing.T) {
+	got := Deny(payloadFor("gh pr merge 4"), answering(State{
+		Number:     4,
+		Base:       "dev",
+		MergeState: "CLEAN",
+		BehindBy:   2,
+		Unread:     true,
+	}))
+	if got == "" {
+		t.Fatal("an unread pull-request side was read as no overlap")
+	}
+	if !strings.Contains(got, "could not be established") {
+		t.Errorf("the refusal claims more than it established: %q", got)
+	}
+	if strings.Contains(got, "too large") {
+		t.Errorf("the refusal blames a size nothing measured: %q", got)
+	}
+	if !strings.Contains(got, "2 commits behind dev") {
+		t.Errorf("the refusal does not say how far behind: %q", got)
+	}
+
+	current := Deny(payloadFor("gh pr merge 4"), answering(State{
+		Number: 4, Base: "dev", MergeState: "CLEAN", Unread: true,
+	}))
+	if current != "" {
+		t.Errorf("a branch that is not behind was refused: %q", current)
 	}
 }
 

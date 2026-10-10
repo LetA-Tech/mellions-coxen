@@ -159,7 +159,8 @@ type Assignment struct {
 	// Discarded is what abandoning this work destroyed. Present only where the
 	// worktree was removed with material in it.
 	Discarded *Discarded `json:"discarded,omitempty"`
-	// Sessions is every runtime session that touched this work. It is how
+	// Sessions is every runtime session that worked this lane; a reader's note
+	// from outside the lane's tree adds none. It is how
 	// recovery reaches for the runtime's own resume before rebuilding anything
 	// from the record.
 	Sessions []Session `json:"sessions,omitempty"`
@@ -187,8 +188,8 @@ type ClaimState struct {
 	// says so rather than letting it read as an ordinary claim.
 	Unpublished string `json:"unpublished,omitempty"`
 	// Stranded says a release failed and the claim is still on the tracker.
-	// It is not a failure to act on: an unreleased claim goes stale and is
-	// swept by whoever next reads the issue.
+	// `mellions assign sweep -apply` retries the release; a claim nobody
+	// releases also goes stale and is swept by whoever next reads the issue.
 	Stranded string `json:"stranded,omitempty"`
 	// Refs are the pull requests this lane published a claim on, kept after the
 	// lane moves to another so the claim on the earlier one is still released.
@@ -427,12 +428,15 @@ func (s *Store) Open(o OpenOptions) (*Assignment, error) {
 	// keeps one lock file per assignment — the same one every other mutator
 	// uses — instead of a second one somewhere else that guards a different
 	// thing.
+	// A directory already at the lane's place is not this open's to remove.
+	_, statErr := os.Stat(s.dir(id))
+	ours := os.IsNotExist(statErr)
 	if err := os.MkdirAll(s.dir(id), 0o755); err != nil {
 		return nil, fmt.Errorf("assignment: create %s: %w", s.dir(id), err)
 	}
 	var opened *Assignment
 	err := durable.Guard(s.file(id), func() error {
-		a, err := s.create(id, o)
+		a, err := s.create(id, o, ours)
 		if err != nil {
 			return err
 		}
@@ -688,8 +692,10 @@ func (s *Store) ClaimPullRequest(ctx context.Context, id, pr string) error {
 // restateClaim pushes the lane's current state back onto the tracker, which is
 // what keeps the claim from going stale under it.
 //
-// Every write to the record restates it, because a lane being worked writes to
-// its record and a lane that has not is the one whose claim should expire.
+// Every write restates it, because a lane being worked writes to its record and
+// a lane that has not is the one whose claim should expire. The exception is a
+// note from outside this lane's tree by a session that never worked this one
+// (Annotate), which is no such evidence.
 // Failure is not fatal here: the claim is already published and the work is
 // already recorded, and the worst case is a claim that goes stale early and is
 // swept — which is the designed behaviour, not a defect.
@@ -765,7 +771,7 @@ func (s *Store) releaseClaim(a *Assignment) {
 // Its failure paths undo what it made. A branch cut for a lane that then failed
 // to open is not harmless litter: it is the thing that makes the id permanently
 // unopenable, and it is invisible to every command here.
-func (s *Store) create(id string, o OpenOptions) (*Assignment, error) {
+func (s *Store) create(id string, o OpenOptions, ours bool) (*Assignment, error) {
 	if _, err := os.Stat(s.file(id)); err == nil {
 		return nil, fmt.Errorf("assignment: %s already exists", id)
 	}
@@ -778,8 +784,16 @@ func (s *Store) create(id string, o OpenOptions) (*Assignment, error) {
 		return nil, err
 	}
 
+	// Files at the lane's place that no record holds belong to something else:
+	// a tree made by hand, a crash's leftovers. Open cuts nothing among them.
 	if o.Worktree != "" {
-		return s.adopt(id, o)
+		return s.adopt(id, o, ours)
+	}
+	if entries, err := os.ReadDir(s.dir(id)); err == nil && slices.ContainsFunc(entries, func(e os.DirEntry) bool {
+		return e.Name() != filepath.Base(s.file(id))+".lock"
+	}) {
+		return nil, fmt.Errorf("assignment: %s already holds files and no assignment records them; "+
+			"adopt a tree in it with -worktree, or look before removing it", s.dir(id))
 	}
 
 	branch := o.Branch
@@ -794,7 +808,7 @@ func (s *Store) create(id string, o OpenOptions) (*Assignment, error) {
 
 	base, pin := s.baseFor(o.Source, o.BaseRef)
 	if base == "" {
-		os.RemoveAll(s.dir(id))
+		s.discard(id, ours)
 		return nil, fmt.Errorf("assignment: read HEAD of %s: nothing to cut %s from", o.Source, branch)
 	}
 
@@ -804,7 +818,7 @@ func (s *Store) create(id string, o OpenOptions) (*Assignment, error) {
 	// removing it on the way out of our own failure would be a worse defect
 	// than the one this cleanup exists for.
 	if _, err := s.Git(o.Source, "rev-parse", "--verify", "--quiet", "refs/heads/"+branch); err == nil {
-		os.RemoveAll(s.dir(id))
+		s.discard(id, ours)
 		return nil, fmt.Errorf("assignment: %s cannot be opened: branch %s already exists in %s and no "+
 			"assignment holds it. Something left it behind, or somebody else is using it. Look before "+
 			"removing it: `git -C %s log --oneline %s`",
@@ -818,7 +832,7 @@ func (s *Store) create(id string, o OpenOptions) (*Assignment, error) {
 		// because the check above established the branch was not there.
 		s.Git(o.Source, "worktree", "remove", "--force", worktree)
 		s.Git(o.Source, "branch", "-D", branch)
-		os.RemoveAll(s.dir(id))
+		s.discard(id, ours)
 		return nil, fmt.Errorf("assignment: create worktree for %s: %w", id, err)
 	}
 
@@ -832,7 +846,7 @@ func (s *Store) create(id string, o OpenOptions) (*Assignment, error) {
 	undo := func() {
 		s.Git(o.Source, "worktree", "remove", "--force", worktree)
 		s.Git(o.Source, "branch", "-D", branch)
-		os.RemoveAll(s.dir(id))
+		s.discard(id, ours)
 	}
 	if err := s.publishClaim(ctx, a, o.Unpublished); err != nil {
 		undo()
@@ -894,7 +908,7 @@ func (s *Store) baseFor(source, ref string) (base, pin string) {
 		remote = r
 	}
 
-	for _, want := range workingBranchCandidates(source) {
+	for _, want := range WorkingBranchCandidates(source) {
 		if want == "" || remote+"/"+want == upstream {
 			continue
 		}
@@ -913,11 +927,11 @@ func (s *Store) baseFor(source, ref string) (base, pin string) {
 	return local, "local HEAD — " + short(local) + "; " + upstream + " could not be read"
 }
 
-// workingBranchCandidates names the branches a lane should be cut from, best
-// first. The repository's own declaration wins over the estate convention,
+// WorkingBranchCandidates names the branches a lane should be cut from, best
+// first, and so the branch a claim about the repository's code is read at. The repository's own declaration wins over the estate convention,
 // because a repository saying where its work happens is evidence and a
 // convention is an assumption.
-func workingBranchCandidates(source string) []string {
+func WorkingBranchCandidates(source string) []string {
 	declared := declaredWorkingBranch(source)
 	if declared == "dev" {
 		return []string{"dev"}
@@ -942,6 +956,34 @@ func declaredWorkingBranch(source string) string {
 }
 
 var developmentBranchKey = regexp.MustCompile(`(?m)^development_branch:[ \t]*["']?([A-Za-z0-9._/-]+)`)
+
+// approvalGate reads the approval authorities and approval model that the
+// lane's own tree, at the base it was cut from, declares in
+// .claude/repo-binding.yaml. An absent model reads "not declared": what that
+// defaults to is the repository's proposal method to say.
+func approvalGate(tree string) (authorities, model string) {
+	if tree == "" {
+		return "", ""
+	}
+	raw, err := os.ReadFile(filepath.Join(tree, ".claude", "repo-binding.yaml"))
+	if err != nil {
+		return "", ""
+	}
+	m := approvalAuthoritiesKey.FindSubmatch(raw)
+	if m == nil {
+		return "", ""
+	}
+	model = "not declared"
+	if mm := approvalModelKey.FindSubmatch(raw); mm != nil {
+		model = string(mm[1])
+	}
+	return string(m[1]), model
+}
+
+var (
+	approvalAuthoritiesKey = regexp.MustCompile(`(?m)^approval_authorities:[ \t]*(\[[^\]\n]*\])`)
+	approvalModelKey       = regexp.MustCompile(`(?m)^[ \t]*approval_model:[ \t]*["']?([A-Za-z0-9_-]+)`)
+)
 
 // resolveRemoteBranch fetches one branch and resolves it, returning "" when the
 // remote does not carry it. The fetch is what makes the pin current; a branch
@@ -975,6 +1017,14 @@ func (s *Store) resolveRemoteBranch(source, local, remote, branch string) (base,
 	return base, pin
 }
 
+// discard removes the lane's directory on the way out of a failed open, when
+// this open made it.
+func (s *Store) discard(id string, ours bool) {
+	if ours {
+		os.RemoveAll(s.dir(id))
+	}
+}
+
 // adopt records a lane in a working tree that already exists. A repository's
 // own process may dictate where its work happens and what the branch is
 // called; forcing a second tree beside it makes the record point at the wrong
@@ -982,28 +1032,28 @@ func (s *Store) resolveRemoteBranch(source, local, remote, branch string) (base,
 //
 // Nothing adopted is ours to destroy. The tree and the branch stay where they
 // are whatever happens to the lane.
-func (s *Store) adopt(id string, o OpenOptions) (*Assignment, error) {
+func (s *Store) adopt(id string, o OpenOptions, ours bool) (*Assignment, error) {
 	tree, err := filepath.Abs(o.Worktree)
 	if err == nil {
 		tree, err = filepath.EvalSymlinks(tree)
 	}
 	if err != nil {
-		os.RemoveAll(s.dir(id))
+		s.discard(id, ours)
 		return nil, fmt.Errorf("assignment: adopt %s: %w", o.Worktree, err)
 	}
 	top, err := s.Git(tree, "rev-parse", "--show-toplevel")
 	if err != nil || !samePath(strings.TrimSpace(string(top)), tree) {
-		os.RemoveAll(s.dir(id))
+		s.discard(id, ours)
 		return nil, fmt.Errorf("assignment: %s is not the top of a git working tree", tree)
 	}
 	if !sameGitDir(s, tree, o.Source) {
-		os.RemoveAll(s.dir(id))
+		s.discard(id, ours)
 		return nil, fmt.Errorf("assignment: %s is not a working tree of %s", tree, o.Source)
 	}
 	out, err := s.Git(tree, "rev-parse", "--abbrev-ref", "HEAD")
 	branch := strings.TrimSpace(string(out))
 	if err != nil || branch == "" || branch == "HEAD" {
-		os.RemoveAll(s.dir(id))
+		s.discard(id, ours)
 		return nil, fmt.Errorf("assignment: %s is not on a branch; a lane needs one to record", tree)
 	}
 	head, _ := s.Git(tree, "rev-parse", "HEAD")
@@ -1021,12 +1071,12 @@ func (s *Store) adopt(id string, o OpenOptions) (*Assignment, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 	if err := s.publishClaim(ctx, a, o.Unpublished); err != nil {
-		os.RemoveAll(s.dir(id))
+		s.discard(id, ours)
 		return nil, err
 	}
 	if err := s.save(a); err != nil {
 		s.releaseClaim(a)
-		os.RemoveAll(s.dir(id))
+		s.discard(id, ours)
 		return nil, err
 	}
 	return a, nil
@@ -1062,9 +1112,15 @@ func samePath(a, b string) bool {
 	return filepath.Clean(a) == filepath.Clean(b)
 }
 
-func (s *Store) save(a *Assignment) error {
+func (s *Store) save(a *Assignment) error { return s.persist(a, true) }
+
+// persist is save, with stamp false for a writer that is not one of the lane's
+// sessions.
+func (s *Store) persist(a *Assignment, stamp bool) error {
 	a.UpdatedAt = s.clock()
-	a.stamp(a.UpdatedAt)
+	if stamp {
+		a.stamp(a.UpdatedAt)
+	}
 	raw, err := json.MarshalIndent(a, "", "  ")
 	if err != nil {
 		return fmt.Errorf("assignment: encode %s: %w", a.ID, err)
@@ -1086,6 +1142,16 @@ func (s *Store) save(a *Assignment) error {
 // error anywhere — and overlapping sessions are exactly the situation the
 // record exists to survive.
 func (s *Store) update(id string, fn func(*Assignment) error) (*Assignment, error) {
+	return s.write(id, false, fn)
+}
+
+// write is update, with reader true for a note written from another lane's
+// tree, or by a runtime session from no lane's tree. Such a note counts as the
+// lane's own only when the writing runtime session already worked this lane;
+// otherwise it neither restates the claim nor stamps the writer as one of the
+// lane's sessions, either of which would make a lane nobody works read as
+// worked.
+func (s *Store) write(id string, reader bool, fn func(*Assignment) error) (*Assignment, error) {
 	var out *Assignment
 	err := durable.Guard(s.file(id), func() error {
 		a, err := s.Get(id)
@@ -1095,14 +1161,15 @@ func (s *Store) update(id string, fn func(*Assignment) error) (*Assignment, erro
 		if err := fn(a); err != nil {
 			return err
 		}
-		// Every write to the record restates the lane's hold, which is what
-		// keeps a lane being worked from expiring under it. A lane that has
-		// released — closed or abandoned — is not restated back onto the issue
-		// it just let go of.
-		if a.State != StateClosed && a.State != StateAbandoned {
+		own := !reader || a.workedBy(Here())
+		// A write the lane's own session makes restates the lane's hold, which
+		// is what keeps a lane being worked from expiring under it. A lane that
+		// has released — closed or abandoned — is not restated back onto the
+		// issue it just let go of.
+		if own && a.State != StateClosed && a.State != StateAbandoned {
 			s.restateClaim(a)
 		}
-		if err := s.save(a); err != nil {
+		if err := s.persist(a, own); err != nil {
 			return err
 		}
 		out = a
@@ -1186,8 +1253,18 @@ func (s *Store) ListWithDamage(includeClosed bool) ([]*Assignment, []string, err
 	return out, damaged, nil
 }
 
-// Record appends a finding to the engineer's working notes.
-func (s *Store) Record(id, kind, text string) error {
+// Record appends a finding to the engineer's working notes and restates the
+// lane's claim.
+func (s *Store) Record(id, kind, text string) error { return s.record(id, kind, text, false) }
+
+// Annotate appends a finding written from outside the lane's tree. Unless the
+// writing session already worked this lane, the claim is left as it stood and
+// the writer is not stamped: a reader's note says nothing about whether this
+// lane is worked, and restating it would keep a dead lane's hold from going
+// stale and post its claim again onto an issue that may long be closed.
+func (s *Store) Annotate(id, kind, text string) error { return s.record(id, kind, text, true) }
+
+func (s *Store) record(id, kind, text string, reader bool) error {
 	if strings.TrimSpace(text) == "" {
 		return errors.New("assignment: a finding needs text")
 	}
@@ -1196,7 +1273,7 @@ func (s *Store) Record(id, kind, text string) error {
 	default:
 		return fmt.Errorf("assignment: finding kind %q must be hypothesis, found, next or note", kind)
 	}
-	_, err := s.update(id, func(a *Assignment) error {
+	_, err := s.write(id, reader, func(a *Assignment) error {
 		a.Findings = append(a.Findings, Finding{At: s.clock(), Kind: kind, Text: strings.TrimSpace(text)})
 		return nil
 	})
@@ -1261,6 +1338,18 @@ func (s *Store) Resume(id string) (*Assignment, error) {
 			}
 		}
 		a.State = StateActive
+		return nil
+	})
+}
+
+// Take stamps the writing session onto a lane already in progress and restates
+// its claim. An active lane has nothing to reopen, so this is the act by which
+// a session continuing one becomes one of its sessions.
+func (s *Store) Take(id string) (*Assignment, error) {
+	return s.update(id, func(a *Assignment) error {
+		if a.State != StateActive {
+			return fmt.Errorf("assignment: %s is %s, not active", id, a.State)
+		}
 		return nil
 	})
 }
@@ -1693,6 +1782,10 @@ func (a Assignment) Text(now time.Time) string {
 				claim.Label, a.Claim.Host, a.Claim.At.Format(time.RFC3339))
 		}
 	}
+	if a.Claim != nil && a.Claim.Stranded != "" {
+		fmt.Fprintf(&b, "- claim: NOT RELEASED — %s. A peer reads it as held; `mellions assign sweep -apply` retries the release\n",
+			a.Claim.Stranded)
+	}
 	if a.PullRequest != "" {
 		fmt.Fprintf(&b, "- change set: %s %s (claimed; a peer reads the claim before merging it)\n",
 			a.Repo, a.PullRequest)
@@ -1729,6 +1822,12 @@ func (a Assignment) Text(now time.Time) string {
 			fmt.Fprintf(&b, "- method: `mellions skills <what you are doing>` says what this installation carries; `mellions:mellions-issue-remediation` where the work is larger than an edit you can hold in one reading, `mellions:mellions-territory` where another lane may hold what you are about to change")
 		}
 		b.WriteString("\n")
+		// A binding naming approval authorities is a fact about this lane, as an
+		// adopted tree is: whether a plan must be approved on the issue before
+		// any change is written is its approval model's, whatever the size.
+		if authorities, model := approvalGate(a.Worktree); authorities != "" {
+			fmt.Fprintf(&b, "- gate: .claude/repo-binding.yaml names approval authorities %s and approval_model %s — `Skill(skill: \"mellions:mellions-issue-resolution-proposal\")` before the first edit, whatever the size of the change\n", authorities, model)
+		}
 	}
 	if a.Because != "" {
 		fmt.Fprintf(&b, "\n**Chosen because** %s\n", a.Because)
@@ -1855,7 +1954,7 @@ func Here() []Session {
 	return out
 }
 
-// SessionsByRecency is every session that touched this work, newest first.
+// SessionsByRecency is every session that worked this lane, newest first.
 //
 // All of them rather than the last: recovery reaches for a resume and the newest
 // handle is the one most likely to fail — a transcript swept on its retention
@@ -1890,12 +1989,29 @@ func (a Assignment) Latest() (Session, bool) {
 	return best, true
 }
 
+// WorkedHere reports whether the runtime session running now already touched
+// this lane.
+func (a *Assignment) WorkedHere() bool { return a.workedBy(Here()) }
+
+// workedBy reports whether any of the given runtime sessions already touched
+// this lane.
+func (a *Assignment) workedBy(sessions []Session) bool {
+	for _, h := range sessions {
+		for _, s := range a.Sessions {
+			if s.Runtime == h.Runtime && s.ID == h.ID {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // stamp records the runtime session doing the writing.
 //
-// Called from every save rather than from the commands, because the point is to
-// hold when a session dies without finishing anything — and a session that dies
-// mid-thought is exactly the one that never reached the call it was supposed to
-// make.
+// Called from every save except a reader's note, rather than from the
+// commands, because the point is to hold when a session dies without finishing
+// anything — and a session that dies mid-thought is exactly the one that never
+// reached the call it was supposed to make.
 func (a *Assignment) stamp(now time.Time) {
 	for _, here := range Here() {
 		found := false

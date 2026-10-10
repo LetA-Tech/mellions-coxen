@@ -13,9 +13,7 @@ far to go follows the stakes and the contradictions.
 ## Start from the question
 
 Name what has to be true for the intended action to be right. That question
-chooses the sources; a fixed list does not. "Is the defect still there at HEAD"
-wants the code and a reproduction; "why does production do this" wants runtime
-evidence.
+chooses the sources; a fixed list does not.
 
 ## What exists
 
@@ -62,11 +60,13 @@ What a claim costs to make:
 
 ## The record is not the world
 
-An issue, a design document, a prior analysis, a test, a completion statement, a
-tool's report of live state — a lock, a pid: each describes a moment. Before
-acting on one, establish whether the thing it describes moved — the code at
-HEAD, the pull request, the deploy. Pin what you verified against, so the next
-reader can tell your reading from the world's later state.
+An issue, a design document, a prior analysis, a test, a completion statement,
+an advisory's affected range, a tool's report of live state — a lock, a pid:
+each describes a moment. Before acting on one, establish whether the thing it
+describes moved — the code at HEAD, the pull request, the deploy, a release cut
+after the record was last modified, whose own source says whether the fix is in
+it. Pin what you verified against, so the next reader can tell your reading
+from the world's later state.
 
 A checkout is a record of a moment too. Where an artifact's content is what
 permits the act — configuration, doctrine, an installed gate — read it and run
@@ -77,22 +77,20 @@ than a fault. A tree behind the ref answers an authority question wrong in the
 plausible direction: the names it gives are names, the gate it runs passes.
 
 An account is not the artifact. A subagent's summary, a transcript, a peer's
-description of a file are two removes from the bytes; a claim about a file, a
-run or a record is checked against that artifact before it is published. Your
-own context is no exception: what reached a session is settled
-by the request on the wire or the file it was handed, never by asking a session
-what it sees — and a transcript does not record the system prompt, so finding
-nothing there is not absence.
+description of a file are two removes from the bytes. Your own context is no
+exception: what reached a session is settled by the request on the wire or the
+file it was handed, never by asking a session what it sees — and a transcript
+does not record the system prompt, so finding nothing there is not absence.
 
 ## Exhaust what is reachable before asking
 
-Do not ask a question reachable evidence can answer: run the targeted test,
+Run the targeted test,
 inspect persisted state, instrument the path, sandbox what static reading
 cannot settle. Missing documentation is not grounds to ask.
 
 ## A check is evidence only if it can fail
 
-A check that cannot fail is not evidence. Before a grep, a query or a test is
+Before a grep, a query or a test is
 cited as proof, run it against a case it must find and a case it must not
 match: a detection that matches nothing reports every codebase clean. Draw both
 from the corpus before writing the pattern, not from memory after — a matcher
@@ -108,7 +106,10 @@ Where absence across an estate is the claim, no tree is its outer edge:
 enumerate the refs the remote reports, not the ones a checkout fetched, and
 the open pull requests no integration ref holds.
 A capped read is not a smaller answer but an unread one: `head -N`, or a tool's
-own limit, gives the first N in path order, so count the matches first.
+own limit, gives the first N in path order, so count the matches first. An
+empty answer prints nothing, so in a compound command other output passes for
+it: there, print each claim's verdict — `merge-base --is-ancestor`, a count,
+`test` — or label each output.
 
 An instrument that reports proves its reporting path, never that anything
 writes what it carries. Where a reading is an absence's whole support, find

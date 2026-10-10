@@ -450,3 +450,34 @@ func mustSweep(t *testing.T, s *Store, o SweepOptions) []Swept {
 	}
 	return sw
 }
+
+// TestSweepSaysWhenTheReleaseOfALaneItClosedFailed: a close whose release
+// failed leaves the label on the tracker, and the sweep line says so.
+func TestSweepSaysWhenTheReleaseOfALaneItClosedFailed(t *testing.T) {
+	repo := realRepo(t)
+	s := newStore(t)
+	tr := newFakeTracker()
+	s.Tracker = tr
+	a := handedOff(t, s, "failing", "rates-service", repo, "Read it; the change set merged.")
+	if err := s.ClaimPullRequest(context.Background(), "failing", "21"); err != nil {
+		t.Fatal(err)
+	}
+	tr.prs[a.Branch] = []claim.PullRequest{{Number: 21, State: "MERGED"}}
+	pr := tr.PullRequests
+	tr.fail = errors.New("gh: HTTP 502")
+
+	v := verdicts(mustSweep(t, s, SweepOptions{Apply: true, PullRequests: func(ctx context.Context, r, b string) ([]claim.PullRequest, error) {
+		tr.mu.Lock()
+		f := tr.fail
+		tr.fail = nil
+		tr.mu.Unlock()
+		defer func() { tr.mu.Lock(); tr.fail = f; tr.mu.Unlock() }()
+		return pr(ctx, r, b)
+	}}))["failing"]
+	if v.Verdict != "closed" {
+		t.Fatalf("failing: %+v, want closed on the merged #21", v)
+	}
+	if !strings.Contains(v.Why, "not released") || !strings.Contains(v.Why, "PR #21") {
+		t.Errorf("failing: %+v, want the line to say the claim on PR #21 was not released", v)
+	}
+}

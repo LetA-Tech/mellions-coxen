@@ -91,13 +91,16 @@ func readPayload(r *os.File) []byte {
 // guardUsage is what a guard says when a person runs it with no payload.
 //
 // Silence and exit 0 reads as "checked, nothing wrong", which is the one answer
-// a guard that examined nothing must not give. It goes to stderr so a hook's
-// stdout stays exactly the decision the runtime parses.
+// a guard that examined nothing must not give. A payload piped without
+// MELLIONS_HOOK is not read, so the message names the variable: otherwise it
+// tells someone who did pipe one that none was handed. It goes to stderr so a
+// hook's stdout stays exactly the decision the runtime parses.
 func guardUsage(name, what string) {
 	fmt.Fprintf(os.Stderr,
 		"mellions %s is a PreToolUse guard: it reads the runtime's tool payload and "+
-			"decides whether to deny the call. It examined nothing here, because no payload "+
-			"was handed to it.\n%s\n", name, what)
+			"decides whether to deny the call. It examined nothing here: it reads a payload "+
+			"only where MELLIONS_HOOK is set, as the runtime's hook sets it. To drive it by "+
+			"hand, pipe the payload to `MELLIONS_HOOK=1 mellions %s`.\n%s\n", name, name, what)
 }
 
 // defaultBranch is the branch GitHub resolves a closing keyword on: the

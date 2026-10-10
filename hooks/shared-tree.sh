@@ -11,9 +11,15 @@
 # result the session must answer, which advisory text delivered alongside the
 # call is not shown to do.
 #
-# The same hook refuses a recursive `rm` of a glob over a temporary root every
-# session shares (`rm -rf /tmp/tmp.*`): mktemp names every session's scratch
-# alike, so the glob takes other sessions' directories with it.
+# It is also registered for Edit, Write, MultiEdit and NotebookEdit: a session
+# holding a lane that writes a file inside such a checkout, or inside the tree
+# this installation is loaded from, is refused and named the same file in its
+# lane.
+#
+# The same hook refuses an `rm` of a glob over a temporary root every session
+# shares (`rm -f /tmp/tmp.*`, `rm -rf /tmp/tmp.*`): mktemp names every
+# session's scratch alike, so the glob takes other sessions' files or
+# directories with it.
 #
 # Which directory a command line leaves the shell in, which invocations are
 # git, which tree each one is aimed at and whether its verb writes — none of

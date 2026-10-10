@@ -43,7 +43,7 @@ const usage = `mellions — the second engineer's deterministic surface
         What needs attention across the estate: open work, changes under
         review, failing checks, work waiting on the owner, recent change, and
         stale premises — issues whose own account of the code no longer matches
-        the tree. Collected, never ranked: deciding what matters is yours.
+        the remote's working branch. Collected, never ranked: deciding what matters is yours.
 
   mellions assign open <id> -repo R [-issue "#N"] -objective "..." -because "..."
                       [-not-chosen "..."] [-branch b] [-base ref] [-worktree dir]
@@ -145,7 +145,9 @@ const usage = `mellions — the second engineer's deterministic surface
         state cannot support the decision: mergeability GitHub still reports as
         UNKNOWN, or a branch behind its base where the base has since changed a
         file the pull request also changes. Being behind alone is not refused.
-        Silence otherwise, including where the tracker cannot answer.
+        Also refused: behind in changed files while one side of the comparison
+        could not be read whole. Silence otherwise, including where the tracker
+        cannot say what the pull request is or how far behind.
         hooks/pr-merge-check.sh is what calls it, and MELLIONS_MERGE_CHECK=off
         silences it.
 

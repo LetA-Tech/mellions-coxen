@@ -2,7 +2,10 @@
 // Built and maintained by LetA Tech Ltd.
 // Contact: leta@letatech.ca
 
-// Package stale finds recorded claims the current tree contradicts.
+// Package stale finds recorded claims the current tree contradicts, where the
+// current tree is the commit the remote's working branch stands at after a
+// fetch — the one every lane is cut from — never a shared checkout's working
+// tree, which is whatever commit somebody last left it on.
 //
 // An issue is written against the code as it stood that day. Later code can
 // move while the issue's account remains unchanged, so the premise must be
@@ -25,9 +28,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"os"
 	"os/exec"
 	"slices"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -48,6 +53,9 @@ type Options struct {
 	// Checkouts maps repository name to a local checkout path. A body cites
 	// code; without a checkout there is nothing to compare it against.
 	Checkouts map[string]string
+	// Read turns each checkout into the tree its citations are checked
+	// against; nil reads the remote's working branch (AtWorkingBranch).
+	Read Reader
 	// Limit caps issues examined per repository.
 	Limit int
 	// MinAge skips issues younger than this. A body written this morning
@@ -71,6 +79,9 @@ func New(o Options) *Source {
 	}
 	if o.Run == nil {
 		o.Run = ghRun
+	}
+	if o.Read == nil {
+		o.Read = AtWorkingBranch
 	}
 	return &Source{opts: o}
 }
@@ -113,6 +124,26 @@ func (s *Source) Collect(ctx context.Context, scope signal.Scope) ([]signal.Sign
 		return nil, fmt.Errorf("stale: no checkouts configured; a citation cannot be checked without the code")
 	}
 
+	trees, failed := readAll(ctx, s.opts.Read, s.opts.Checkouts)
+	defer func() {
+		for _, t := range trees {
+			if t.Cleanup != nil {
+				t.Cleanup()
+			}
+		}
+	}()
+	// A checkout that could not be read is left out of resolution: resolving a
+	// citation in a tree at an unknown commit is the defect reading the working
+	// branch exists to remove. Its absence is not a fact about any citation
+	// either — a path not found may live in it — so examine counts every
+	// unlocated citation without a repository prefix unchecked while one has
+	// failed, and every failure is reported, scanned repository or not.
+	dirs := make(map[string]string, len(trees))
+	for repo, t := range trees {
+		dirs[repo] = t.Dir
+	}
+	scan := scanTrees{trees: trees, dirs: dirs, failed: failed}
+
 	now := time.Now()
 	var out []signal.Signal
 	// Per repository, and the failures are collected rather than fatal. One
@@ -122,6 +153,7 @@ func (s *Source) Collect(ctx context.Context, scope signal.Scope) ([]signal.Sign
 	// returned beside the error, and the survey says which repositories are
 	// unaccounted for.
 	var unreadable []string
+	reported := map[string]bool{}
 	for _, repo := range repos {
 		short := shortName(repo)
 		if _, ok := s.opts.Checkouts[short]; !ok {
@@ -136,30 +168,98 @@ func (s *Source) Collect(ctx context.Context, scope signal.Scope) ([]signal.Sign
 			unreadable = append(unreadable, short+": "+err.Error())
 			continue
 		}
+		items = slices.DeleteFunc(items, func(it item) bool { return now.Sub(it.CreatedAt) < s.opts.MinAge })
+		if len(items) == 0 {
+			continue
+		}
+		if err, ok := failed[short]; ok {
+			unreadable = append(unreadable, short+": its code could not be read at the working branch: "+err.Error())
+			reported[short] = true
+			continue
+		}
 		for _, it := range items {
-			if now.Sub(it.CreatedAt) < s.opts.MinAge {
-				continue
-			}
-			sig, ok := s.examine(short, it)
+			sig, ok := s.examine(short, it, scan)
 			if ok {
 				out = append(out, sig)
 			}
 		}
 	}
+	var siblings []string
+	for repo, err := range failed {
+		if !reported[repo] {
+			siblings = append(siblings, repo+": "+err.Error())
+		}
+	}
+	sort.Strings(siblings)
+	var parts []string
 	if len(unreadable) > 0 {
-		return out, fmt.Errorf("stale: %d of %d repositories could not be scanned — %s",
-			len(unreadable), len(repos), strings.Join(unreadable, "; "))
+		parts = append(parts, fmt.Sprintf("%d of %d repositories could not be scanned — %s",
+			len(unreadable), len(repos), strings.Join(unreadable, "; ")))
+	}
+	if len(siblings) > 0 {
+		parts = append(parts, fmt.Sprintf("%d further checkout(s) could not be read at the working branch, so "+
+			"no citation without a repository prefix that went unfound this run is reported moved — %s",
+			len(siblings), strings.Join(siblings, "; ")))
+	}
+	if len(parts) > 0 {
+		return out, fmt.Errorf("stale: %s", strings.Join(parts, "; and "))
 	}
 	return out, nil
 }
 
-// examine compares one body against the current tree.
+// scanTrees is what one Collect read: the trees that answered, where each is,
+// and the checkouts that could not be read.
+type scanTrees struct {
+	trees  map[string]Tree
+	dirs   map[string]string
+	failed map[string]error
+}
+
+// known is every checkout name, read or not, so a citation prefixed with a
+// repository that failed still parses as a citation into that repository.
+func (t scanTrees) known() map[string]string {
+	out := make(map[string]string, len(t.dirs)+len(t.failed))
+	maps.Copy(out, t.dirs)
+	for repo := range t.failed {
+		out[repo] = ""
+	}
+	return out
+}
+
+// name rewrites every extraction directory in a finding into the repository
+// and commit it holds, and reports which repositories other than repo answered
+// in it. The directories are gone once the scan returns.
+func (t scanTrees) name(s, repo string) (string, []string) {
+	var others []string
+	for r, tr := range t.trees {
+		dir := tr.Dir + string(os.PathSeparator)
+		if tr.Commit == "" || tr.Dir == "" || !strings.Contains(s, dir) {
+			continue
+		}
+		s = strings.ReplaceAll(s, dir, r+"@"+shortCommit(tr.Commit)+"/")
+		if r != repo {
+			others = append(others, r+"@"+tr.Commit)
+		}
+	}
+	return s, others
+}
+
+func shortCommit(c string) string {
+	if len(c) > 12 {
+		return c[:12]
+	}
+	return c
+}
+
+// examine compares one body against the repository's tree. dirs locates every
+// readable repository, so a citation into a sibling resolves there too.
 //
 // Only a citation whose file was actually located counts as evidence. A file
 // this checkout cannot find proves nothing: the body may be citing a sibling
 // repository. Unlocated citations are counted as unchecked rather than moved.
-func (s *Source) examine(repo string, it item) (signal.Signal, bool) {
-	cites := issuegate.Citations(it.Body, s.opts.Checkouts)
+func (s *Source) examine(repo string, it item, scan scanTrees) (signal.Signal, bool) {
+	dirs, tree := scan.dirs, scan.trees[repo]
+	cites := issuegate.Citations(it.Body, scan.known())
 	if len(cites) == 0 {
 		return signal.Signal{}, false
 	}
@@ -167,7 +267,15 @@ func (s *Source) examine(repo string, it item) (signal.Signal, bool) {
 	var moved []string
 	unchecked, absentPath, inFile := 0, 0, 0
 	for _, c := range cites {
-		path, ok := issuegate.Locate(c, repo, s.opts.Checkouts)
+		if _, gone := scan.failed[c.Repo]; gone {
+			unchecked++
+			continue
+		}
+		path, ok := issuegate.Locate(c, repo, dirs)
+		if !ok && c.Repo == "" && len(scan.failed) > 0 {
+			unchecked++
+			continue
+		}
 		if !ok {
 			// How the citation was written decides whether its absence means
 			// anything. A bare basename is resolved by searching this checkout,
@@ -179,7 +287,7 @@ func (s *Source) examine(repo string, it item) (signal.Signal, bool) {
 			// one nobody actually made. An elided path — `internal/.../x.go` —
 			// and a name that matches two files are both prose, and counting
 			// them as moved reported stale premises about files nobody named.
-			if strings.Contains(c.Path, "/") && issuegate.Checkable(c, repo, s.opts.Checkouts) {
+			if strings.Contains(c.Path, "/") && issuegate.Checkable(c, repo, dirs) {
 				absentPath++
 				moved = append(moved, fmt.Sprintf(
 					"%s — no such path in this repository (deleted, moved, or a path in a dependency or "+
@@ -202,7 +310,7 @@ func (s *Source) examine(repo string, it item) (signal.Signal, bool) {
 
 	// Quote mismatches are sound on their own: the gate raises one only when it
 	// located the file and the quoted text is not in it.
-	for _, f := range issuegate.Check(it.Body, repo, s.opts.Checkouts) {
+	for _, f := range issuegate.Check(it.Body, repo, dirs) {
 		if slices.Contains(staleRules, f.Rule) {
 			inFile++
 			moved = append(moved, f.Detail)
@@ -214,11 +322,24 @@ func (s *Source) examine(repo string, it item) (signal.Signal, bool) {
 	}
 
 	var detail strings.Builder
-	detail.WriteString("the issue's own citations no longer match the tree:\n")
-	for _, m := range moved {
-		fmt.Fprintf(&detail, "  - %s\n", m)
+	at := "the tree"
+	if tree.Commit != "" {
+		at = tree.Ref + " at " + tree.Commit
 	}
-	if unchecked > 0 {
+	fmt.Fprintf(&detail, "the issue's own citations no longer match %s:\n", at)
+	var siblings []string
+	for _, m := range moved {
+		named, others := scan.name(m, repo)
+		siblings = append(siblings, others...)
+		fmt.Fprintf(&detail, "  - %s\n", named)
+	}
+	slices.Sort(siblings)
+	siblings = slices.Compact(siblings)
+	if unchecked > 0 && len(scan.failed) > 0 {
+		fmt.Fprintf(&detail, "  (%d further citation(s) could not be checked — not found in any tree read, and "+
+			"%d checkout(s) could not be read at the working branch, so they are unknown rather than moved)\n",
+			unchecked, len(scan.failed))
+	} else if unchecked > 0 {
 		fmt.Fprintf(&detail, "  (%d further citation(s) could not be checked here — no checkout holds them, "+
 			"so they are unknown rather than moved)\n", unchecked)
 	}
@@ -243,6 +364,9 @@ func (s *Source) examine(repo string, it item) (signal.Signal, bool) {
 			"unchecked":             strconv.Itoa(unchecked),
 			"checked_at":            time.Now().UTC().Format(time.RFC3339),
 			"checkout_path":         s.opts.Checkouts[repo],
+			"checked_ref":           tree.Ref,
+			"checked_commit":        tree.Commit,
+			"sibling_commits":       strings.Join(siblings, ","),
 		},
 		Detail: detail.String(),
 	}, true

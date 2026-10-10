@@ -13,7 +13,11 @@ note() { printf '  %s\n' "$*"; }
 bad() { printf 'FAIL %s\n' "$*"; fail=1; }
 
 tmp=$(mktemp -d); tmp=$(cd "$tmp" && pwd -P)
-trap 'rm -rf "$tmp" "$shared_dir"' EXIT INT TERM HUP
+# The unshared root is made in /tmp, not by plain mktemp -d: that follows
+# $TMPDIR, which may sit under $HOME, a shared root, and the case would pass.
+unshared=$(mktemp -d /tmp/leta-sbx-unshared.XXXXXX); unshared=$(cd "$unshared" && pwd -P)
+shared_dir="$HOME/.cache/leta-sbx-mount-case-$$"; mkdir -p "$shared_dir"
+trap 'rm -rf "$tmp" "$unshared" "$shared_dir"' EXIT INT TERM HUP
 mkdir -p "$tmp/bin"
 cat > "$tmp/bin/docker" <<'DOCKER'
 #!/usr/bin/env bash
@@ -31,13 +35,8 @@ exit 0
 COLIMA
 chmod +x "$tmp/bin/docker" "$tmp/bin/colima"
 
-# An unshared root. mktemp -d lands under /var -> /private/var on macOS and
-# under /tmp on Linux; neither is shared, which is the case under test.
-unshared="$tmp/tree"; mkdir -p "$unshared"
-shared_dir="$HOME/.cache/leta-sbx-mount-case-$$"; mkdir -p "$shared_dir"
-
 CALLS="$tmp/calls-unshared"; : > "$CALLS"
-out=$(CALLS="$CALLS" PATH="$tmp/bin:/usr/bin:/bin" bash "$root/leta-mac-sbx" -r "$unshared" -- true 2>&1); rc=$?
+out=$(CALLS="$CALLS" LETA_SBX_SHARED= PATH="$tmp/bin:/usr/bin:/bin" bash "$root/leta-mac-sbx" -r "$unshared" -- true 2>&1); rc=$?
 if [ "$rc" -eq 0 ]; then
     bad "an unshared mount path was accepted; it would have mounted empty"
 elif ! printf '%s' "$out" | grep -q "does not share"; then
@@ -54,7 +53,7 @@ else
 fi
 
 CALLS="$tmp/calls-shared"; : > "$CALLS"
-CALLS="$CALLS" PATH="$tmp/bin:/usr/bin:/bin" bash "$root/leta-mac-sbx" -r "$shared_dir" -- true >/dev/null 2>&1
+CALLS="$CALLS" LETA_SBX_SHARED= PATH="$tmp/bin:/usr/bin:/bin" bash "$root/leta-mac-sbx" -r "$shared_dir" -- true >/dev/null 2>&1
 if grep -q '^run ' "$CALLS"; then
     note "a shared path under \$HOME still runs"
 else

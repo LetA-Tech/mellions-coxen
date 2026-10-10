@@ -161,15 +161,60 @@ say "shift $stamp starting (model=$MODEL budget=$BUDGET settings=$SETTINGS)"
 # created, which puts Go back on the tmpfs this exists to keep it off — and
 # unreported that is indistinguishable from a shift that worked. Said, it is a
 # degraded shift rather than a broken one, so it does not refuse.
+#
+# Go's testing package makes t.TempDir() under $GOTMPDIR, so a test that refuses
+# an ancestor another identity can write fails on this directory or its parent
+# when a group-write umask made them; every shift removes that bit from both.
+#
+# The same package names that directory after the test and a decimal it appends:
+# Test, Benchmark or Fuzz, then the name, then digits. A test killed without an
+# exit leaves it as surely as a build leaves go-build, so the sweep takes those
+# shapes too and nothing else at the top level; a testing.Benchmark run inside a
+# test has no name, and its bare decimal is left. A test's directory gains entries
+# only when it calls TempDir again, so age protects a live one only while shifts
+# stay far shorter than half a day, as the default MELLIONS_TIMEOUT keeps them.
+# Owner access is restored before removal: a test that filled a module cache
+# leaves directories mode 555, and one that tested a permission refusal leaves
+# 000 or 300; rm -rf alone cannot empty any of them.
 scratch="$HOME_DIR/tmp/go"
 [ -d "$scratch" ] &&
-  find "$scratch" -maxdepth 1 -type d -name 'go-build*' -mmin +720 -exec rm -rf {} + 2>/dev/null
+  find "$scratch" -maxdepth 1 -type d \
+    \( -name 'go-build*' -o -name 'Test*[0-9]' -o -name 'Benchmark*[0-9]' -o -name 'Fuzz*[0-9]' \) \
+    -mmin +720 -exec sh -c 'chmod -R u+rwx "$@"; rm -rf "$@"' sweep {} + 2>/dev/null
 if [ -z "${GOTMPDIR:-}" ]; then
   if scratch_err=$(mkdir -p "$scratch" 2>&1); then
     export GOTMPDIR="$scratch"
+    mode_err=$(chmod go-w "$HOME_DIR/tmp" "$scratch" 2>&1) ||
+      say "cannot remove group/other write from $HOME_DIR/tmp or $scratch ($mode_err) — a test that refuses a writable ancestor of its t.TempDir() fails in this shift for that reason alone"
   else
     say "cannot create $scratch ($scratch_err) — this shift's Go builds scratch in \${TMPDIR:-/tmp} instead, and what a build killed without an exit leaves there is collected by nothing"
   fi
+fi
+
+# The runtime runs the session's Bash tool under $SHELL where that names bash
+# or zsh, and otherwise picks one itself, zsh first. cron's SHELL is /bin/sh,
+# so the user's login shell is handed over; an inherited bash or zsh stands.
+#
+# The inherited value is read from the environment: started with none, bash
+# gives itself an unexported SHELL that the session never receives.
+inherited=$(printenv SHELL 2>/dev/null)
+stands=""
+case "$inherited" in */bash|*/zsh) [ -x "$inherited" ] && stands=1 ;; esac
+if [ -z "$stands" ]; then
+  login="${MELLIONS_LOGIN_SHELL:-}"
+  [ -n "$login" ] || login=$(${ASK[@]+"${ASK[@]}"} "$PYTHON" -c 'import os, pwd; print(pwd.getpwuid(os.getuid()).pw_shell)' 2>/dev/null)
+  picks="the session's Bash tool runs under a shell the runtime picks, with SHELL=${inherited:-<unset>}; MELLIONS_LOGIN_SHELL names one"
+  case "$login" in
+    */bash|*/zsh)
+      if [ -x "$login" ]; then
+        export SHELL="$login"
+      else
+        say "login shell $login is not executable — $picks"
+      fi
+      ;;
+    "") say "the login shell of $(id -un) could not be read — $picks" ;;
+    *)  say "login shell $login is neither bash nor zsh — $picks" ;;
+  esac
 fi
 
 # cron starts a shift with neither XDG_RUNTIME_DIR nor DBUS_SESSION_BUS_ADDRESS,

@@ -46,6 +46,9 @@ set -uo pipefail
 # and bash reads a script it is running by byte offset.
 main() {
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+self="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
+self_sum=$(cksum < "$self" 2>/dev/null)
+self_args=("$@")
 CHECKOUT="${MELLIONS_CHECKOUT:-$here}"
 SHIFT="${MELLIONS_SHIFT:-$here/scripts/shift.sh}"
 MELLIONS="${MELLIONS_BIN:-$(command -v mellions || true)}"
@@ -145,6 +148,8 @@ acquire() {
   for try in 1 2; do
     if (set -o noclobber; printf '%s\n' "$$" > "$LOCK") 2>/dev/null; then return 0; fi
     if holder=$(lock_holder); then
+      # A runner that exec'd its own updated copy keeps its pid, and the lock.
+      [ "$holder" = "$$" ] && return 0
       echo "shifts: a runner is already alive here — pid $holder holds $LOCK"
       return 1
     fi
@@ -308,8 +313,13 @@ update() {
     log "update failed: git pull --ff-only exited 0 but left tracked changes in $CHECKOUT; nothing is built from that tree — the binary that runs stays — $UPDATELOG"
     return 1
   fi
+  # The binary sessions run is whatever PATH resolves now, not what it resolved
+  # when this runner started: a copy installed earlier on PATH shadows the one
+  # this runner last wrote, and the marker alone would call that shadow current.
+  MELLIONS="${MELLIONS_BIN:-$(command -v mellions || printf '%s' "$MELLIONS")}"
   head=$(git -C "$CHECKOUT" rev-parse --short HEAD 2>/dev/null)
-  if [ -n "$head" ] && [ "$head" = "$(cat "$INSTALLED" 2>/dev/null)" ]; then
+  if [ -n "$head" ] && [ "$head" = "$(cat "$INSTALLED" 2>/dev/null)" ] &&
+     cmp -s "$CHECKOUT/bin/mellions" "$MELLIONS"; then
     log "update: $head is what runs already"
     return 0
   fi
@@ -328,6 +338,31 @@ update() {
   fi
   printf '%s\n' "$head" > "$INSTALLED"
   log "update ok: $head pulled, built and checked; the binary is at $MELLIONS"
+}
+
+# bash keeps executing the copy of this file it opened, and a pull replaces the
+# inode, so without this a fix to the runner itself never runs until a restart
+# nobody schedules. exec keeps the pid, so the lock stays this runner's. A stop
+# that arrived as a signal lives only in this process, so it is honoured here
+# rather than lost across the exec; an exec that fails keeps this runner going.
+# The args expand through `${arr[@]+…}` for bash 3.2 under `set -u`.
+reexec_if_changed() {
+  local now
+  stop_wanted && return 0
+  now=$(cksum < "$self" 2>/dev/null) || return 0
+  [ "$now" = "$self_sum" ] && return 0
+  self_sum=$now
+  if ! "$BASH" -n "$self" >> "$UPDATELOG" 2>&1; then
+    log "runner: $self changed on disk and does not parse; this runner keeps the copy it started with — $UPDATELOG"
+    return 0
+  fi
+  log "runner re-exec: $self changed on disk since pid $$ started; running the new copy"
+  trap - EXIT
+  shopt -s execfail
+  exec "$BASH" "$self" ${self_args[@]+"${self_args[@]}"}
+  shopt -u execfail
+  trap release EXIT
+  log "runner: exec of $BASH $self failed; this runner keeps the copy it started with"
 }
 
 # ---- the loop ----------------------------------------------------------------
@@ -359,7 +394,8 @@ while ! stop_wanted; do
     while [ "$(today_count)" -ge "$CAP" ] && ! stop_wanted; do nap "$TICK"; done
     continue
   fi
-  [ "$AUTOUPDATE" = 0 ] || update
+  if [ "$AUTOUPDATE" != 0 ] && update; then reexec_if_changed; fi
+  stop_wanted && break
   n=$((n + 1))
   survey_args=""
   [ "$EVERY" -gt 0 ] && [ $((n % EVERY)) -eq 0 ] && survey_args="-repos mellions-coxen"
