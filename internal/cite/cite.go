@@ -537,10 +537,14 @@ func quotations(doc string) *quotedText {
 			quote := strings.TrimPrefix(trimmed, ">")
 			fresh := len(q.all[open].texts) == 0
 			head(quote)
-			// A block's first line written as one inline code span quotes the
-			// span's text: the backticks are Markdown, not the line.
-			if k := normalize(wholeSpan(quote)); fresh && k != "" {
-				q.all[open].texts = append(q.all[open].texts, k)
+			// A block line written as one inline code span quotes the span's
+			// text: the backticks are Markdown, not the line.
+			if k := normalize(wholeSpan(quote)); k != "" {
+				if fresh {
+					q.all[open].texts = append(q.all[open].texts, k)
+				} else {
+					q.all[open].rest = append(q.all[open].rest, k)
+				}
 			}
 		case strings.HasPrefix(line, "    "), strings.HasPrefix(line, "\t"):
 			// an indented code block

@@ -109,16 +109,20 @@ func TestQuotedCitationPasses(t *testing.T) {
 
 // A block quoting one code span is read as the span's text, and only that: a
 // span holding another line, a span that is not the whole line, and a span
-// below the block's first line back nothing.
+// below the block's first line back nothing. The last is in the body, so it
+// is reported as misplaced.
 func TestABlockquotedSpanBacksOnlyTheLineItHolds(t *testing.T) {
 	files := tree{"goals.go": strings.Repeat("x\n", 63) + "\tcache.Set(key, out)\n"}
-	for name, doc := range map[string]string{
-		"another line":       "The write at goals.go:64:\n\n> `return out, nil`\n",
-		"not the whole line": "The write at goals.go:64:\n\n> `cache.Set(key, out)` caches it\n",
-		"below the head":     "The write at goals.go:64:\n\n> it caches\n> `cache.Set(key, out)`\n",
+	for name, c := range map[string]struct {
+		doc  string
+		kind Kind
+	}{
+		"another line":       {"The write at goals.go:64:\n\n> `return out, nil`\n", Unbacked},
+		"not the whole line": {"The write at goals.go:64:\n\n> `cache.Set(key, out)` caches it\n", Unbacked},
+		"below the head":     {"The write at goals.go:64:\n\n> it caches\n> `cache.Set(key, out)`\n", Unanchored},
 	} {
-		if f := firstOnly(Check(doc, files.read)); len(f) != 1 || f[0].Kind != Unbacked {
-			t.Errorf("%s: findings = %v, want one Unbacked", name, f)
+		if f := firstOnly(Check(c.doc, files.read)); len(f) != 1 || f[0].Kind != c.kind {
+			t.Errorf("%s: findings = %v, want one of kind %v", name, f, c.kind)
 		}
 	}
 }
@@ -452,6 +456,12 @@ func TestALaterLineOfABlockIsQuotedButBacksNothing(t *testing.T) {
 	}
 	if fs[1].Raw != "pkg/run.go:3" || fs[1].Kind != Unbacked {
 		t.Fatalf("line 3 is quoted nowhere: got %s kind %v, want pkg/run.go:3 Unbacked", fs[1].Raw, fs[1].Kind)
+	}
+
+	spans := "`pkg/run.go:1` and `pkg/run.go:2`:\n\n> `first()`\n> `second()`\n"
+	fs = firstOnly(Check(spans, files.read))
+	if len(fs) != 1 || fs[0].Raw != "pkg/run.go:2" || fs[0].Kind != Unanchored {
+		t.Fatalf("a later line of a > block written as one code span: got %#v, want pkg/run.go:2 Unanchored alone", fs)
 	}
 }
 
