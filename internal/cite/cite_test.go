@@ -277,8 +277,8 @@ func TestARangePasteDoesNotBackALineInsideIt(t *testing.T) {
 		"type Finding struct {\n" +
 		"```\n"
 	f := firstOnly(Check(doc, files.read))
-	if len(f) != 1 || f[0].Kind != Unbacked {
-		t.Fatalf("got %v, want the citation reported unbacked", f)
+	if len(f) != 1 || f[0].Kind != Unanchored {
+		t.Fatalf("got %v, want the citation reported as quoted where it cannot reach", f)
 	}
 	if !strings.Contains(f[0].Reason(), "type Finding struct {") {
 		t.Errorf("Reason() = %q, want it to report what line 9 says", f[0].Reason())
@@ -431,6 +431,29 @@ func TestSpentQuotationReadsAsMisplacedNotAsAbsent(t *testing.T) {
 // findings and says so more clearly without a discarded second value on every
 // line.
 func firstOnly(f []Finding, _ []Citation) []Finding { return f }
+
+// A line quoted further down a block than its first is in the body, so the
+// refusal says the quotation is misplaced, and the block still backs one
+// citation by its first line.
+func TestALaterLineOfABlockIsQuotedButBacksNothing(t *testing.T) {
+	files := tree{"pkg/run.go": "first()\nsecond()\nthird()\n"}
+	doc := "`pkg/run.go:1`, `pkg/run.go:2` and `pkg/run.go:3`:\n\n```go\nfirst()\nsecond()\n```\n"
+
+	fs := firstOnly(Check(doc, files.read))
+	if len(fs) != 2 {
+		t.Fatalf("got %d findings, want 2: the block backs line 1 and nothing else (%#v)", len(fs), fs)
+	}
+	if fs[0].Raw != "pkg/run.go:2" || fs[0].Kind != Unanchored {
+		t.Fatalf("line 2 is the block's second line: got %s kind %v, want pkg/run.go:2 Unanchored", fs[0].Raw, fs[0].Kind)
+	}
+	if r := fs[0].Reason(); !strings.Contains(r, "does quote it") || strings.Contains(r, "quotes no line equal to it") ||
+		!strings.Contains(r, "first line of the block") {
+		t.Errorf("reason for a line quoted further down a block: %q", r)
+	}
+	if fs[1].Raw != "pkg/run.go:3" || fs[1].Kind != Unbacked {
+		t.Fatalf("line 3 is quoted nowhere: got %s kind %v, want pkg/run.go:3 Unbacked", fs[1].Raw, fs[1].Kind)
+	}
+}
 
 // TestCheck_APathClaimingThisTreeIsAFinding is the defect this pair closes. A
 // wrong same-repo path — a typo, a file that moved, a directory renamed — read
