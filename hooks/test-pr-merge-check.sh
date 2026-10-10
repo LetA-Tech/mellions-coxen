@@ -5,7 +5,7 @@
 #
 # The predicate is a table in internal/prmerge, which is where a case about
 # which states are refused belongs. What is proven here is the wiring that
-# table cannot see: the payload shape the runtime sends, the two tracker reads
+# table cannot see: the payload shape the runtime sends, the tracker reads
 # actually being made and their answers reaching the decision, one line of JSON
 # out, a descriptor the runtime closed, and the off switch.
 set -uo pipefail

@@ -104,6 +104,13 @@ func TestMergeStateOverlapIsContentNotNames(t *testing.T) {
 			want: []string{"b.go"},
 		},
 		{
+			// Both in one answer: a.go is in the pull request's own diff and
+			// differs, b.go is only in its file list.
+			name:   "a differing file is named beside a list-only file that is not",
+			atHead: `[{"name":"a.go","sha":"zzz"}]`,
+			want:   []string{"a.go"},
+		},
+		{
 			name:       "the read failing names nothing and is not a clean answer",
 			atHead:     "",
 			want:       nil,
@@ -115,6 +122,14 @@ func TestMergeStateOverlapIsContentNotNames(t *testing.T) {
 			// nothing.
 			name:       "an answer that is not a comparison is unread",
 			atHead:     notAComparison,
+			want:       nil,
+			wantUnread: true,
+		},
+		{
+			// A commit count and no file list is not a diff that changed
+			// nothing.
+			name:       "an answer with no file list is unread",
+			atHead:     "null",
 			want:       nil,
 			wantUnread: true,
 		},
@@ -276,14 +291,13 @@ func TestMergeStateTruncatedDoesNotSpendTheNarrowingRead(t *testing.T) {
 		head = "0123456789abcdef0123456789abcdef01234567"
 		base = "main"
 	)
-	var prFiles, cmpFiles []string
+	var cmpFiles []string
 	for i := 0; i < compareFileCap; i++ {
 		name := fmt.Sprintf("f%03d.go", i)
-		prFiles = append(prFiles, `{"path":"`+name+`"}`)
 		cmpFiles = append(cmpFiles, `{"name":"`+name+`","sha":"s`+strconv.Itoa(i)+`","status":"modified"}`)
 	}
 	prView := `{"number":97,"url":"u","baseRefName":"` + base + `","headRefOid":"` + head + `",` +
-		`"mergeStateStatus":"CLEAN","state":"OPEN","files":[` + strings.Join(prFiles, ",") + `]}`
+		`"mergeStateStatus":"CLEAN","state":"OPEN"}`
 	atBase := `{"ahead":3,"files":[` + strings.Join(cmpFiles, ",") + `]}`
 
 	read := func(_ context.Context, _, name string, args ...string) (string, error) {
@@ -315,10 +329,11 @@ func TestMergeStateTruncatedDoesNotSpendTheNarrowingRead(t *testing.T) {
 }
 
 // The pull request's own diff at the page size is not the whole diff, so a
-// base-side file it does not name is not established as untouched. That is
+// base-side file it does not name is not established as untouched: that is
 // refused as a comparison that cannot be enumerated, not read as clean. One
-// file under the page size the list is whole, and the same file is cleared.
-func TestMergeStateOwnDiffAtThePageSizeIsTruncated(t *testing.T) {
+// file under the page size the list is whole, and the same file is cleared. A
+// base-side file the list does name is decided at any size.
+func TestMergeStateOwnDiffAtThePageSize(t *testing.T) {
 	const (
 		repo = "LetA-Tech/mellions-coxen"
 		head = "0123456789abcdef0123456789abcdef01234567"
@@ -326,15 +341,22 @@ func TestMergeStateOwnDiffAtThePageSizeIsTruncated(t *testing.T) {
 	)
 	prView := `{"number":97,"url":"u","baseRefName":"` + base + `","headRefOid":"` + head + `",` +
 		`"mergeStateStatus":"CLEAN","state":"OPEN"}`
-	atBase := `{"ahead":3,"files":[{"name":"beyond-the-page.go","sha":"bbb","status":"modified"}]}`
 
 	for _, tc := range []struct {
 		name          string
 		files         int
+		baseFile      string // the one file the base changed, as name and sha
 		wantTruncated bool
+		wantOverlap   []string
 	}{
-		{"at the page size", compareFileCap, true},
-		{"one under the page size", compareFileCap - 1, false},
+		{"at the page size, a base file it does not name", compareFileCap,
+			`{"name":"beyond-the-page.go","sha":"bbb","status":"modified"}`, true, nil},
+		{"one under the page size, a base file it does not name", compareFileCap - 1,
+			`{"name":"beyond-the-page.go","sha":"bbb","status":"modified"}`, false, nil},
+		{"at the page size, a base file it names with the same blob", compareFileCap,
+			`{"name":"f000.go","sha":"s0","status":"modified"}`, false, nil},
+		{"at the page size, a base file it names with another blob", compareFileCap,
+			`{"name":"f000.go","sha":"other","status":"modified"}`, false, []string{"f000.go"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var own []string
@@ -343,13 +365,17 @@ func TestMergeStateOwnDiffAtThePageSizeIsTruncated(t *testing.T) {
 			}
 			state, err := mergeStateFrom(context.Background(), t.TempDir(),
 				prmerge.Call{Selector: "97", Repo: repo},
-				stubLook(t, prView, atBase, "["+strings.Join(own, ",")+"]", head, base, repo))
+				stubLook(t, prView, `{"ahead":3,"files":[`+tc.baseFile+`]}`,
+					"["+strings.Join(own, ",")+"]", head, base, repo))
 			if err != nil {
 				t.Fatalf("mergeStateFrom: %v", err)
 			}
 			if state.Truncated != tc.wantTruncated {
 				t.Errorf("Truncated = %v with %d files in the pull request's diff, want %v",
 					state.Truncated, tc.files, tc.wantTruncated)
+			}
+			if !sameSet(state.Overlap, tc.wantOverlap) {
+				t.Errorf("Overlap = %v, want %v", state.Overlap, tc.wantOverlap)
 			}
 			payload, err := json.Marshal(map[string]any{
 				"tool_name":  "Bash",
@@ -363,8 +389,11 @@ func TestMergeStateOwnDiffAtThePageSizeIsTruncated(t *testing.T) {
 			if refused := strings.Contains(reason, "could not be established"); refused != tc.wantTruncated {
 				t.Errorf("refused as not established = %v, want %v: %q", refused, tc.wantTruncated, reason)
 			}
-			if !tc.wantTruncated && reason != "" {
-				t.Errorf("a base-side file a whole diff does not name was refused: %q", reason)
+			if named := strings.Contains(reason, "f000.go"); named != (len(tc.wantOverlap) > 0) {
+				t.Errorf("refusal names f000.go = %v, want %v: %q", named, len(tc.wantOverlap) > 0, reason)
+			}
+			if !tc.wantTruncated && len(tc.wantOverlap) == 0 && reason != "" {
+				t.Errorf("a merge that writes over nothing was refused: %q", reason)
 			}
 		})
 	}

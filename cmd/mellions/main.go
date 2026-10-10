@@ -145,7 +145,9 @@ const usage = `mellions — the second engineer's deterministic surface
         state cannot support the decision: mergeability GitHub still reports as
         UNKNOWN, or a branch behind its base where the base has since changed a
         file the pull request also changes. Being behind alone is not refused.
-        Silence otherwise, including where the tracker cannot answer.
+        Also refused: behind in changed files while the pull request's own
+        changes could not be read whole. Silence otherwise, including where the
+        tracker cannot say what the pull request is or how far behind.
         hooks/pr-merge-check.sh is what calls it, and MELLIONS_MERGE_CHECK=off
         silences it.
 

@@ -15,7 +15,7 @@ import (
 	"github.com/LetA-Tech/mellions-coxen/internal/prmerge"
 )
 
-// mergeLookBudget is the whole answer's budget, not one command's: up to three
+// mergeLookBudget is the whole answer's budget, not one command's: up to four
 // reads of the tracker share it. It is not what bounds a hooked run — the hook
 // is declared with a 5s timeout in hooks/hooks.json, under this, so the runtime
 // kills the hook first and a tracker slower than that is silence rather than a
@@ -46,7 +46,8 @@ func cmdPRMergeCheck(ctx context.Context, args []string) error {
 	if len(payload) == 0 {
 		guardUsage("pr-merge-check", "It denies a `gh pr merge` whose mergeability GitHub has "+
 			"not computed, or whose branch is behind its base in files the pull request also "+
-			"changes and whose content differs at the two tips.")
+			"changes and whose content differs at the two tips, or in changed files while the "+
+			"pull request's own changes could not be read whole.")
 		return nil
 	}
 	// The escape hatch is the same shape cite-check has: a session that has
@@ -188,17 +189,22 @@ func mergeStateFrom(ctx context.Context, cwd string, call prmerge.Call, read loo
 
 	// base...head is the pull request's own diff: the files that differ between
 	// the merge base and the head, each as the head tip has it. A gap here is
-	// not a clean answer: unread refuses as unread, and a list at the page size
-	// refuses as one that cannot be enumerated.
+	// not a clean answer, and unread refuses as unread.
 	atHead, ok := compared(ctx, dir, read, repo, pr.Base, pr.Head)
-	switch {
-	case !ok:
+	if !ok {
 		state.Unread = true
-	case len(atHead.Files) >= compareFileCap:
-		state.Truncated = true
-	default:
-		state.Overlap = overwritten(atBase.Files, atHead.Files)
+		return state, nil
 	}
+	overlap, absent := overwritten(atBase.Files, atHead.Files)
+	// A base-side file the diff does not name is one the head never changed,
+	// where the diff is whole. At the page size it is not whole, and such a
+	// file is established neither way. Files the diff does name are decided at
+	// any size.
+	if absent > 0 && len(atHead.Files) >= compareFileCap {
+		state.Truncated = true
+		return state, nil
+	}
+	state.Overlap = overlap
 	return state, nil
 }
 
@@ -210,32 +216,34 @@ type comparison struct {
 }
 
 // compared reads `compare/from...to`. It answers false where the read failed,
-// the answer does not parse, or the answer carries no commit count: an answer
-// that is not a comparison has no files either, and would otherwise read as a
-// side that changed nothing.
+// the answer does not parse, or the answer carries no commit count or no file
+// list: an answer that is not a comparison would otherwise read as a side that
+// changed nothing.
 func compared(ctx context.Context, dir string, read look, repo, from, to string) (comparison, bool) {
 	out, err := read(ctx, dir, "gh", "api",
 		"repos/"+repo+"/compare/"+from+"..."+to,
-		"--jq", `{ahead: .ahead_by, files: [.files[]? | {name: .filename, sha: .sha, status: .status}]}`)
+		"--jq", `{ahead: .ahead_by, files: (if (.files | type) == "array" `+
+			`then [.files[] | {name: .filename, sha: .sha, status: .status}] else null end)}`)
 	if err != nil {
 		return comparison{}, false
 	}
 	var answer struct {
-		Ahead *int           `json:"ahead"`
-		Files []comparedFile `json:"files"`
+		Ahead *int            `json:"ahead"`
+		Files *[]comparedFile `json:"files"`
 	}
-	if err := json.Unmarshal([]byte(out), &answer); err != nil || answer.Ahead == nil {
+	if err := json.Unmarshal([]byte(out), &answer); err != nil || answer.Ahead == nil || answer.Files == nil {
 		return comparison{}, false
 	}
-	return comparison{Ahead: *answer.Ahead, Files: answer.Files}, true
+	return comparison{Ahead: *answer.Ahead, Files: *answer.Files}, true
 }
 
 // overwritten is the files a merge would write over: those both sides changed
 // since the divergence whose content differs at the two tips. atBase carries
-// each file as the base tip has it and atHead as the head tip has it.
+// each file as the base tip has it and atHead as the head tip has it. absent
+// counts the base-side files atHead does not name.
 //
-// A file atHead does not name is one the head never changed since the merge
-// base, so the merge takes the base's and nothing is written over. Both sides
+// A file a whole atHead does not name is one the head never changed since the
+// merge base, so the merge takes the base's and nothing is written over. Both sides
 // naming a file does not mean the tips disagree about it either: promoting one
 // branch to another by copying its commits leaves every copied file named on
 // both sides and identical at both tips.
@@ -244,18 +252,21 @@ func compared(ctx context.Context, dir string, read look, repo, from, to string)
 // in the overlap: a sha absent, a deletion on one side. A clean answer computed
 // from a gap is the one answer a merge guard must not give, and the cost of
 // keeping a file is a refusal the session can read and argue with.
-func overwritten(atBase, atHead []comparedFile) []string {
+func overwritten(atBase, atHead []comparedFile) (kept []string, absent int) {
 	atH := index(atHead)
 	atB := index(atBase)
-	var kept []string
 	for _, f := range atBase {
 		h, own := atH[f.Name]
-		if !own || agree(atB[f.Name], h) {
+		if !own {
+			absent++
+			continue
+		}
+		if agree(atB[f.Name], h) {
 			continue
 		}
 		kept = append(kept, f.Name)
 	}
-	return kept
+	return kept, absent
 }
 
 // agree says the two tips hold the same thing for one file.

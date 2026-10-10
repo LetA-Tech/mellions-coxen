@@ -24,6 +24,7 @@
 //     answer that a decision can rest on; it is the absence of one, and it
 //     appears for seconds after a push, which is when a session is most likely
 //     to be looking.
+//
 //   - a branch behind its base where the base's commits since the divergence
 //     touch files this pull request also changes, and the two tips disagree
 //     about their content. Both sides naming a file is not that: a promotion
@@ -31,6 +32,11 @@
 //     same bytes, and identical content cannot be written over. What is left is
 //     the hazard stated concretely — the files where one side is about to be
 //     written over the other.
+//
+//   - a branch behind its base in changed files where the pull request's own
+//     changes could not be read whole: the read failing, or a list at the
+//     tracker's page size that leaves one of the base's files unaccounted for.
+//     No file is named, and the refusal says the overlap was not established.
 //
 // Being behind on its own is not refused. It is ordinary, usually harmless, and
 // a guard that fires on correct work is turned off and then protects nothing.
@@ -40,9 +46,9 @@
 // regression. A pull request that changes A while the base changed B, where A is
 // wrong given the new B, has no file in common and passes here.
 //
-// Anything it cannot read — the tracker unreachable, the comparison too large to
-// enumerate, a selector naming no pull request — leaves it silent, because a
-// deny on a guess blocks legitimate work and is how a guard gets removed.
+// Where it cannot read what the pull request is or how far behind — the tracker
+// unreachable, a selector naming no pull request — it is silent, because a deny
+// on a guess blocks legitimate work and is how a guard gets removed.
 package prmerge
 
 import (
@@ -88,9 +94,10 @@ type State struct {
 	// file the caller could not establish the content of at either tip is
 	// here, because an overlap cleared on a gap is a false clean.
 	Overlap []string
-	// Truncated says a comparison could not enumerate every file on its side,
-	// the base's or the pull request's, so an empty Overlap does not establish
-	// that there is none.
+	// Truncated says a comparison at the tracker's page size left a file
+	// undecided: the base's side could not be enumerated, or the pull request's
+	// own diff does not name a base-side file and is not the whole diff. An
+	// empty Overlap does not establish that there is none.
 	Truncated bool
 	// Unread says the base has changed files since the divergence and the pull
 	// request's own diff could not be read, so an empty Overlap does not
