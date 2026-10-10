@@ -30,10 +30,10 @@ type Finding struct {
 	// "" when the tool reads the file directly rather than through a shell.
 	Reader string
 	// Value is true when Path names a variable assigned a word that contains
-	// `$(` or a backtick and a credential file's name.
+	// `$(`, `<(` or a backtick and a credential file's name.
 	Value bool
-	// Substituted is true when one of the reader's arguments contains `$(` or a
-	// backtick and the credential file name in Path.
+	// Substituted is true when one of the reader's arguments contains `$(`, `<(`
+	// or a backtick and the credential file name in Path.
 	Substituted bool
 	// Held is true when Path names a variable assigned a credential's path
 	// earlier on the same command line.
@@ -50,10 +50,10 @@ func (f Finding) Reason() string {
 			"can return a file's content."
 	case f.Value:
 		return "`" + f.Path + "` was assigned, earlier on this command line, a word " +
-			"containing `$(` or a backtick and a credential file's name, and `" + f.Reader + "` is on the " +
+			"containing `$(`, `<(` or a backtick and a credential file's name, and `" + f.Reader + "` is on the " +
 			"guard's list of programs that can print what they are given."
 	case f.Substituted:
-		return "an argument to `" + f.Reader + "` contains `$(` or a backtick and the " +
+		return "an argument to `" + f.Reader + "` contains `$(`, `<(` or a backtick and the " +
 			"credential file name `" + f.Path + "`, and `" + f.Reader + "` is on the guard's list of programs that can " +
 			"print what they are given."
 	case f.Held:
@@ -94,6 +94,47 @@ var safeReaders = map[string]bool{
 	// a binary is a claim about every subcommand it will ever have.
 }
 
+// dispatchedWords reports how many leading operands of reader are words the
+// program dispatches on rather than paths it opens. `mellions` switches on its
+// first operand, flag-shaped or not, and for a word it does not know prints the
+// word and exits, so that word — `secret`, `secret-check` among them — is never
+// a file. Every later `mellions` operand stays a candidate path: `report write
+// -file` stores a named file's bytes where `report latest` prints them. args
+// must not hold an input redirection's target, which sits anywhere on the line.
+func dispatchedWords(reader string, args []string) int {
+	if reader != "mellions" || len(args) == 0 {
+		return 0
+	}
+	return 1
+}
+
+// argv splits c's words into the ones the program is given and the targets of
+// its input redirections.
+func argv(c *shellsplit.Command) (words, redirected []string) {
+	if len(c.In) == 0 {
+		return c.Words, nil
+	}
+	in := map[int]bool{}
+	for _, i := range c.In {
+		in[i] = true
+	}
+	for i, w := range c.Words {
+		if in[i] {
+			redirected = append(redirected, w)
+		} else {
+			words = append(words, w)
+		}
+	}
+	return words, redirected
+}
+
+// literalWord reports whether the shell passes word through without expanding
+// a variable or a substitution into it. An expanded word carries whatever the
+// expansion produced, and `mellions` prints an unknown command word back.
+func literalWord(word string) bool {
+	return !strings.ContainsAny(word, "$`") && !strings.Contains(word, "<(") && !strings.Contains(word, ">(")
+}
+
 // consumers read a file into the shell rather than onto stdout.
 var consumers = map[string]bool{"source": true, ".": true}
 
@@ -114,6 +155,9 @@ var printers = map[string]bool{
 	"strings": true, "base64": true, "jq": true, "tee": true, "column": true,
 	"fold": true, "nl": true, "rev": true, "sort": true, "uniq": true,
 	"diff": true, "yq": true, "hexdump": true,
+	// An unknown command word is printed back, `secret check` prints the words
+	// it matched, and `report write` stores text that `report latest` prints.
+	"mellions": true,
 }
 
 // consumedFlags names, per reader, the option whose operand the command uses
@@ -384,7 +428,9 @@ func ScanBash(command string) []Finding {
 	holdsPath := map[string]bool{}
 
 	for _, c := range shellsplit.Split(command) {
-		words := c.Words
+		// An input redirection's target is a file the command reads, never
+		// its command word or one of its arguments.
+		words, redirected := argv(c)
 		if len(words) == 0 {
 			continue
 		}
@@ -424,7 +470,8 @@ func ScanBash(command string) []Finding {
 			continue
 		}
 		reader := path.Base(words[i])
-		args := words[i+1:]
+		dispatched := dispatchedWords(reader, words[i+1:])
+		args := append(words[i+1:len(words):len(words)], redirected...)
 
 		if consumers[reader] {
 			continue
@@ -434,6 +481,9 @@ func ScanBash(command string) []Finding {
 		// safe; handing it to a printer is the same leak one step later.
 		consumed := consumedFlags[reader]
 		for ai, a := range args {
+			if ai < dispatched && literalWord(a) {
+				continue
+			}
 			for name := range holdsValue {
 				if printers[reader] && names(a, name) {
 					out = append(out, Finding{Path: "$" + name, Reader: reader, Value: true})
@@ -446,6 +496,19 @@ func ScanBash(command string) []Finding {
 			}
 			// An option operand the reader consumes rather than prints.
 			if ai > 0 && consumed[args[ai-1]] {
+				continue
+			}
+			// A process substitution hands the reader a path to its output, so
+			// the path default applies, not the printer one; the inner command
+			// of `>(` writes wherever it likes, so it is scanned as a command.
+			if strings.HasPrefix(a, ">(") && strings.HasSuffix(a, ")") {
+				out = append(out, ScanBash(a[2:len(a)-1])...)
+				continue
+			}
+			if strings.Contains(a, "<(") || strings.Contains(a, ">(") {
+				if p := secretInside(a); p != "" && !safeReaders[reader] {
+					out = append(out, Finding{Path: p, Reader: reader})
+				}
 				continue
 			}
 			if found := secretsInWord(a); len(found) > 0 {
@@ -472,9 +535,10 @@ func containsSecretRead(word string) bool {
 	return secretInside(word) != ""
 }
 
-// secretInside returns the credential path embedded in a substitution, or "".
+// secretInside returns the credential path embedded in a command or process
+// substitution, or "".
 func secretInside(word string) string {
-	if !strings.Contains(word, "$(") && !strings.Contains(word, "`") {
+	if !strings.Contains(word, "$(") && !strings.Contains(word, "<(") && !strings.Contains(word, ">(") && !strings.Contains(word, "`") {
 		return ""
 	}
 	for _, f := range strings.FieldsFunc(word, func(r rune) bool {

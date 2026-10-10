@@ -17,10 +17,14 @@ import "strings"
 
 // Command is one command in a compound: its words with quoting removed, the
 // bodies of the heredocs it declares, and the file it redirects stdout to.
+// In holds the indexes in Words of the files an input redirection (`<`)
+// names: they stay in Words, where a reader of the command's operands finds
+// them, and In says they are not the program's arguments.
 type Command struct {
 	Words    []string
 	Heredocs []string
 	Out      string
+	In       []int
 }
 
 // pending is a heredoc whose delimiter has been read and whose body has not:
@@ -54,6 +58,7 @@ func lex(command string, i int, stopAtParen bool) ([]*Command, int) {
 
 	var queue []pending
 	redirOut := false
+	redirIn := false
 	heredocNext := 0 // 0 none, 1 <<, 2 <<-
 
 	endWord := func() {
@@ -70,6 +75,10 @@ func lex(command string, i int, stopAtParen bool) ([]*Command, int) {
 		case redirOut:
 			cur.Out = s
 			redirOut = false
+		case redirIn:
+			cur.In = append(cur.In, len(cur.Words))
+			cur.Words = append(cur.Words, s)
+			redirIn = false
 		default:
 			cur.Words = append(cur.Words, s)
 		}
@@ -80,6 +89,7 @@ func lex(command string, i int, stopAtParen bool) ([]*Command, int) {
 			out = append(out, cur)
 		}
 		cur = &Command{}
+		redirIn = false
 	}
 
 	for i < len(command) {
@@ -196,9 +206,36 @@ func lex(command string, i int, stopAtParen bool) ([]*Command, int) {
 			case strings.HasPrefix(command[i:], "<<"):
 				heredocNext = 1
 				i += 2
+			case strings.HasPrefix(command[i:], "<("):
+				// A process substitution is one word, as `$(` is: its inner
+				// command must not scatter across the words of this one.
+				var text string
+				text, i = substitution(command, i)
+				w.WriteString(text)
+				hasWord = true
+			case strings.HasPrefix(command[i:], "<>"):
+				// Opened for reading and writing: stdin is the file.
+				i += 2
+				redirIn = true
 			default:
 				i++
+				// <&3 duplicates a descriptor and names no file.
+				if i < len(command) && command[i] == '&' {
+					i++
+					for i < len(command) && command[i] >= '0' && command[i] <= '9' {
+						i++
+					}
+					break
+				}
+				redirIn = true
 			}
+
+		case c == '>' && i+1 < len(command) && command[i+1] == '(':
+			// An output process substitution is one word, as `<(` is.
+			var text string
+			text, i = substitution(command, i)
+			w.WriteString(text)
+			hasWord = true
 
 		case c == '>':
 			endWord()
