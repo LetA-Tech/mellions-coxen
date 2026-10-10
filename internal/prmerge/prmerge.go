@@ -88,9 +88,14 @@ type State struct {
 	// file the caller could not establish the content of at either tip is
 	// here, because an overlap cleared on a gap is a false clean.
 	Overlap []string
-	// Truncated says the comparison could not enumerate every base-side file,
-	// so an empty Overlap does not establish that there is none.
+	// Truncated says a comparison could not enumerate every file on its side,
+	// the base's or the pull request's, so an empty Overlap does not establish
+	// that there is none.
 	Truncated bool
+	// Unread says the base has changed files since the divergence and the pull
+	// request's own diff could not be read, so an empty Overlap does not
+	// establish that there is none.
+	Unread bool
 }
 
 // Deny returns the reason to refuse a PreToolUse payload, or "" to stay silent.
@@ -189,6 +194,15 @@ func refuse(s State) string {
 			"being able to resolve it. Rebase it on " + s.Base + ", or read the divergence and " +
 			"say why it does not overlap:\n\n" +
 			"    git fetch origin && git diff --name-only origin/" + s.Base + "...HEAD"
+
+	case s.BehindBy > 0 && s.Unread:
+		return "Merging " + where + ", which is " + plural(s.BehindBy, "commit") + " behind " + s.Base +
+			", and the tracker did not answer with this pull request's own diff — so whether those " +
+			"commits touch files this pull request also changes could not be established here.\n\n" +
+			"Nothing was found, and nothing was ruled out. Ask again; if the answer still does not " +
+			"come, read both sides of the divergence and say why they do not overlap:\n\n" +
+			"    git fetch origin && git diff --name-only origin/" + s.Base + "...HEAD && " +
+			"git diff --name-only HEAD...origin/" + s.Base
 
 	case s.BehindBy > 0 && len(s.Overlap) > 0:
 		return "Merging " + where + ", which is " + plural(s.BehindBy, "commit") + " behind " + s.Base +

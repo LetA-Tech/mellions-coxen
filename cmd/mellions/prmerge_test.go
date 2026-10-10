@@ -35,10 +35,11 @@ func TestMergeStateOverlapIsContentNotNames(t *testing.T) {
 		`{"name":"a.go","sha":"aaa"},{"name":"b.go","sha":"bbb"},{"name":"only-base.go","sha":"ccc"}]}`
 
 	for _, tc := range []struct {
-		name   string
-		atBase string // head...base, defaulting to atBase above
-		atHead string // base...head, or "" to make that read fail
-		want   []string
+		name       string
+		atBase     string // head...base, defaulting to atBase above
+		atHead     string // base...head's files, or "" to make that read fail
+		want       []string
+		wantUnread bool
 	}{
 		{
 			name:   "converged tips are not an overlap",
@@ -51,9 +52,14 @@ func TestMergeStateOverlapIsContentNotNames(t *testing.T) {
 			want:   []string{"b.go"},
 		},
 		{
-			name:   "a file the head side does not name is kept",
+			// The pull request's file list names b.go, the base changed it,
+			// and the tips differ: the base tip holds bbb and the head tip
+			// holds the merge base's blob. The pull request's own diff does
+			// not name it, so the merge takes the base's and writes over
+			// nothing.
+			name:   "a file only the pull request's file list names is not an overlap",
 			atHead: `[{"name":"a.go","sha":"aaa"}]`,
-			want:   []string{"b.go"},
+			want:   nil,
 		},
 		{
 			name:   "an empty sha establishes nothing and is kept",
@@ -98,9 +104,19 @@ func TestMergeStateOverlapIsContentNotNames(t *testing.T) {
 			want: []string{"b.go"},
 		},
 		{
-			name:   "the read failing keeps every name",
-			atHead: "",
-			want:   []string{"a.go", "b.go"},
+			name:       "the read failing names nothing and is not a clean answer",
+			atHead:     "",
+			want:       nil,
+			wantUnread: true,
+		},
+		{
+			// An answer with no commit count is not a comparison. Its file
+			// list is empty for that reason, not because the head changed
+			// nothing.
+			name:       "an answer that is not a comparison is unread",
+			atHead:     notAComparison,
+			want:       nil,
+			wantUnread: true,
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -120,12 +136,20 @@ func TestMergeStateOverlapIsContentNotNames(t *testing.T) {
 			if !sameSet(state.Overlap, tc.want) {
 				t.Errorf("Overlap = %v, want %v", state.Overlap, tc.want)
 			}
+			if state.Unread != tc.wantUnread {
+				t.Errorf("Unread = %v, want %v", state.Unread, tc.wantUnread)
+			}
+			if state.Truncated {
+				t.Errorf("Truncated on comparisons far under the page size")
+			}
 		})
 	}
 }
 
 // The decision, not the field: a converged promotion reaches `gh pr merge`
-// without a refusal, and a differing file still refuses and names that file.
+// without a refusal, a differing file still refuses and names that file, a
+// file only the pull request's file list names is not refused, and a read of
+// the pull request's own diff that fails is refused without naming a file.
 func TestPRMergeDecisionOnConvergedAndDifferingTips(t *testing.T) {
 	const (
 		repo = "LetA-Tech/mellions-coxen"
@@ -173,11 +197,33 @@ func TestPRMergeDecisionOnConvergedAndDifferingTips(t *testing.T) {
 	if !strings.Contains(reason, "1 file") {
 		t.Errorf("refusal does not count 1 file:\n%s", reason)
 	}
+
+	// The file list above names b.go and the base changed it; the head did not.
+	listOnly := `[{"name":"a.go","sha":"aaa"}]`
+	if reason := decide(listOnly); reason != "" {
+		t.Errorf("a file the head never changed since the merge base was refused:\n%s", reason)
+	}
+
+	reason = decide("")
+	if reason == "" {
+		t.Fatal("an unread pull-request side was read as no overlap")
+	}
+	if !strings.Contains(reason, "could not be established") {
+		t.Errorf("the refusal claims more than it established:\n%s", reason)
+	}
+	if strings.Contains(reason, "a.go") || strings.Contains(reason, "b.go") {
+		t.Errorf("the refusal names a file nothing established:\n%s", reason)
+	}
 }
+
+// notAComparison is an answer to the base...head read that parses and carries
+// no commit count.
+const notAComparison = "not-a-comparison"
 
 // stubLook answers the three reads mergeStateFrom makes, and fails the test on
 // any call it does not recognise, so a read that moves is not silently served.
-// An empty atHead makes the narrowing read fail.
+// atHead is the files of the base...head comparison; empty makes that read
+// fail, and notAComparison answers it with no commit count.
 func stubLook(t *testing.T, prView, atBase, atHead, head, base, repo string) look {
 	t.Helper()
 	return func(_ context.Context, _, name string, args ...string) (string, error) {
@@ -188,10 +234,13 @@ func stubLook(t *testing.T, prView, atBase, atHead, head, base, repo string) loo
 		case strings.Contains(joined, "compare/"+head+"..."+base):
 			return atBase, nil
 		case strings.Contains(joined, "compare/"+base+"..."+head):
-			if atHead == "" {
+			switch atHead {
+			case "":
 				return "", context.DeadlineExceeded
+			case notAComparison:
+				return `{"ahead":null,"files":[]}`, nil
 			}
-			return atHead, nil
+			return `{"ahead":2,"files":` + atHead + `}`, nil
 		}
 		t.Errorf("unexpected read: %s %s", name, joined)
 		return "", context.Canceled
@@ -218,9 +267,9 @@ func sameSet(got, want []string) bool {
 }
 
 // A comparison GitHub truncated at its page size is refused on the truncation
-// itself, and an overlap narrowed against a list that is not the whole list
-// would establish nothing either way. The three reads share one budget, so the
-// read that cannot change the answer is not made at all.
+// itself, and no read of the other side could clear it. The three reads share
+// one budget, so the read that cannot change the answer is not made at all,
+// and with it unmade no file is named.
 func TestMergeStateTruncatedDoesNotSpendTheNarrowingRead(t *testing.T) {
 	const (
 		repo = "LetA-Tech/mellions-coxen"
@@ -260,8 +309,47 @@ func TestMergeStateTruncatedDoesNotSpendTheNarrowingRead(t *testing.T) {
 	if !state.Truncated {
 		t.Fatalf("a comparison at the page size is not marked truncated")
 	}
-	if len(state.Overlap) != compareFileCap {
-		t.Errorf("Overlap holds %d files, want every one of the %d named",
-			len(state.Overlap), compareFileCap)
+	if len(state.Overlap) != 0 {
+		t.Errorf("Overlap names %d files with the pull request's side unread", len(state.Overlap))
+	}
+}
+
+// The pull request's own diff at the page size is not the whole diff, so a
+// base-side file it does not name is not established as untouched. That is
+// refused as a comparison that cannot be enumerated, not read as clean.
+func TestMergeStateOwnDiffAtThePageSizeIsTruncated(t *testing.T) {
+	const (
+		repo = "LetA-Tech/mellions-coxen"
+		head = "0123456789abcdef0123456789abcdef01234567"
+		base = "main"
+	)
+	var own []string
+	for i := 0; i < compareFileCap; i++ {
+		own = append(own, `{"name":"`+fmt.Sprintf("f%03d.go", i)+`","sha":"s`+strconv.Itoa(i)+`","status":"modified"}`)
+	}
+	prView := `{"number":97,"url":"u","baseRefName":"` + base + `","headRefOid":"` + head + `",` +
+		`"mergeStateStatus":"CLEAN","state":"OPEN"}`
+	atBase := `{"ahead":3,"files":[{"name":"beyond-the-page.go","sha":"bbb","status":"modified"}]}`
+
+	state, err := mergeStateFrom(context.Background(), t.TempDir(),
+		prmerge.Call{Selector: "97", Repo: repo},
+		stubLook(t, prView, atBase, "["+strings.Join(own, ",")+"]", head, base, repo))
+	if err != nil {
+		t.Fatalf("mergeStateFrom: %v", err)
+	}
+	if !state.Truncated {
+		t.Errorf("a pull request's diff at the page size was read as the whole diff")
+	}
+	payload, err := json.Marshal(map[string]any{
+		"tool_name":  "Bash",
+		"cwd":        t.TempDir(),
+		"tool_input": map[string]string{"command": "gh pr merge 97 --repo " + repo},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	reason := prmerge.Deny(payload, func(string, prmerge.Call) (prmerge.State, error) { return state, nil })
+	if !strings.Contains(reason, "could not be established") {
+		t.Errorf("a base-side file the truncated diff could not rule out was read as no overlap: %q", reason)
 	}
 }

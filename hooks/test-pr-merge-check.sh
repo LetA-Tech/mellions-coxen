@@ -50,10 +50,11 @@ case "$1 $2" in
     # other: head...base is what the base gained and carries each file's blob
     # at the base tip, base...head carries the same file's blob at the head
     # tip. A stub that served one answer to both would hide the difference the
-    # guard now decides on.
+    # guard now decides on. GH_HEAD_JSON is the files of base...head, which is
+    # the pull request's own diff; empty, the answer does not parse.
     case "$2" in
       *"...dev") printf '%s\n' "$GH_COMPARE_JSON" ;;
-      *"...abc") printf '%s\n' "$GH_HEAD_JSON" ;;
+      *"...abc") printf '{"ahead":2,"files":%s}\n' "$GH_HEAD_JSON" ;;
     esac ;;
 esac
 exit 0
@@ -97,13 +98,27 @@ out=$(payload 'gh pr merge 42' | runhook)
 [[ -z "$out" ]] || bad "a merge that overwrites nothing was refused: $out"
 note "behind in a shared file identical at both tips: silent"
 
-# 2c. The content at the head tip unreadable. An overlap cannot be cleared by a
-#     read that did not answer, so the refusal stands.
+# 2c. The pull request's own diff unreadable. An overlap cannot be cleared by a
+#     read that did not answer, so the merge is refused, and with no diff read
+#     no file is named.
 export GH_HEAD_JSON=''
 out=$(payload 'gh pr merge 42' | runhook)
 grep -q '"permissionDecision":"deny"' <<<"$out" ||
   bad "an overlap was cleared by a read that answered nothing: $out"
-note "the head-side read answering nothing: still denied"
+grep -q 'could not be established' <<<"$out" ||
+  bad "the refusal on an unread diff claims more than it established: $out"
+grep -q 'internal/a.go' <<<"$out" &&
+  bad "the refusal names a file from a diff that was never read: $out"
+note "the head-side read answering nothing: denied as unread, no file named"
+
+# 2f. The tracker's file list names a file the head never changed. GH_PR_JSON
+#     lists internal/a.go, the base changed it, and the pull request's own diff
+#     from the merge base is internal/b.go alone. The merge takes the base's
+#     internal/a.go, so nothing is written over.
+export GH_HEAD_JSON='[{"name":"internal/b.go","sha":"head2"}]'
+out=$(payload 'gh pr merge 42' | runhook)
+[[ -z "$out" ]] || bad "a file only the tracker's file list names was refused: $out"
+note "a file the pull request's file list names and its diff does not: silent"
 export GH_HEAD_JSON='[{"name":"internal/a.go","sha":"head1"}]'
 
 # 2d. A file both sides deleted. A deletion's sha is the pre-image — the blob
