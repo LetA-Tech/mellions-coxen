@@ -48,7 +48,11 @@ export STUB_RESET_24 STUB_RESET_12
 cat > "$STUB_DIR/claude" <<'STUB'
 #!/usr/bin/env bash
 cat > /dev/null
-[ -e "$STUB_DIR/fail" ] && exit 1
+# The Nth session is held while $STUB_DIR/pin.N exists and fails while
+# $STUB_DIR/fail.N exists. One runner's shifts never overlap, so the count needs no lock.
+n=$(( $(cat "$STUB_DIR/n" 2>/dev/null || echo 0) + 1 )); echo "$n" > "$STUB_DIR/n"
+while [ -e "$STUB_DIR/pin.$n" ]; do sleep 0.1; done
+[ -e "$STUB_DIR/fail.$n" ] && exit 1
 # A runtime usage-limit refusal carries a session id, reset time and non-zero exit.
 if [ -e "$STUB_DIR/limit" ]; then
   printf '{"type":"system","session_id":"aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"}\n'
@@ -161,6 +165,11 @@ start_runner() {  # start_runner <home> ["VAR=v VAR=v"]; leaves the pid in $pid
 
 # ---- A. one runner's life ----------------------------------------------------
 home="$tmp/a"; mkdir -p "$home"; log="$home/shifts/runner.log"
+# The runner reads pause and stop only between shifts, so each is placed while
+# the shift before it is held: shift 2 holds for the pause, shift 6 for the
+# stop. Shifts 4 and 5 fail by number. No outcome below depends on this
+# script's pace against the cooldown.
+rm -f "$STUB_DIR/n"; touch "$STUB_DIR/pin.2" "$STUB_DIR/fail.4" "$STUB_DIR/fail.5" "$STUB_DIR/pin.6"
 start_runner "$home"; a=$pid
 wait_for 5 'runner start' "$log" || bad "A: the runner never started"
 
@@ -175,6 +184,8 @@ else
 fi
 [ "$(count 'runner start' "$log")" -eq 1 ] || bad "A: the refused runner wrote to the log"
 
+wait_count 20 2 'starting' "$log" || bad "A: the second shift did not start: $(tail -5 "$log")"
+touch "$home/pause"; rm "$STUB_DIR/pin.2"
 wait_count 20 2 'ended rc=0' "$log" || bad "A: two shifts did not complete: $(tail -5 "$log")"
 first=$(ls "$home"/shifts/*.prompt.md | sed -n 1p); second=$(ls "$home"/shifts/*.prompt.md | sed -n 2p)
 grep -q 'THE PREVIOUS SHIFT SAID' "$first" && bad "A: the first prompt carries a previous reply that cannot exist"
@@ -183,35 +194,28 @@ grep -q 'the stub shift replied' "$second" || bad "A: the previous reply's text 
 grep -q '^# stub survey: survey -save$' "$first" || bad "A: an ordinary shift's survey got extra arguments"
 grep -q 'cooldown 1s' "$log" || bad "A: a good shift did not log the cooldown"
 
-touch "$home/pause"
 wait_for 5 'paused:' "$log" || bad "A: pause was not noticed"
 before=$(count 'starting' "$log"); sleep 3
+[ "$before" -eq 2 ] || bad "A: expected the pause after shift 2, it came after $before: $(tail -5 "$log")"
 [ "$(count 'starting' "$log")" -eq "$before" ] || bad "A: a shift started while paused"
 [ "$(count 'paused:' "$log")" -eq 1 ] || bad "A: paused was logged more than once"
 rm "$home/pause"
 wait_for 5 'resumed:' "$log" || bad "A: resume was not noticed"
 wait_count 10 $((before + 1)) 'starting' "$log" || bad "A: no shift started after resume"
-# The shift resume just started has to actually finish before the fail switch
-# below is flipped. Touching the switch right after "starting" races that
-# shift's own (backgrounded) claude call against this script: whichever
-# reaches the switch first decides whether the shift counts as good or as a
-# third failure, which is why the count below used to read 3 or 4 good shifts
-# on different runs of the same code (#180) with nothing to notice either way.
 wait_count 15 3 'ended rc=0' "$log" || bad "A: the shift after resume did not complete: $(tail -3 "$log")"
 
-touch "$STUB_DIR/fail"
 wait_for 15 'rc=1 (empty reply); backoff 2s' "$log" || bad "A: the first failed shift did not back off to 2s: $(tail -3 "$log")"
 wait_for 15 'backoff 4s' "$log" || bad "A: the second failed shift did not double to 4s"
-rm "$STUB_DIR/fail"
+wait_count 25 6 'starting' "$log" || bad "A: no shift started after the failures: $(tail -3 "$log")"
 ok=$(count 'ended rc=0' "$log")
 [ "$ok" -eq 3 ] || bad "A: expected 3 good shifts before the forced failures, got $ok: $(tail -10 "$log")"
+touch "$home/stop"; rm "$STUB_DIR/pin.6"
 wait_count 25 $((ok + 1)) 'ended rc=0' "$log" || bad "A: no good shift after the failures"
 [ "$(count 'cooldown 1s' "$log")" -ge $((ok + 1)) ] || bad "A: a good shift did not reset the delay to the cooldown"
 
 grep -q 'shift 4 of 50 today starting — method shift: survey -repos mellions-coxen' "$log" || bad "A: the fourth shift was not the method shift"
 grep -lq 'stub survey: survey -save -repos mellions-coxen' "$home"/shifts/*.prompt.md || bad "A: no prompt carries the scoped survey"
 
-touch "$home/stop"
 wait_for 20 'runner stop:' "$log" || bad "A: the stop file did not end the loop"
 wait_gone 5 "$a" || bad "A: the runner is still alive after stop"
 [ -e "$home/shifts/runner.lock" ] && bad "A: the lock survived the stop"
@@ -220,6 +224,7 @@ good=$(count 'ended rc=0' "$log"); failed=$(count 'rc=1' "$log")
 [ "$good" -eq 4 ] || bad "A: expected 4 good shifts total, got $good: $(tail -10 "$log")"
 [ "$failed" -eq 2 ] || bad "A: expected 2 failed shifts total, got $failed: $(tail -10 "$log")"
 note "A: $good good shifts, $failed failed, one pause, one stop"
+rm -f "$STUB_DIR"/pin.* "$STUB_DIR"/fail.*
 
 # ---- B. the daily cap, counted from the files ----------------------------------
 home="$tmp/b"; mkdir -p "$home/shifts"; log="$home/shifts/runner.log"
