@@ -48,6 +48,7 @@ export STUB_RESET_24 STUB_RESET_12
 cat > "$STUB_DIR/claude" <<'STUB'
 #!/usr/bin/env bash
 cat > /dev/null
+while [ -e "$STUB_DIR/hold" ]; do sleep 0.1; done
 [ -e "$STUB_DIR/fail" ] && exit 1
 # A runtime usage-limit refusal carries a session id, reset time and non-zero exit.
 if [ -e "$STUB_DIR/limit" ]; then
@@ -202,16 +203,22 @@ wait_count 15 3 'ended rc=0' "$log" || bad "A: the shift after resume did not co
 touch "$STUB_DIR/fail"
 wait_for 15 'rc=1 (empty reply); backoff 2s' "$log" || bad "A: the first failed shift did not back off to 2s: $(tail -3 "$log")"
 wait_for 15 'backoff 4s' "$log" || bad "A: the second failed shift did not double to 4s"
+started=$(count 'starting' "$log")
+touch "$STUB_DIR/hold"
 rm "$STUB_DIR/fail"
 ok=$(count 'ended rc=0' "$log")
 [ "$ok" -eq 3 ] || bad "A: expected 3 good shifts before the forced failures, got $ok: $(tail -10 "$log")"
+# The runner reads the stop file only between shifts, so the first good shift
+# after the failures is held until the stop is in place: it is the last one at
+# any pace of this script, and the count below is exact.
+wait_count 25 $((started + 1)) 'starting' "$log" || bad "A: no shift started after the failures"
+touch "$home/stop"; rm "$STUB_DIR/hold"
 wait_count 25 $((ok + 1)) 'ended rc=0' "$log" || bad "A: no good shift after the failures"
 [ "$(count 'cooldown 1s' "$log")" -ge $((ok + 1)) ] || bad "A: a good shift did not reset the delay to the cooldown"
 
 grep -q 'shift 4 of 50 today starting — method shift: survey -repos mellions-coxen' "$log" || bad "A: the fourth shift was not the method shift"
 grep -lq 'stub survey: survey -save -repos mellions-coxen' "$home"/shifts/*.prompt.md || bad "A: no prompt carries the scoped survey"
 
-touch "$home/stop"
 wait_for 20 'runner stop:' "$log" || bad "A: the stop file did not end the loop"
 wait_gone 5 "$a" || bad "A: the runner is still alive after stop"
 [ -e "$home/shifts/runner.lock" ] && bad "A: the lock survived the stop"
