@@ -15,4 +15,11 @@ the objections answered, the work under way — unless being handed it cold is
 the condition, and then the untreated arm still has to be shown failing. A
 null is a fact about the case, not the change. Decide what counts as a
 difference before reading either arm; the claim is only what the difference
-shows.
+shows. An arm that can reach the hypothesis or the criterion — the lane's
+record by path or `mellions assign`, a pull request, another arm's files — is
+not blind, and a subagent never is by construction: it starts in its parent's
+directory. Record the criterion first all the same; brief every arm with no
+lane id, hypothesis or criterion and its files outside the lane, use the
+sandbox where the case allows, and report each from its tool log, not its own
+account — blind by construction (sandbox only), reachable but unread, or
+unblinded.
