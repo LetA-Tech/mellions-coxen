@@ -60,8 +60,10 @@ integration gate — takes the label AND tears itself down from a trap, so an
 interrupted run cleans up too:
 
   NAMES=(x-pg x-kafka)
-  trap 'docker rm -f "\${NAMES[@]}" >/dev/null 2>&1 || true' EXIT INT TERM
+  trap 'docker rm -fv "\${NAMES[@]}" >/dev/null 2>&1 || true' EXIT INT TERM
 
+The -v removes the anonymous volume an image's VOLUME line creates; \`rm -f\`
+alone leaves it behind, dangling, after every run.
 A \`docker rm -f\` before starting is not teardown. It hides the leak.
 The \`mellions-sandbox\` skill has the rest.
 MSG
