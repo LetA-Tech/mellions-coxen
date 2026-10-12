@@ -11,9 +11,9 @@ been red.
 
 ## The copy you falsify in
 
-One copy per arm: a neutralisation left from the previous arm can mask the
-next. `git archive <rev>` carries that commit, not the index: a staged,
-uncommitted test is absent.
+One copy per arm: one arm's neutralisation can mask the next. A
+`git archive` holds no staged test and no `.git`: read
+`references/copies.md` before a suite runs in it.
 Never falsify by restoring a working tree: it discards uncommitted work —
 yours or another session's. With one arm and nothing
 uncommitted at stake, toggling the edit in place — red, then green — is the
