@@ -153,6 +153,8 @@ func (f *fakeTracker) Comment(_ context.Context, repo, ref, body string) error {
 	return nil
 }
 
+func (f *fakeTracker) Machine() string { return f.host }
+
 func (f *fakeTracker) Sweep(_ context.Context, repo, issue string) ([]claim.Claim, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -227,6 +229,61 @@ func TestALaneIsRefusedWhenAnotherMachineHoldsTheIssue(t *testing.T) {
 	}
 	if _, err := s.Get("payments-new"); err == nil {
 		t.Error("the refused lane left a record behind")
+	}
+}
+
+// A claim this machine published is not on another machine. Its record is
+// read from this store when the store has it, and a refusal that says
+// otherwise sends the session to the summary instead of the record.
+func TestATrackerClaimFromThisMachineIsReadHere(t *testing.T) {
+	src := gitFixture(t)
+	s, err := newStoreT(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	f := trackerOf(t, s)
+	if _, err := s.Open(OpenOptions{
+		ID: "local-lane", Repo: "svc", Issue: "#9", Source: src, Objective: "o", Because: "b",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	f.claims[key("svc", "#43")] = []claim.Claim{{
+		ID: "local-lane", Host: f.host, State: "handed_off", At: time.Now().Add(-time.Hour),
+	}}
+	f.claims[key("svc", "#44")] = []claim.Claim{{
+		ID: "gone-lane", Host: f.host, State: "active", At: time.Now().Add(-time.Hour),
+	}}
+	f.claims[key("svc", "#45")] = []claim.Claim{{
+		ID: "far-lane", Host: "build-host", State: "active", At: time.Now().Add(-time.Hour),
+	}}
+
+	open := func(id, issue string) error {
+		_, err := s.Open(OpenOptions{ID: id, Repo: "svc", Issue: issue, Source: src, Objective: "o", Because: "b"})
+		if err == nil {
+			t.Fatalf("a lane opened on %s, which a live claim holds", issue)
+		}
+		return err
+	}
+
+	err = open("new-43", "#43")
+	if strings.Contains(err.Error(), "another machine") {
+		t.Errorf("a claim this machine published is reported on another machine: %v", err)
+	}
+	if !strings.Contains(err.Error(), "mellions assign get local-lane") {
+		t.Errorf("refusal does not point at the record this store holds: %v", err)
+	}
+
+	err = open("new-44", "#44")
+	if strings.Contains(err.Error(), "another machine") {
+		t.Errorf("a claim this machine published is reported on another machine: %v", err)
+	}
+	if !strings.Contains(err.Error(), "no record of gone-lane") {
+		t.Errorf("refusal does not say this store has no record behind the claim: %v", err)
+	}
+
+	err = open("new-45", "#45")
+	if !strings.Contains(err.Error(), "another machine") {
+		t.Errorf("a claim another host published is no longer reported as elsewhere: %v", err)
 	}
 }
 

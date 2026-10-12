@@ -5,6 +5,7 @@
 package assignment
 
 import (
+	"context"
 	"strings"
 	"testing"
 )
@@ -134,5 +135,73 @@ func TestClosedLanesAndOtherIssuesDoNotBlock(t *testing.T) {
 		ID: "no-issue-b", Repo: "svc", Source: src, Objective: "o", Because: "b",
 	}); err != nil {
 		t.Fatalf("two lanes claiming no issue collided with each other: %v", err)
+	}
+}
+
+// A review lane holds the draft it reads through its pull request, not its
+// issue. A second lane opened on that number has to meet the first on this
+// disk, where its record is readable, rather than at the tracker.
+func TestALaneHoldingAPullRequestRefusesASecondLaneOnIt(t *testing.T) {
+	src := gitFixture(t)
+	s, err := newStoreT(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Open(OpenOptions{
+		ID: "reader-200", Repo: "svc", Issue: "PR #200", Source: src,
+		Objective: "read #200", Because: "nobody has",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.ClaimPullRequest(context.Background(), "reader-200", "#202"); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = s.Open(OpenOptions{
+		ID: "reader-202", Repo: "svc", Issue: "#202", Source: src,
+		Objective: "read #202", Because: "nobody has",
+	})
+	if err == nil {
+		t.Fatal("a second lane opened on a pull request a live lane on this machine holds")
+	}
+	for _, want := range []string{"reader-200", "mellions assign get reader-200", "PR #202", "-alongside"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("refusal does not name %q, so the session cannot act on it: %v", want, err)
+		}
+	}
+	if strings.Contains(err.Error(), "another machine") {
+		t.Errorf("refusal sends the session to another machine for a record on this one: %v", err)
+	}
+}
+
+// Issues and pull requests share one number space, so "PR #200" and "#200"
+// are one tracker item whichever spelling each session used.
+func TestAPullRequestSpellingNamesTheSameItem(t *testing.T) {
+	src := gitFixture(t)
+	s, err := newStoreT(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Open(OpenOptions{
+		ID: "pr-spelled", Repo: "svc", Issue: "PR #200", Source: src,
+		Objective: "o", Because: "b",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	_, err = s.Open(OpenOptions{
+		ID: "hash-spelled", Repo: "svc", Issue: "#200", Source: src,
+		Objective: "o", Because: "b",
+	})
+	if err == nil {
+		t.Fatal(`a lane on "#200" opened beside a live lane on "PR #200"`)
+	}
+	if !strings.Contains(err.Error(), "pr-spelled") {
+		t.Errorf("refusal does not name the holding lane: %v", err)
+	}
+	if _, err := s.Open(OpenOptions{
+		ID: "other-number", Repo: "svc", Issue: "PR #201", Source: src,
+		Objective: "o", Because: "b",
+	}); err != nil {
+		t.Fatalf("PR #201 was treated as the same item as PR #200: %v", err)
 	}
 }

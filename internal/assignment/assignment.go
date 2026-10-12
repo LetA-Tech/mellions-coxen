@@ -237,6 +237,8 @@ type Tracker interface {
 	PullRequests(ctx context.Context, repo, branch string) ([]claim.PullRequest, error)
 	// Comment posts prose where both hosts read it.
 	Comment(ctx context.Context, repo, ref, body string) error
+	// Machine is the host this tracker publishes claims as.
+	Machine() string
 }
 
 // claimRefs is every tracker item this lane holds.
@@ -461,13 +463,19 @@ func (s *Store) Open(o OpenOptions) (*Assignment, error) {
 // sameIssue reports whether two claims name the same tracked item.
 //
 // The spellings a session actually uses are compared, not required to match:
-// "#43", "43" and " #43 " are one issue, and a repository name differing
-// only in case is one repository. An assignment with no issue claims no issue
+// "#43", "43", " #43 " and "PR #43" are one tracker item, and a repository name
+// differing only in case is one repository. A register work unit such as
+// "IMP-016" is compared as written. An assignment with no issue claims no issue
 // and collides with nothing.
 func sameIssue(aRepo, aIssue, bRepo, bIssue string) bool {
 	norm := func(repo, issue string) (string, string) {
-		return strings.ToLower(strings.TrimSpace(repo)),
-			strings.TrimPrefix(strings.TrimSpace(issue), "#")
+		issue = strings.TrimSpace(issue)
+		if n, err := claim.Item(issue); err == nil {
+			issue = strconv.Itoa(n)
+		} else {
+			issue = strings.TrimPrefix(issue, "#")
+		}
+		return strings.ToLower(strings.TrimSpace(repo)), issue
 	}
 	ar, ai := norm(aRepo, aIssue)
 	br, bi := norm(bRepo, bIssue)
@@ -475,7 +483,8 @@ func sameIssue(aRepo, aIssue, bRepo, bIssue string) bool {
 }
 
 // issueUnclaimed refuses to open a second live lane on an issue this store
-// already holds one for.
+// already holds one for, through the lane's issue or the pull request it
+// claimed.
 //
 // Until this existed, Open guarded uniqueness by assignment id alone. The issue
 // was recorded on the record and never read back, so two ids naming one issue
@@ -506,16 +515,22 @@ func (s *Store) issueUnclaimed(o OpenOptions) error {
 		return nil // a store that cannot be listed is not evidence the issue is claimed
 	}
 	for _, a := range live {
-		if a.ID == o.ID || !sameIssue(a.Repo, a.Issue, o.Repo, o.Issue) {
+		if a.ID == o.ID {
 			continue
 		}
-		return fmt.Errorf("assignment: %s %s is already claimed by %s (%s), opened %s.\n\n"+
-			"Read what it established before repeating it:\n"+
-			"  mellions assign get %s\n\n"+
-			"If this is deliberate — reconciling the two, or the earlier lane is finished and\n"+
-			"you know it — say so:\n"+
-			"  mellions assign open %s ... -alongside",
-			o.Repo, o.Issue, a.ID, a.State, a.OpenedAt.Format(time.RFC3339), a.ID, o.ID)
+		for _, ref := range a.claimRefs() {
+			if !sameIssue(a.Repo, ref, o.Repo, o.Issue) {
+				continue
+			}
+			return fmt.Errorf("assignment: %s %s is already claimed by %s (%s) on this machine, "+
+				"which holds it as %s, opened %s.\n\n"+
+				"Read what it established before repeating it:\n"+
+				"  mellions assign get %s\n\n"+
+				"If this is deliberate — reconciling the two, or the earlier lane is finished and\n"+
+				"you know it — say so:\n"+
+				"  mellions assign open %s ... -alongside",
+				o.Repo, o.Issue, a.ID, a.State, ref, a.OpenedAt.Format(time.RFC3339), a.ID, o.ID)
+		}
 	}
 	return nil
 }
@@ -582,13 +597,29 @@ func (s *Store) estateUnclaimed(ctx context.Context, o OpenOptions) error {
 			continue
 		}
 		return fmt.Errorf("assignment: %s %s is claimed on the tracker by %s.\n\n"+
-			"That lane is on another machine, so its record is not readable from here — the issue's\n"+
-			"own %s claim is. Read it before repeating the work.\n\n"+
+			"%s\n\n"+
 			"If this is deliberate — reconciling the two, or that lane is finished and you know it:\n"+
 			"  mellions assign open %s ... -alongside",
-			o.Repo, o.Issue, c.Held(), claim.Label, o.ID)
+			o.Repo, o.Issue, c.Held(), s.whereHeld(c), o.ID)
 	}
 	return nil
+}
+
+// whereHeld says where the record behind a tracker claim can be read. Only a
+// claim another host published is out of reach from here; one this host
+// published is read from this store when the store still has it.
+func (s *Store) whereHeld(c claim.Claim) string {
+	if c.Host == "" || c.Host != s.Tracker.Machine() {
+		return fmt.Sprintf("That lane is on another machine, so its record is not readable from here — the issue's\n"+
+			"own %s claim is. Read it before repeating the work.", claim.Label)
+	}
+	if a, err := s.Get(c.ID); err == nil {
+		return fmt.Sprintf("That lane is on this machine (%s here). Read what it established before repeating it:\n"+
+			"  mellions assign get %s", a.State, a.ID)
+	}
+	return fmt.Sprintf("The claim names this machine, and this store has no record of %s: the claim outlived\n"+
+		"its lane, or a second host publishes under this host's name. The issue's own %s claim is\n"+
+		"what remains to read before repeating the work.", c.ID, claim.Label)
 }
 
 // publishClaim puts this lane's hold where every machine can see it, and
