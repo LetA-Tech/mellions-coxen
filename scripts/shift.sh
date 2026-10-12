@@ -217,6 +217,19 @@ if [ -z "$stands" ]; then
   esac
 fi
 
+# cron can start a shift without USER, and with USER empty `pgrep -u "$USER"`
+# prints its usage and matches nothing, so a session's footprint count reads 0.
+# The account's name is handed over where USER or LOGNAME is unset or empty; an
+# inherited one stands.
+for var in USER LOGNAME; do
+  [ -n "$(printenv "$var" 2>/dev/null)" ] && continue
+  if account=$(id -un 2>/dev/null) && [ -n "$account" ]; then
+    export "$var=$account"
+  else
+    say "id cannot name the account of uid $(id -u) — this shift's session has no $var, and a command naming \$$var names nobody"
+  fi
+done
+
 # cron starts a shift with neither XDG_RUNTIME_DIR nor DBUS_SESSION_BUS_ADDRESS,
 # and `systemd-run --user` — how the platform PostgreSQL harness bounds a test's
 # memory — refuses without them, so every DB lane exits 1 before a test runs.
