@@ -11,8 +11,8 @@ been red.
 
 ## The copy you falsify in
 
-One copy per arm: a neutralisation left by the last arm can mask the
-next. A `git archive` lacks the index and `.git`: read
+One copy per arm: one arm's neutralisation can mask the next. A
+`git archive` holds no staged test and no `.git`: read
 `references/copies.md` before a suite runs in it.
 Never falsify by restoring a working tree: it discards uncommitted work —
 yours or another session's. With one arm and nothing

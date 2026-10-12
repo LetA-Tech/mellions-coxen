@@ -7,7 +7,8 @@ there, and that red is the copy's, not the change's. Extracted inside another
 checkout, it gets that checkout's answer instead, which can read green.
 
 Where you run the whole suite, whose checks you have not all read, use a
-worktree detached at the rev:
+worktree detached at the rev; it restores `.git`, not the index, so commit a
+staged test first:
 
 ```
 git worktree add --detach <dir> <rev>
