@@ -13,7 +13,12 @@ been red.
 
 One copy per arm: a neutralisation left from the previous arm can mask the
 next. `git archive <rev>` carries that commit, not the index: a staged,
-uncommitted test is absent.
+uncommitted test is absent. Nor does it carry `.git`, so a check that asks
+git — a guard that lists tracked files, a test of the repository's own
+commits — refuses there, and that red is the copy's. Run the whole suite,
+whose checks you have not all read, in a worktree detached at the rev
+(`git worktree add --detach <dir> <rev>`, removed afterwards); an archive
+serves an arm whose named tests you have.
 Never falsify by restoring a working tree: it discards uncommitted work —
 yours or another session's. With one arm and nothing
 uncommitted at stake, toggling the edit in place — red, then green — is the
