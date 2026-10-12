@@ -1106,7 +1106,7 @@ note "O: started with cron's /bin/sh or no SHELL the session is handed the login
 # cron starts a job with LOGNAME but no USER, and pgrep -u "$USER" with USER
 # empty prints its usage and matches nothing, so a footprint count reads 0.
 # The expected name is read by a different tool than the shift uses.
-mkdir -p "$tmp/u/h1" "$tmp/u/h2" "$tmp/u/h3" "$tmp/u/h4" "$tmp/u/h5" "$tmp/u/idbin"
+mkdir -p "$tmp/u/h1" "$tmp/u/h2" "$tmp/u/h3" "$tmp/u/h4" "$tmp/u/h5" "$tmp/u/h6" "$tmp/u/idbin"
 u_name=$(whoami)
 [ -n "$u_name" ] || bad "U: whoami named no account, so nothing below can be compared"
 # An id that cannot name the account and is id for everything else.
@@ -1129,6 +1129,10 @@ run_o "$tmp/u/h2" USER= LOGNAME="$u_name" SHELL=/bin/sh
 # U3: LOGNAME absent is handed the same way, and an inherited USER stands.
 run_o "$tmp/u/h3" -u LOGNAME USER=someone-else SHELL=/bin/sh
 [ "$user_saw" = "someone-else|$u_name" ] || bad "U3: with USER=someone-else and no LOGNAME the session was handed '$user_saw'"
+
+# U3b: an empty LOGNAME is handed over like an absent one.
+run_o "$tmp/u/h6" USER=someone-else LOGNAME= SHELL=/bin/sh
+[ "$user_saw" = "someone-else|$u_name" ] || bad "U3b: with LOGNAME empty the session was handed '$user_saw'"
 
 # U4: both inherited, both stand.
 run_o "$tmp/u/h4" USER=someone-else LOGNAME=another SHELL=/bin/sh
