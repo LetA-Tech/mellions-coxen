@@ -6,6 +6,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"os"
@@ -196,6 +197,21 @@ func ghTracker(ctx context.Context, cfg *Config) continuity.Tracker {
 	if cfg.Owner == "" {
 		return continuity.Tracker{}
 	}
+	return newGHTracker(ctx, cfg.Owner, trackerListLimit, func(c context.Context, args ...string) ([]byte, error) {
+		return exec.CommandContext(c, "gh", args...).Output()
+	})
+}
+
+// trackerListLimit bounds the one pull-request list and the one issue list read
+// per repository. A list that comes back this long may have left items out, so
+// an item absent from it is asked about on its own.
+const trackerListLimit = 1000
+
+// newGHTracker answers from one pull-request list and one issue list per
+// repository, so the cost follows the repositories with open lanes, not the
+// lanes. An item a full list does not hold, or any list that fails, falls back
+// to the per-item question.
+func newGHTracker(ctx context.Context, owner string, limit int, run func(context.Context, ...string) ([]byte, error)) continuity.Tracker {
 	type answer struct {
 		state string
 		known bool
@@ -207,7 +223,7 @@ func ghTracker(ctx context.Context, cfg *Config) continuity.Tracker {
 		}
 		c, cancel := context.WithTimeout(ctx, 15*time.Second)
 		defer cancel()
-		out, err := exec.CommandContext(c, "gh", args...).Output()
+		out, err := run(c, args...)
 		v := answer{state: strings.TrimSpace(string(out)), known: err == nil}
 		cache[key] = v
 		return v.state, v.known
@@ -216,15 +232,88 @@ func ghTracker(ctx context.Context, cfg *Config) continuity.Tracker {
 		if strings.Contains(repo, "/") {
 			return repo
 		}
-		return cfg.Owner + "/" + repo
+		return owner + "/" + repo
+	}
+	type pr struct {
+		Number      int    `json:"number"`
+		State       string `json:"state"`
+		IsDraft     bool   `json:"isDraft"`
+		HeadRefName string `json:"headRefName"`
+	}
+	type issue struct {
+		Number int    `json:"number"`
+		State  string `json:"state"`
+	}
+	type listing struct {
+		ok, full bool
+		prs      map[string][]pr
+		issues   map[string]string
+	}
+	list := func(args ...string) ([]byte, bool) {
+		c, cancel := context.WithTimeout(ctx, 60*time.Second)
+		defer cancel()
+		out, err := run(c, args...)
+		return out, err == nil
+	}
+	prLists := map[string]*listing{}
+	prsOf := func(repo string) *listing {
+		if l, ok := prLists[repo]; ok {
+			return l
+		}
+		l := &listing{prs: map[string][]pr{}}
+		prLists[repo] = l
+		out, ok := list("pr", "list", "--repo", repoOf(repo), "--state", "all",
+			"--limit", fmt.Sprint(limit), "--json", "number,state,isDraft,headRefName")
+		var rows []pr
+		if !ok || json.Unmarshal(out, &rows) != nil {
+			return l
+		}
+		l.ok, l.full = true, len(rows) >= limit
+		for _, r := range rows {
+			l.prs[r.HeadRefName] = append(l.prs[r.HeadRefName], r)
+		}
+		return l
+	}
+	issueLists := map[string]*listing{}
+	issuesOf := func(repo string) *listing {
+		if l, ok := issueLists[repo]; ok {
+			return l
+		}
+		l := &listing{issues: map[string]string{}}
+		issueLists[repo] = l
+		out, ok := list("issue", "list", "--repo", repoOf(repo), "--state", "all",
+			"--limit", fmt.Sprint(limit), "--json", "number,state")
+		var rows []issue
+		if !ok || json.Unmarshal(out, &rows) != nil {
+			return l
+		}
+		l.ok, l.full = true, len(rows) >= limit
+		for _, r := range rows {
+			l.issues[fmt.Sprint(r.Number)] = r.State
+		}
+		return l
 	}
 	return continuity.Tracker{
 		PullRequest: func(_ context.Context, repo, branch string) (string, bool) {
-			state, known := ask("pr:"+repo+":"+branch, "pr", "list", "--repo", repoOf(repo),
-				"--head", branch, "--state", "all", "--json", "number,state,isDraft",
-				"--template", `{{range .}}#{{.number}} {{.state}}{{if .isDraft}} (draft){{end}}{{end}}`)
-			if !known {
-				return "", false
+			var state string
+			l := prsOf(repo)
+			if rows, held := l.prs[branch]; l.ok && (held || !l.full) {
+				var b strings.Builder
+				for _, r := range rows {
+					fmt.Fprintf(&b, "#%d %s", r.Number, r.State)
+					if r.IsDraft {
+						b.WriteString(" (draft)")
+					}
+				}
+				state = b.String()
+			} else {
+				var known bool
+				state, known = ask("pr:"+repo+":"+branch, "pr", "list", "--repo", repoOf(repo),
+					"--head", branch, "--state", "all", "--json", "number,state,isDraft",
+					"--template", `{{range .}}#{{.number}} {{.state}}{{if .isDraft}} (draft){{end}}{{end}}`)
+				if !known {
+					return "", false
+				}
 			}
 			if state == "" {
 				return "none for this branch", true
@@ -233,6 +322,11 @@ func ghTracker(ctx context.Context, cfg *Config) continuity.Tracker {
 		},
 		Issue: func(_ context.Context, repo, ref string) (string, bool) {
 			n := strings.TrimPrefix(ref, "#")
+			if l := issuesOf(repo); l.ok {
+				if state, held := l.issues[n]; held {
+					return state, true
+				}
+			}
 			return ask("issue:"+repo+":"+n, "issue", "view", n,
 				"--repo", repoOf(repo), "--json", "state", "--jq", ".state")
 		},
