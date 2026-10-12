@@ -175,7 +175,8 @@ func TestALaneHoldingAPullRequestRefusesASecondLaneOnIt(t *testing.T) {
 }
 
 // Issues and pull requests share one number space, so "PR #200" and "#200"
-// are one tracker item whichever spelling each session used.
+// are one tracker item whichever spelling each session used. The second open
+// is unpublished, so this disk's scan is the only guard it meets.
 func TestAPullRequestSpellingNamesTheSameItem(t *testing.T) {
 	src := gitFixture(t)
 	s, err := newStoreT(t.TempDir())
@@ -189,17 +190,19 @@ func TestAPullRequestSpellingNamesTheSameItem(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, err = s.Open(OpenOptions{
-		ID: "hash-spelled", Repo: "svc", Issue: "#200", Source: src,
+		ID: "hash-spelled", Repo: "svc", Issue: "#200", Source: src, Unpublished: true,
 		Objective: "o", Because: "b",
 	})
 	if err == nil {
 		t.Fatal(`a lane on "#200" opened beside a live lane on "PR #200"`)
 	}
-	if !strings.Contains(err.Error(), "pr-spelled") {
-		t.Errorf("refusal does not name the holding lane: %v", err)
+	for _, want := range []string{"pr-spelled", "mellions assign get pr-spelled"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("refusal does not name %q: %v", want, err)
+		}
 	}
 	if _, err := s.Open(OpenOptions{
-		ID: "other-number", Repo: "svc", Issue: "PR #201", Source: src,
+		ID: "other-number", Repo: "svc", Issue: "PR #201", Source: src, Unpublished: true,
 		Objective: "o", Because: "b",
 	}); err != nil {
 		t.Fatalf("PR #201 was treated as the same item as PR #200: %v", err)
