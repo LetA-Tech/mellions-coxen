@@ -1033,16 +1033,18 @@ cat > "$STUB_DIR/claude-o" <<'STUB'
 #!/usr/bin/env bash
 cat > /dev/null
 printenv SHELL > "$STUB_DIR/o.env" || echo '<unset>' > "$STUB_DIR/o.env"
+printf '%s|%s\n' "$(printenv USER || echo '<unset>')" "$(printenv LOGNAME || echo '<unset>')" > "$STUB_DIR/o.user"
 printf '{"type":"result","result":"ready — the stub shift replied"}\n'
 STUB
 chmod +x "$STUB_DIR/claude-o"
 run_o() {   # run_o <home> [env options and assignments...]
   local home="$1"; shift
-  : > "$STUB_DIR/o.env"
+  : > "$STUB_DIR/o.env"; : > "$STUB_DIR/o.user"
   env "$@" MELLIONS_HOME="$home" MELLIONS_BIN="$STUB_DIR/mellions" \
       CLAUDE_BIN="$STUB_DIR/claude-o" MELLIONS_PROMPT="$tmp/l-task.md" \
       "$root/scripts/shift.sh" > "$tmp/o.out" 2>&1
   saw=$(cat "$STUB_DIR/o.env")
+  user_saw=$(cat "$STUB_DIR/o.user")
 }
 
 # O1: cron's /bin/sh is replaced by the login shell.
@@ -1099,6 +1101,50 @@ grep -qF "could not be read" "$tmp/o.out" \
   || bad "O9: the login shell could not be read and the shift did not say so: $(tail -3 "$tmp/o.out")"
 
 note "O: started with cron's /bin/sh or no SHELL the session is handed the login shell, an inherited bash or zsh stands unless it cannot run or is one only by its path, and a login shell that is neither, cannot run or cannot be read is said rather than handed over"
+
+# ---- U. the account name the session is handed ------------------------------
+# cron starts a job with LOGNAME but no USER, and pgrep -u "$USER" with USER
+# empty prints its usage and matches nothing, so a footprint count reads 0.
+# The expected name is read by a different tool than the shift uses.
+mkdir -p "$tmp/u/h1" "$tmp/u/h2" "$tmp/u/h3" "$tmp/u/h4" "$tmp/u/h5" "$tmp/u/h6" "$tmp/u/idbin"
+u_name=$(whoami)
+[ -n "$u_name" ] || bad "U: whoami named no account, so nothing below can be compared"
+# An id that cannot name the account and is id for everything else.
+cat > "$tmp/u/idbin/id" <<STUB
+#!/bin/sh
+case "\$*" in *-un*|*-nu*) exit 1 ;; esac
+exec $(command -v id) "\$@"
+STUB
+chmod +x "$tmp/u/idbin/id"
+
+# U1: cron's environment, USER absent, is handed the account's name.
+run_o "$tmp/u/h1" -u USER LOGNAME="$u_name" SHELL=/bin/sh
+[ "$user_saw" = "$u_name|$u_name" ] \
+  || bad "U1: started with no USER the session was handed USER|LOGNAME='$user_saw', so pgrep -u \"\$USER\" in it matches nothing: $(tail -3 "$tmp/o.out")"
+
+# U2: an empty USER is the same case.
+run_o "$tmp/u/h2" USER= LOGNAME="$u_name" SHELL=/bin/sh
+[ "$user_saw" = "$u_name|$u_name" ] || bad "U2: started with USER empty the session was handed '$user_saw'"
+
+# U3: LOGNAME absent is handed the same way, and an inherited USER stands.
+run_o "$tmp/u/h3" -u LOGNAME USER=someone-else SHELL=/bin/sh
+[ "$user_saw" = "someone-else|$u_name" ] || bad "U3: with USER=someone-else and no LOGNAME the session was handed '$user_saw'"
+
+# U3b: an empty LOGNAME is handed over like an absent one.
+run_o "$tmp/u/h6" USER=someone-else LOGNAME= SHELL=/bin/sh
+[ "$user_saw" = "someone-else|$u_name" ] || bad "U3b: with LOGNAME empty the session was handed '$user_saw'"
+
+# U4: both inherited, both stand.
+run_o "$tmp/u/h4" USER=someone-else LOGNAME=another SHELL=/bin/sh
+[ "$user_saw" = "someone-else|another" ] || bad "U4: inherited USER and LOGNAME were replaced: '$user_saw'"
+
+# U5: an account id cannot name is said as that, and the shift still runs.
+run_o "$tmp/u/h5" -u USER -u LOGNAME SHELL=/bin/sh PATH="$tmp/u/idbin:$PATH"
+[ "$user_saw" = "<unset>|<unset>" ] || bad "U5: with no name from id the session was handed '$user_saw'"
+grep -qF "cannot name the account" "$tmp/o.out" \
+  || bad "U5: the account name could not be read and the shift did not say so: $(tail -3 "$tmp/o.out")"
+
+note "U: a session started without USER or LOGNAME, or with either empty, is handed the account's name in it; an inherited one stands; a name id cannot give is said"
 
 # make check has to run this, or everything above is about a file nothing invokes.
 grep -q 'scripts/test-\*.sh' "$root/Makefile" || bad "the Makefile does not run scripts/test-*.sh"
