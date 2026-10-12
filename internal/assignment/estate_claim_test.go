@@ -7,6 +7,7 @@ package assignment
 import (
 	"context"
 	"errors"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -74,8 +75,14 @@ func (f *fakeTracker) relabel(k string) {
 	delete(f.labelled, k)
 }
 
+// key addresses an item by number, as the real tracker does: "PR #12" and
+// "#12" read the same comments.
 func key(repo, issue string) string {
-	return strings.ToLower(strings.TrimSpace(repo)) + "#" + strings.TrimPrefix(strings.TrimSpace(issue), "#")
+	ref := strings.TrimPrefix(strings.TrimSpace(issue), "#")
+	if n, err := claim.Item(issue); err == nil {
+		ref = strconv.Itoa(n)
+	}
+	return strings.ToLower(strings.TrimSpace(repo)) + "#" + ref
 }
 
 func (f *fakeTracker) Claims(_ context.Context, repo, issue string) ([]claim.Claim, error) {
