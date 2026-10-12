@@ -6,9 +6,8 @@ description: What this host can actually do, and how to establish it rather than
 
 # This host
 
-**Establish it; do not recall it.** A version, a path or a login written down
-somewhere was true on the machine it was written on. This method is installed on
-every host and none of them are the same one.
+**Establish it; do not recall it.** A version, path or login written down was
+true on the machine it was written on, and no two hosts are the same.
 
 ```
 mellions doctor            what this installation can do: binary, config,
@@ -17,8 +16,7 @@ mellions config show       which repositories, where their checkouts are,
 where the records live
 ```
 
-Read the output with one distinction first: **unknown is not absent.** A probe
-that could not run has established nothing, and routing around a capability
+**Unknown is not absent.** A probe that could not run has established nothing, and routing around a capability
 you have is worse than never having had it; settle what reads unknown.
 
 ## Repositories
@@ -29,11 +27,9 @@ repository's own to state — its `CLAUDE.md` or equivalent. Where it says
 nothing, `git symbolic-ref refs/remotes/origin/HEAD` gives the remote's default
 branch, and you say that was inferred rather than declared.
 
-A clone may carry a fetch refspec restricted to one branch, in which case
-`git branch -a` shows nothing else and it looks deleted. `git ls-remote --heads
+A clone may fetch only one branch, so `git branch -a` shows nothing else and
+the rest look deleted. `git ls-remote --heads
 origin` is what the remote actually has.
-
-A repository absent from the filesystem can usually be cloned.
 
 ## Whether the sandbox needs a word first is the owner's to say
 
@@ -59,8 +55,8 @@ Three things still stop and ask, and none of them is the sandbox itself:
 
 `mellions-sandbox` is the method.
 
-Whether the container runtime is up (`docker info`) is a property of this
-moment that decides which work is *finishable* in a window: check it when
+Whether the container runtime is up now (`docker info`) decides which work is
+*finishable* in a window: check it when
 choosing the work, not once the fix whose proof needs Postgres is written. A
 stopped runtime costs a start and an image pull — price that in; it is never a
 reason to downgrade the proof.
@@ -100,8 +96,12 @@ sweep for survivors. A timed-out teardown is not a completed one.
 ## Limits worth knowing before promising something
 
 Concurrency is bounded by whichever runs out first: cores, where several builds
-each assuming the whole machine thrash, or a metered model quota, which several
-sessions on a large model exhaust long before the RAM. Cap it per session.
+each assuming the whole machine thrash; a metered model quota, which several
+sessions on a large model exhaust long before the RAM; or the host's one GitHub
+token: a few concurrent `gh` requests trip GitHub's secondary rate limit, and
+every session here gets 403 for minutes. Cap it per session; make GitHub
+requests serially, and faster by making fewer — one list per repository, not
+one call per item.
 
 The Bash tool's shell is the login shell (`echo $SHELL`), not `bash -c`, and
 its snapshot can define functions over ordinary names: `grep` there is Claude
@@ -140,8 +140,7 @@ checkout, runs one headless session against a loopback server that records
 the request body and answers 400 — nothing forwarded, no credential written —
 and prints model, system-prompt size and tool count.
 
-One capture usually answers it, and the tool array is often the decisive half:
-a tool absent from it was never offered, which a session reports as a
+The tool array is often the decisive half: a tool absent from it was never offered, which a session reports as a
 prohibition. Capture again with one input changed — model, settings file,
 plugin set — when the question is why two hosts differ, not whether a line
 exists.
