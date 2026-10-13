@@ -192,7 +192,8 @@ type ClaimState struct {
 	// releases also goes stale and is swept by whoever next reads the issue.
 	Stranded string `json:"stranded,omitempty"`
 	// Refs are the pull requests this lane published a claim on, kept after the
-	// lane moves to another so the claim on the earlier one is still released.
+	// lane moves to another so the claim on the earlier one is still released,
+	// and still refuses a second lane on this machine until then.
 	// An unpublished lane's work unit is never among them.
 	Refs []string `json:"refs,omitempty"`
 }
@@ -263,6 +264,22 @@ func (a *Assignment) claimRefs() []string {
 	}
 	if r := strings.TrimSpace(a.PullRequest); r != "" {
 		refs = append(refs, r)
+	}
+	return refs
+}
+
+// localRefs is every tracker item the local scan refuses a second lane on: the
+// lane's issue, its current pull request, and each pull request it published a
+// claim on earlier, which the tracker holds until the lane is released.
+func (a *Assignment) localRefs() []string {
+	refs := a.claimRefs()
+	if a.Claim == nil {
+		return refs
+	}
+	for _, r := range a.Claim.Refs {
+		if !slices.Contains(refs, r) {
+			refs = append(refs, r)
+		}
 	}
 	return refs
 }
@@ -504,8 +521,8 @@ func sameIssue(aRepo, aIssue, bRepo, bIssue string) bool {
 }
 
 // issueUnclaimed refuses to open a second live lane on an issue this store
-// already holds one for, through the lane's issue or the pull request it
-// claimed.
+// already holds one for, through the lane's issue or any pull request it holds
+// a claim on.
 //
 // Until this existed, Open guarded uniqueness by assignment id alone. The issue
 // was recorded on the record and never read back, so two ids naming one issue
@@ -540,7 +557,7 @@ func (s *Store) issueUnclaimed(o OpenOptions) error {
 		if a.ID == o.ID {
 			continue
 		}
-		for _, ref := range a.claimRefs() {
+		for _, ref := range a.localRefs() {
 			if !sameIssue(a.Repo, ref, o.Repo, o.Issue) {
 				continue
 			}
@@ -786,6 +803,12 @@ func (s *Store) restateClaim(a *Assignment) {
 			a.Claim.Host = c.Host
 		}
 		a.Claim.At = c.At
+		// A pull request found at handoff is first published here, and has to
+		// be kept like one ClaimPullRequest published once the lane moves on.
+		if pr := strings.TrimSpace(a.PullRequest); ref == pr && !sameIssue(a.Repo, pr, a.Repo, a.Issue) &&
+			!slices.Contains(a.Claim.Refs, ref) {
+			a.Claim.Refs = append(a.Claim.Refs, ref)
+		}
 	}
 }
 
