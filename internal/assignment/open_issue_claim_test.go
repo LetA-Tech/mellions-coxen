@@ -6,6 +6,7 @@ package assignment
 
 import (
 	"context"
+	"errors"
 	"slices"
 	"strings"
 	"testing"
@@ -310,6 +311,43 @@ func TestAPullRequestFoundAtHandoffStillRefusesASecondLaneAfterTheLaneMoves(t *t
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("refusal does not name %q: %v", want, err)
 		}
+	}
+}
+
+// Only a pull request the tracker took is kept: one whose publish failed is
+// not recorded, so nothing later restates, refuses or releases a claim nobody
+// could see.
+func TestAPullRequestWhosePublishFailedIsNotKept(t *testing.T) {
+	src := gitFixture(t)
+	s, err := newStoreT(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	f := trackerOf(t, s)
+	a, err := s.Open(OpenOptions{
+		ID: "author-9", Repo: "svc", Issue: "#9", Source: src,
+		Objective: "fix #9", Because: "nobody has",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.prs[a.Branch] = []claim.PullRequest{{Number: 10, State: "OPEN"}}
+	f.failPublish = errors.New("gh: HTTP 502")
+	if err := s.Handoff("author-9", "waits on review"); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.Get("author-9")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.PullRequest != "PR #10" {
+		t.Fatalf("fixture: want the handoff to have found PR #10, got %q", got.PullRequest)
+	}
+	if held, _ := f.Claims(context.Background(), "svc", "PR #10"); len(held) != 0 {
+		t.Fatalf("fixture: want no claim on PR #10 on the tracker, got %+v", held)
+	}
+	if got.Claim != nil && slices.Contains(got.Claim.Refs, "PR #10") {
+		t.Errorf("a pull request whose publish failed was kept as held: %+v", got.Claim)
 	}
 }
 

@@ -805,7 +805,7 @@ func (s *Store) restateClaim(a *Assignment) {
 		a.Claim.At = c.At
 		// A pull request found at handoff is first published here, and has to
 		// be kept like one ClaimPullRequest published once the lane moves on.
-		if pr := strings.TrimSpace(a.PullRequest); ref == pr && pr != strings.TrimSpace(a.Issue) &&
+		if pr := strings.TrimSpace(a.PullRequest); ref == pr && !sameIssue(a.Repo, pr, a.Repo, a.Issue) &&
 			!slices.Contains(a.Claim.Refs, ref) {
 			a.Claim.Refs = append(a.Claim.Refs, ref)
 		}
