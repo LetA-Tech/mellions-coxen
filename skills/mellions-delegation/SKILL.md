@@ -59,8 +59,7 @@ and `mellions-deep-research`.
 The failure to watch for is a session that says a thing is fixed because the
 diff exists. Ask what it ran, and what it saw.
 
-When a report is thin, say what is missing rather than accepting it and
-discovering the gap later.
+When a report is thin, say what is missing before building on it.
 
 ## Reviewing a peer's change set
 
@@ -73,10 +72,10 @@ nobody else will read it: an evidenced draft none reads is the shift's work
 undone. A draft's size is a measurement, not a verdict.
 
 **A review count of zero is not evidence nobody read it.** A read here is posted
-as a comment, so a change set read twice still reports `reviews: 0` — 18 of 31
-open ones across eight repositories did. Read the disposition of any read already
-there: where one returned changes requested and the head has not moved since, the
-work waiting is the remedy it named, not a second opinion.
+as a comment, so a change set read twice can still report `reviews: 0`. Read the
+disposition of any read already there: where one returned changes requested and
+the head has not moved since, the work waiting is the remedy it named, not a
+second opinion.
 
 **A change set carrying `mellions:claimed` is held.** A survey prints
 `CLAIMED`; read the claim before deciding anything. An active lane is still on
@@ -104,10 +103,11 @@ the change dropping production behaviour.
 **Then argue on the record.** Say what you established and what you could not.
 Re-run their gate and falsification locally, on the head merged into the
 target's tip: a stale branch can pass alone and break merged with no file in
-common. The tip is the one at publishing: fetch target and head again, and a
+common. At publishing, re-read the target's tip and the PR's state and head
+(`gh pr view --json state,headRefOid`; a ref read can miss a deleted head): a
 new commit that could reach what you ran is a merge you have not verified —
-re-run it, or name the commits the verdict holds for. A cited test the tree
-lacks is an account, not evidence.
+re-run it, or a review names the commits it holds for; a review of a PR no
+longer open says so. A cited test the tree lacks is an account.
 
 Then one of two, never a third:
 
