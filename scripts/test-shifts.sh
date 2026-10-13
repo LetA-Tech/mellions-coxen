@@ -748,6 +748,8 @@ start_runner "$k7home" "MELLIONS_SHIFTS_PER_DAY=9"; k7=$pid
 log="$k7home.out"
 wait_for 25 'further off than a usage window runs' "$log" \
   || bad "K7: an 8h window was honoured whole: $(tail -5 "$log")"
+wait_for 25 'no shift starts for [0-9]' "$log" \
+  || bad "K7: the runner never said how long it waits: $(tail -5 "$log")"
 w=$(grep -oE 'no shift starts for [0-9]+s' "$log" | head -1 | grep -oE '[0-9]+')
 { [ "${w:-0}" -le 21600 ] && [ "${w:-0}" -gt 21000 ]; } \
   || bad "K7: the honoured wait was ${w:-none}s, not clamped to the 6h ceiling"
