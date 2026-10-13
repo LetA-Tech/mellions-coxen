@@ -6,6 +6,7 @@ package assignment
 
 import (
 	"context"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -175,9 +176,80 @@ func TestALaneHoldingAPullRequestRefusesASecondLaneOnIt(t *testing.T) {
 	}
 }
 
-// Issues and pull requests share one number space, so "PR #200" and "#200"
-// are one tracker item whichever spelling each session used. The second open
-// is unpublished, so this disk's scan is the only guard it meets.
+// A lane that moved from one pull request to another still holds a tracker
+// claim on the first until it closes. The second open is unpublished, so this
+// disk's scan is the only guard it meets, and it must see the earlier one too,
+// under the pull request's rule rather than the issue's.
+func TestAPullRequestALaneMovedOffStillRefusesASecondLane(t *testing.T) {
+	src := gitFixture(t)
+	s, err := newStoreT(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Open(OpenOptions{
+		ID: "author-9", Repo: "svc", Issue: "#9", Source: src,
+		Objective: "fix #9", Because: "nobody has",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	for _, pr := range []string{"#10", "#12"} {
+		if err := s.ClaimPullRequest(context.Background(), "author-9", pr); err != nil {
+			t.Fatal(err)
+		}
+	}
+	a, err := s.Get("author-9")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a.PullRequest != "PR #12" || a.Claim == nil || !slices.Contains(a.Claim.Refs, "PR #10") {
+		t.Fatalf("fixture: want current PR #12 and PR #10 kept in Claim.Refs, got %q %+v", a.PullRequest, a.Claim)
+	}
+	if held, err := trackerOf(t, s).Claims(context.Background(), "svc", "PR #10"); err != nil || len(held) != 1 {
+		t.Fatalf("fixture: want the tracker still holding the claim on PR #10, got %v %v", held, err)
+	}
+
+	reader := func(id, issue string) error {
+		_, err := s.Open(OpenOptions{
+			ID: id, Repo: "svc", Issue: issue, Source: src, Unpublished: true,
+			Objective: "read " + issue, Because: "nobody has",
+		})
+		return err
+	}
+	err = reader("reader-a", "#10")
+	if err == nil {
+		t.Fatal("a lane opened on a pull request a live lane on this machine still holds a claim on")
+	}
+	for _, want := range []string{"author-9", "mellions assign get author-9", "PR #10", "-alongside"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("refusal does not name %q, so the session cannot act on it: %v", want, err)
+		}
+	}
+	if err := reader("reader-b", "#11"); err != nil {
+		t.Errorf("a number the lane never claimed was refused: %v", err)
+	}
+
+	restated := func(state string, age time.Duration) {
+		t.Helper()
+		a, err := s.Get("author-9")
+		if err != nil {
+			t.Fatal(err)
+		}
+		a.State = state
+		a.Claim.At = time.Now().Add(-age)
+		if err := s.save(a); err != nil {
+			t.Fatal(err)
+		}
+	}
+	restated(StateHandedOff, time.Hour)
+	if err := reader("reader-c", "#10"); err == nil || !strings.Contains(err.Error(), "author-9") {
+		t.Errorf("a handed-off lane whose claim stands did not hold its earlier pull request: %v", err)
+	}
+	restated(StateHandedOff, 25*time.Hour)
+	if err := reader("reader-d", "#10"); err != nil {
+		t.Errorf("a handed-off lane held its earlier pull request past the claim the sweep releases: %v", err)
+	}
+}
+
 // A lane that handed off keeps its pull request only as long as the tracker
 // honours the claim on it: once that claim is stale the sweep releases it, and
 // the local scan refuses nothing the sweep would have let through.
@@ -233,6 +305,9 @@ func TestAStoppedLaneHoldsItsPullRequestOnlyWhileItsClaimStands(t *testing.T) {
 	}
 }
 
+// Issues and pull requests share one number space, so "PR #200" and "#200"
+// are one tracker item whichever spelling each session used. The second open
+// is unpublished, so this disk's scan is the only guard it meets.
 func TestAPullRequestSpellingNamesTheSameItem(t *testing.T) {
 	src := gitFixture(t)
 	s, err := newStoreT(t.TempDir())

@@ -267,6 +267,22 @@ func (a *Assignment) claimRefs() []string {
 	return refs
 }
 
+// localRefs is every tracker item the local scan refuses a second lane on: the
+// lane's issue, its current pull request, and each pull request it published a
+// claim on earlier, which the tracker holds until the lane is released.
+func (a *Assignment) localRefs() []string {
+	refs := a.claimRefs()
+	if a.Claim == nil {
+		return refs
+	}
+	for _, r := range a.Claim.Refs {
+		if !slices.Contains(refs, r) {
+			refs = append(refs, r)
+		}
+	}
+	return refs
+}
+
 // Suspension is one interruption.
 //
 // A real engineer does not finish a low-value task while something materially
@@ -504,8 +520,8 @@ func sameIssue(aRepo, aIssue, bRepo, bIssue string) bool {
 }
 
 // issueUnclaimed refuses to open a second live lane on an issue this store
-// already holds one for, through the lane's issue or the pull request it
-// claimed.
+// already holds one for, through the lane's issue or any pull request it holds
+// a claim on.
 //
 // Until this existed, Open guarded uniqueness by assignment id alone. The issue
 // was recorded on the record and never read back, so two ids naming one issue
@@ -540,7 +556,7 @@ func (s *Store) issueUnclaimed(o OpenOptions) error {
 		if a.ID == o.ID {
 			continue
 		}
-		for _, ref := range a.claimRefs() {
+		for _, ref := range a.localRefs() {
 			if !sameIssue(a.Repo, ref, o.Repo, o.Issue) {
 				continue
 			}
