@@ -20,7 +20,7 @@ shows.
 An arm is blind only with no route to the hypothesis, the criterion or which
 arm it is; for a treated arm the edit as it will ship is the treatment, not a
 route — its diff, history and messages are — and for an untreated arm the edit
-is one. Routes include its brief and what loads with it — a forked
+is one. A route can run through its brief and what loads with it — a forked
 conversation, `CLAUDE.md`, memory, hooks, skills, its directory's path and git
 state; the lane by path, transcript or any `mellions` command; an issue, pull
 request, branch or commit stating any of them; another arm's files or
@@ -32,10 +32,10 @@ or can fetch when it runs is a route. Before any arm starts, record the
 criterion and how each arm is built; brief none with anything of the lane,
 rebuilding the conditions rather than copying them, and hand a treated arm the
 edit as a copy; house each arm apart, outside the lane and its scratch, with
-its full tool log out of its reach and kept past teardown. Label each arm in
-the proof: blind by construction where its recorded build gave it no route;
-otherwise, from its build and its log and not its own account, reachable but
-unread, or unblinded once anything it loaded, received or read carried a
-route; an arm not blind by construction with no log is unverified, counted as
-unblinded. Read a difference only between arms with the same label, never
-between unblinded ones.
+its full log kept past teardown and, where its housing allows, out of its
+reach. Label each arm in the proof: blind by construction where its recorded
+build gave it no route; otherwise, from its build and its log and not its own
+account, reachable but unread, or unblinded once anything it loaded, received
+or read carried a route; an arm not blind by construction with no log is
+unverified, counted as unblinded. Read a difference only between arms with the
+same label, never between unblinded ones.
