@@ -638,9 +638,15 @@ func (s *Store) whereHeld(c claim.Claim) string {
 		return fmt.Sprintf("That lane is on another machine, so its record is not readable from here — the issue's\n"+
 			"own %s claim is. Read it before repeating the work.", claim.Label)
 	}
-	if a, err := s.Get(c.ID); err == nil {
+	a, err := s.Get(c.ID)
+	if err == nil {
 		return fmt.Sprintf("That lane is on this machine (%s here). Read what it established before repeating it:\n"+
 			"  mellions assign get %s", a.State, a.ID)
+	}
+	if errors.Is(err, ErrDamaged) {
+		return fmt.Sprintf("That lane is on this machine, and this store's record of %s is damaged:\n"+
+			"  mellions assign get %s\nsays what survives. The issue's own %s claim is what remains to read "+
+			"before repeating the work.", c.ID, c.ID, claim.Label)
 	}
 	return fmt.Sprintf("The claim names this machine, and this store has no record of %s: the claim outlived\n"+
 		"its lane, or a second host publishes under this host's name. The issue's own %s claim is\n"+

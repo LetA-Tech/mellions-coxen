@@ -312,6 +312,21 @@ func TestATrackerClaimFromThisMachineIsReadHere(t *testing.T) {
 	if strings.Contains(err.Error(), "planted") || !strings.Contains(err.Error(), "no record of ../escape") {
 		t.Errorf("a claim id naming a path outside the store was read from it: %v", err)
 	}
+
+	// A record this store holds but cannot read is damaged, not absent.
+	if err := os.MkdirAll(filepath.Join(s.Root, "dmg"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(s.Root, "dmg", "assignment.json"), []byte(`{"id":"dm`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	f.claims[key("svc", "#47")] = []claim.Claim{{
+		ID: "dmg", Host: f.host, State: "active", At: time.Now().Add(-time.Hour),
+	}}
+	err = open("new-47", "#47")
+	if !strings.Contains(err.Error(), "record of dmg is damaged") || strings.Contains(err.Error(), "outlived") {
+		t.Errorf("a damaged record behind this host's claim is not reported as damaged: %v", err)
+	}
 }
 
 // A host that lost power mid-lane leaves a claim nothing can release. Honouring
