@@ -85,8 +85,10 @@ repository's working branch (the pin is recorded; a fallback to a local head
 says so), a branch `mellions/<id>`, and a record under
 `<report_root>/assignments/<id>/` holding the objective, the reason, and what
 was deliberately not chosen. With `-issue`, it first reads the issue's claims:
-a lane on this machine that already holds the issue is refused by name; a lane
-on another machine is refused too, because opening publishes a
+a lane on this machine that already holds the number, as its issue or as the
+pull request it claimed, is refused by name and pointed at `assign get` ("#12"
+and "PR #12" are one item); a lane on another machine is refused too, because
+opening publishes a
 `mellions:claimed` label and a comment naming the lane and its host, and a
 claim not restated within 24 hours is swept rather than obeyed. `-alongside`
 takes a held issue deliberately (reconciling two lanes); `-unpublished`

@@ -151,6 +151,10 @@ func NewTracker(owner string) *Tracker {
 	return &Tracker{Owner: owner, Host: host, Run: execRunner, now: time.Now}
 }
 
+// Machine is the host this tracker publishes claims as, for telling a claim
+// made on this machine from one made on another.
+func (t *Tracker) Machine() string { return t.Host }
+
 func (t *Tracker) clock() time.Time {
 	if t.now == nil {
 		return time.Now()
@@ -216,6 +220,14 @@ func parseRef(ref string) (verb string, n int, err error) {
 func Addressable(ref string) bool {
 	_, _, err := parseRef(ref)
 	return err == nil
+}
+
+// Item is the number a reference addresses, whichever kind it names. Issues and
+// pull requests share one number space per repository, so "#12", "12" and
+// "PR #12" are one tracker item.
+func Item(ref string) (int, error) {
+	_, n, err := parseRef(ref)
+	return n, err
 }
 
 // PullRequestRef is the canonical spelling of a pull request reference: the one

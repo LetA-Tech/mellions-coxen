@@ -48,7 +48,11 @@ export STUB_RESET_24 STUB_RESET_12
 cat > "$STUB_DIR/claude" <<'STUB'
 #!/usr/bin/env bash
 cat > /dev/null
-[ -e "$STUB_DIR/fail" ] && exit 1
+# The Nth session is held while $STUB_DIR/pin.N exists and fails while
+# $STUB_DIR/fail.N exists. One runner's shifts never overlap, so the count needs no lock.
+n=$(( $(cat "$STUB_DIR/n" 2>/dev/null || echo 0) + 1 )); echo "$n" > "$STUB_DIR/n"
+while [ -e "$STUB_DIR/pin.$n" ]; do sleep 0.1; done
+[ -e "$STUB_DIR/fail.$n" ] && exit 1
 # A runtime usage-limit refusal carries a session id, reset time and non-zero exit.
 if [ -e "$STUB_DIR/limit" ]; then
   printf '{"type":"system","session_id":"aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"}\n'
@@ -161,6 +165,11 @@ start_runner() {  # start_runner <home> ["VAR=v VAR=v"]; leaves the pid in $pid
 
 # ---- A. one runner's life ----------------------------------------------------
 home="$tmp/a"; mkdir -p "$home"; log="$home/shifts/runner.log"
+# The runner reads pause and stop only between shifts, so each is placed while
+# the shift before it is held: shift 2 holds for the pause, shift 6 for the
+# stop. Shifts 4 and 5 fail by number. No outcome below depends on this
+# script's pace against the cooldown.
+rm -f "$STUB_DIR/n"; touch "$STUB_DIR/pin.2" "$STUB_DIR/fail.4" "$STUB_DIR/fail.5" "$STUB_DIR/pin.6"
 start_runner "$home"; a=$pid
 wait_for 5 'runner start' "$log" || bad "A: the runner never started"
 
@@ -175,6 +184,8 @@ else
 fi
 [ "$(count 'runner start' "$log")" -eq 1 ] || bad "A: the refused runner wrote to the log"
 
+wait_count 20 2 'starting' "$log" || bad "A: the second shift did not start: $(tail -5 "$log")"
+touch "$home/pause"; rm "$STUB_DIR/pin.2"
 wait_count 20 2 'ended rc=0' "$log" || bad "A: two shifts did not complete: $(tail -5 "$log")"
 first=$(ls "$home"/shifts/*.prompt.md | sed -n 1p); second=$(ls "$home"/shifts/*.prompt.md | sed -n 2p)
 grep -q 'THE PREVIOUS SHIFT SAID' "$first" && bad "A: the first prompt carries a previous reply that cannot exist"
@@ -183,35 +194,28 @@ grep -q 'the stub shift replied' "$second" || bad "A: the previous reply's text 
 grep -q '^# stub survey: survey -save$' "$first" || bad "A: an ordinary shift's survey got extra arguments"
 grep -q 'cooldown 1s' "$log" || bad "A: a good shift did not log the cooldown"
 
-touch "$home/pause"
 wait_for 5 'paused:' "$log" || bad "A: pause was not noticed"
 before=$(count 'starting' "$log"); sleep 3
+[ "$before" -eq 2 ] || bad "A: expected the pause after shift 2, it came after $before: $(tail -5 "$log")"
 [ "$(count 'starting' "$log")" -eq "$before" ] || bad "A: a shift started while paused"
 [ "$(count 'paused:' "$log")" -eq 1 ] || bad "A: paused was logged more than once"
 rm "$home/pause"
 wait_for 5 'resumed:' "$log" || bad "A: resume was not noticed"
 wait_count 10 $((before + 1)) 'starting' "$log" || bad "A: no shift started after resume"
-# The shift resume just started has to actually finish before the fail switch
-# below is flipped. Touching the switch right after "starting" races that
-# shift's own (backgrounded) claude call against this script: whichever
-# reaches the switch first decides whether the shift counts as good or as a
-# third failure, which is why the count below used to read 3 or 4 good shifts
-# on different runs of the same code (#180) with nothing to notice either way.
 wait_count 15 3 'ended rc=0' "$log" || bad "A: the shift after resume did not complete: $(tail -3 "$log")"
 
-touch "$STUB_DIR/fail"
 wait_for 15 'rc=1 (empty reply); backoff 2s' "$log" || bad "A: the first failed shift did not back off to 2s: $(tail -3 "$log")"
 wait_for 15 'backoff 4s' "$log" || bad "A: the second failed shift did not double to 4s"
-rm "$STUB_DIR/fail"
+wait_count 25 6 'starting' "$log" || bad "A: no shift started after the failures: $(tail -3 "$log")"
 ok=$(count 'ended rc=0' "$log")
 [ "$ok" -eq 3 ] || bad "A: expected 3 good shifts before the forced failures, got $ok: $(tail -10 "$log")"
+touch "$home/stop"; rm "$STUB_DIR/pin.6"
 wait_count 25 $((ok + 1)) 'ended rc=0' "$log" || bad "A: no good shift after the failures"
 [ "$(count 'cooldown 1s' "$log")" -ge $((ok + 1)) ] || bad "A: a good shift did not reset the delay to the cooldown"
 
 grep -q 'shift 4 of 50 today starting — method shift: survey -repos mellions-coxen' "$log" || bad "A: the fourth shift was not the method shift"
 grep -lq 'stub survey: survey -save -repos mellions-coxen' "$home"/shifts/*.prompt.md || bad "A: no prompt carries the scoped survey"
 
-touch "$home/stop"
 wait_for 20 'runner stop:' "$log" || bad "A: the stop file did not end the loop"
 wait_gone 5 "$a" || bad "A: the runner is still alive after stop"
 [ -e "$home/shifts/runner.lock" ] && bad "A: the lock survived the stop"
@@ -220,6 +224,7 @@ good=$(count 'ended rc=0' "$log"); failed=$(count 'rc=1' "$log")
 [ "$good" -eq 4 ] || bad "A: expected 4 good shifts total, got $good: $(tail -10 "$log")"
 [ "$failed" -eq 2 ] || bad "A: expected 2 failed shifts total, got $failed: $(tail -10 "$log")"
 note "A: $good good shifts, $failed failed, one pause, one stop"
+rm -f "$STUB_DIR"/pin.* "$STUB_DIR"/fail.*
 
 # ---- B. the daily cap, counted from the files ----------------------------------
 home="$tmp/b"; mkdir -p "$home/shifts"; log="$home/shifts/runner.log"
@@ -1028,16 +1033,18 @@ cat > "$STUB_DIR/claude-o" <<'STUB'
 #!/usr/bin/env bash
 cat > /dev/null
 printenv SHELL > "$STUB_DIR/o.env" || echo '<unset>' > "$STUB_DIR/o.env"
+printf '%s|%s\n' "$(printenv USER || echo '<unset>')" "$(printenv LOGNAME || echo '<unset>')" > "$STUB_DIR/o.user"
 printf '{"type":"result","result":"ready — the stub shift replied"}\n'
 STUB
 chmod +x "$STUB_DIR/claude-o"
 run_o() {   # run_o <home> [env options and assignments...]
   local home="$1"; shift
-  : > "$STUB_DIR/o.env"
+  : > "$STUB_DIR/o.env"; : > "$STUB_DIR/o.user"
   env "$@" MELLIONS_HOME="$home" MELLIONS_BIN="$STUB_DIR/mellions" \
       CLAUDE_BIN="$STUB_DIR/claude-o" MELLIONS_PROMPT="$tmp/l-task.md" \
       "$root/scripts/shift.sh" > "$tmp/o.out" 2>&1
   saw=$(cat "$STUB_DIR/o.env")
+  user_saw=$(cat "$STUB_DIR/o.user")
 }
 
 # O1: cron's /bin/sh is replaced by the login shell.
@@ -1094,6 +1101,50 @@ grep -qF "could not be read" "$tmp/o.out" \
   || bad "O9: the login shell could not be read and the shift did not say so: $(tail -3 "$tmp/o.out")"
 
 note "O: started with cron's /bin/sh or no SHELL the session is handed the login shell, an inherited bash or zsh stands unless it cannot run or is one only by its path, and a login shell that is neither, cannot run or cannot be read is said rather than handed over"
+
+# ---- U. the account name the session is handed ------------------------------
+# cron starts a job with LOGNAME but no USER, and pgrep -u "$USER" with USER
+# empty prints its usage and matches nothing, so a footprint count reads 0.
+# The expected name is read by a different tool than the shift uses.
+mkdir -p "$tmp/u/h1" "$tmp/u/h2" "$tmp/u/h3" "$tmp/u/h4" "$tmp/u/h5" "$tmp/u/h6" "$tmp/u/idbin"
+u_name=$(whoami)
+[ -n "$u_name" ] || bad "U: whoami named no account, so nothing below can be compared"
+# An id that cannot name the account and is id for everything else.
+cat > "$tmp/u/idbin/id" <<STUB
+#!/bin/sh
+case "\$*" in *-un*|*-nu*) exit 1 ;; esac
+exec $(command -v id) "\$@"
+STUB
+chmod +x "$tmp/u/idbin/id"
+
+# U1: cron's environment, USER absent, is handed the account's name.
+run_o "$tmp/u/h1" -u USER LOGNAME="$u_name" SHELL=/bin/sh
+[ "$user_saw" = "$u_name|$u_name" ] \
+  || bad "U1: started with no USER the session was handed USER|LOGNAME='$user_saw', so pgrep -u \"\$USER\" in it matches nothing: $(tail -3 "$tmp/o.out")"
+
+# U2: an empty USER is the same case.
+run_o "$tmp/u/h2" USER= LOGNAME="$u_name" SHELL=/bin/sh
+[ "$user_saw" = "$u_name|$u_name" ] || bad "U2: started with USER empty the session was handed '$user_saw'"
+
+# U3: LOGNAME absent is handed the same way, and an inherited USER stands.
+run_o "$tmp/u/h3" -u LOGNAME USER=someone-else SHELL=/bin/sh
+[ "$user_saw" = "someone-else|$u_name" ] || bad "U3: with USER=someone-else and no LOGNAME the session was handed '$user_saw'"
+
+# U3b: an empty LOGNAME is handed over like an absent one.
+run_o "$tmp/u/h6" USER=someone-else LOGNAME= SHELL=/bin/sh
+[ "$user_saw" = "someone-else|$u_name" ] || bad "U3b: with LOGNAME empty the session was handed '$user_saw'"
+
+# U4: both inherited, both stand.
+run_o "$tmp/u/h4" USER=someone-else LOGNAME=another SHELL=/bin/sh
+[ "$user_saw" = "someone-else|another" ] || bad "U4: inherited USER and LOGNAME were replaced: '$user_saw'"
+
+# U5: an account id cannot name is said as that, and the shift still runs.
+run_o "$tmp/u/h5" -u USER -u LOGNAME SHELL=/bin/sh PATH="$tmp/u/idbin:$PATH"
+[ "$user_saw" = "<unset>|<unset>" ] || bad "U5: with no name from id the session was handed '$user_saw'"
+grep -qF "cannot name the account" "$tmp/o.out" \
+  || bad "U5: the account name could not be read and the shift did not say so: $(tail -3 "$tmp/o.out")"
+
+note "U: a session started without USER or LOGNAME, or with either empty, is handed the account's name in it; an inherited one stands; a name id cannot give is said"
 
 # make check has to run this, or everything above is about a file nothing invokes.
 grep -q 'scripts/test-\*.sh' "$root/Makefile" || bad "the Makefile does not run scripts/test-*.sh"
