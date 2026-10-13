@@ -356,6 +356,19 @@ func (s *Store) clock() time.Time {
 	return s.now()
 }
 
+// idProblem says why id cannot name an assignment. An id is a directory
+// directly under the store's root, so it is one path element and never the
+// root itself or its parent.
+func idProblem(id string) error {
+	if id == "" {
+		return errors.New("assignment: an assignment needs an id")
+	}
+	if id == "." || id == ".." || strings.ContainsAny(id, "/\\ ") {
+		return fmt.Errorf("assignment: id %q must be one name: no path separator or space, and not . or ..", id)
+	}
+	return nil
+}
+
 func (s *Store) dir(id string) string  { return filepath.Join(s.Root, id) }
 func (s *Store) file(id string) string { return filepath.Join(s.dir(id), "assignment.json") }
 
@@ -396,11 +409,8 @@ type OpenOptions struct {
 // exist is worse than no record, because a later session will trust it.
 func (s *Store) Open(o OpenOptions) (*Assignment, error) {
 	id := strings.TrimSpace(o.ID)
-	if id == "" {
-		return nil, errors.New("assignment: an assignment needs an id")
-	}
-	if strings.ContainsAny(id, "/\\ ") {
-		return nil, fmt.Errorf("assignment: id %q must not contain a path separator or space", id)
+	if err := idProblem(id); err != nil {
+		return nil, err
 	}
 	if strings.TrimSpace(o.Objective) == "" {
 		return nil, errors.New("assignment: an assignment needs an objective — what this work is for")
@@ -1209,8 +1219,12 @@ func (s *Store) write(id string, reader bool, fn func(*Assignment) error) (*Assi
 	return out, err
 }
 
-// Get loads one assignment.
+// Get loads one assignment. An id Open would refuse names no record, and is
+// never resolved as a path: a tracker claim's id is read from a comment.
 func (s *Store) Get(id string) (*Assignment, error) {
+	if err := idProblem(id); err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrNotFound, err)
+	}
 	raw, err := os.ReadFile(s.file(id))
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, fmt.Errorf("%w: %s", ErrNotFound, id)

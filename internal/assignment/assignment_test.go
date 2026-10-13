@@ -300,6 +300,33 @@ func TestOpenRefusesIncompleteWork(t *testing.T) {
 	}
 }
 
+// An id is a directory under the store's root. "." is the root and ".." its
+// parent, so neither is opened, and a path is never read as a record.
+func TestAnIDIsOneNameInTheStore(t *testing.T) {
+	repo := realRepo(t)
+	s := newStore(t)
+	for _, id := range []string{".", "..", "a/b", `a\b`, "a b"} {
+		_, err := s.Open(OpenOptions{ID: id, Source: repo, Objective: "o", Because: "b"})
+		if err == nil || !strings.Contains(err.Error(), "must be one name") {
+			t.Errorf("Open(%q) was not refused by the id rule: %v", id, err)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(s.Root, "assignment.json")); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("an open wrote a record at the store's root: %v", err)
+	}
+
+	outside := filepath.Join(s.Root, "..", "outside")
+	if err := os.MkdirAll(outside, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(outside, "assignment.json"), []byte(`{"id":"outside"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if a, err := s.Get("../outside"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("Get read a record outside the store: %+v, %v", a, err)
+	}
+}
+
 func TestDuplicateIDIsRefused(t *testing.T) {
 	repo := realRepo(t)
 	s := newStore(t)

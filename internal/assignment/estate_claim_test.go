@@ -7,6 +7,8 @@ package assignment
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -291,6 +293,24 @@ func TestATrackerClaimFromThisMachineIsReadHere(t *testing.T) {
 	err = open("new-45", "#45")
 	if !strings.Contains(err.Error(), "another machine") {
 		t.Errorf("a claim another host published is no longer reported as elsewhere: %v", err)
+	}
+
+	// A claim's id is whatever a tracker comment says, so one naming a path
+	// outside the store is never read from it.
+	outside := filepath.Join(s.Root, "..", "escape")
+	if err := os.MkdirAll(outside, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(outside, "assignment.json"),
+		[]byte(`{"id":"escape","state":"planted"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	f.claims[key("svc", "#46")] = []claim.Claim{{
+		ID: "../escape", Host: f.host, State: "active", At: time.Now().Add(-time.Hour),
+	}}
+	err = open("new-46", "#46")
+	if strings.Contains(err.Error(), "planted") || !strings.Contains(err.Error(), "no record of ../escape") {
+		t.Errorf("a claim id naming a path outside the store was read from it: %v", err)
 	}
 }
 
