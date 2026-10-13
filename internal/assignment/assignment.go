@@ -192,7 +192,8 @@ type ClaimState struct {
 	// releases also goes stale and is swept by whoever next reads the issue.
 	Stranded string `json:"stranded,omitempty"`
 	// Refs are the pull requests this lane published a claim on, kept after the
-	// lane moves to another so the claim on the earlier one is still released.
+	// lane moves to another so the claim on the earlier one is still released,
+	// and still refuses a second lane on this machine until then.
 	// An unpublished lane's work unit is never among them.
 	Refs []string `json:"refs,omitempty"`
 }
