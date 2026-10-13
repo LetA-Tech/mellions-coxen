@@ -104,10 +104,10 @@ the change dropping production behaviour.
 Re-run their gate and falsification locally, on the head merged into the
 target's tip: a stale branch can pass alone and break merged with no file in
 common. At publishing, re-read the target's tip and the PR's state and head
-(`gh pr view --json state,headRefOid`; a fetch keeps a deleted head): a new
-commit that could reach what you ran is a merge you have not verified — re-run
-it, or a review names the commits it holds for; a PR no longer open gets a
-record saying so. A cited test the tree lacks is an account.
+(`gh pr view --json state,headRefOid`; a ref read can miss a deleted head): a
+new commit that could reach what you ran is a merge you have not verified —
+re-run it, or a review names the commits it holds for; a review of a PR no
+longer open says so. A cited test the tree lacks is an account.
 
 Then one of two, never a third:
 
