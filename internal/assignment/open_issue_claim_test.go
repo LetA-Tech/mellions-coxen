@@ -140,6 +140,14 @@ func TestClosedLanesAndOtherIssuesDoNotBlock(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("two lanes claiming no issue collided with each other: %v", err)
 	}
+	if a, err := s.Get("no-issue-a"); err != nil || a.Claim != nil {
+		t.Fatalf("fixture: want a live lane holding no claim at all, got %+v %v", a, err)
+	}
+	if _, err := s.Open(OpenOptions{
+		ID: "after-no-issue", Repo: "svc", Issue: "#8", Source: src, Objective: "o", Because: "b",
+	}); err != nil {
+		t.Fatalf("a live lane holding no claim blocked an unrelated issue: %v", err)
+	}
 }
 
 // A review lane holds the draft it reads through its pull request, not its
@@ -241,6 +249,10 @@ func TestAPullRequestALaneMovedOffStillRefusesASecondLane(t *testing.T) {
 		if err := s.save(a); err != nil {
 			t.Fatal(err)
 		}
+	}
+	restated(StateActive, 25*time.Hour)
+	if err := reader("reader-e", "#10"); err == nil || !strings.Contains(err.Error(), "author-9") {
+		t.Errorf("a lane at work stopped holding its earlier pull request when its claim aged: %v", err)
 	}
 	restated(StateHandedOff, time.Hour)
 	if err := reader("reader-c", "#10"); err == nil || !strings.Contains(err.Error(), "author-9") {
