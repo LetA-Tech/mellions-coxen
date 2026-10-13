@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/LetA-Tech/mellions-coxen/internal/claim"
 )
 
 // Issue claims are unique across assignment ids; otherwise two differently
@@ -247,6 +249,55 @@ func TestAPullRequestALaneMovedOffStillRefusesASecondLane(t *testing.T) {
 	restated(StateHandedOff, 25*time.Hour)
 	if err := reader("reader-d", "#10"); err != nil {
 		t.Errorf("a handed-off lane held its earlier pull request past the claim the sweep releases: %v", err)
+	}
+}
+
+// A pull request found at handoff is published by the restate, not by
+// ClaimPullRequest. A later claim on another pull request must not drop it from
+// what the lane holds: the tracker still carries its claim.
+func TestAPullRequestFoundAtHandoffStillRefusesASecondLaneAfterTheLaneMoves(t *testing.T) {
+	src := gitFixture(t)
+	s, err := newStoreT(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	f := trackerOf(t, s)
+	a, err := s.Open(OpenOptions{
+		ID: "author-9", Repo: "svc", Issue: "#9", Source: src,
+		Objective: "fix #9", Because: "nobody has",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.prs[a.Branch] = []claim.PullRequest{{Number: 10, State: "OPEN"}}
+	if err := s.Handoff("author-9", "waits on review"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.ClaimPullRequest(context.Background(), "author-9", "#12"); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.Get("author-9")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.PullRequest != "PR #12" {
+		t.Fatalf("fixture: want current PR #12, got %q", got.PullRequest)
+	}
+	if held, err := f.Claims(context.Background(), "svc", "PR #10"); err != nil || len(held) != 1 {
+		t.Fatalf("fixture: want the tracker still holding the claim on PR #10, got %v %v", held, err)
+	}
+
+	_, err = s.Open(OpenOptions{
+		ID: "reader-a", Repo: "svc", Issue: "#10", Source: src, Unpublished: true,
+		Objective: "read #10", Because: "nobody has",
+	})
+	if err == nil {
+		t.Fatal("a lane opened on the pull request a live lane published at handoff and still holds")
+	}
+	for _, want := range []string{"author-9", "mellions assign get author-9", "PR #10"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("refusal does not name %q: %v", want, err)
+		}
 	}
 }
 
