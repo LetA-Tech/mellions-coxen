@@ -8,6 +8,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 )
 
 // Issue claims are unique across assignment ids; otherwise two differently
@@ -177,6 +178,61 @@ func TestALaneHoldingAPullRequestRefusesASecondLaneOnIt(t *testing.T) {
 // Issues and pull requests share one number space, so "PR #200" and "#200"
 // are one tracker item whichever spelling each session used. The second open
 // is unpublished, so this disk's scan is the only guard it meets.
+// A lane that handed off keeps its pull request only as long as the tracker
+// honours the claim on it: once that claim is stale the sweep releases it, and
+// the local scan refuses nothing the sweep would have let through.
+func TestAStoppedLaneHoldsItsPullRequestOnlyWhileItsClaimStands(t *testing.T) {
+	src := gitFixture(t)
+	s, err := newStoreT(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Open(OpenOptions{
+		ID: "author-300", Repo: "svc", Issue: "#300", Source: src,
+		Objective: "fix #300", Because: "nobody has",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.ClaimPullRequest(context.Background(), "author-300", "#301"); err != nil {
+		t.Fatal(err)
+	}
+	reader := func(id string) error {
+		_, err := s.Open(OpenOptions{
+			ID: id, Repo: "svc", Issue: "#301", Source: src, Unpublished: true,
+			Objective: "read #301", Because: "nobody has",
+		})
+		return err
+	}
+	restated := func(state string, age time.Duration) {
+		t.Helper()
+		a, err := s.Get("author-300")
+		if err != nil {
+			t.Fatal(err)
+		}
+		a.State = state
+		if a.Claim == nil {
+			a.Claim = &ClaimState{}
+		}
+		a.Claim.At = time.Now().Add(-age)
+		if err := s.save(a); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	restated(StateHandedOff, time.Hour)
+	if err := reader("reader-a"); err == nil || !strings.Contains(err.Error(), "author-300") {
+		t.Errorf("a handed-off lane whose claim stands did not hold its pull request: %v", err)
+	}
+	restated(StateActive, 25*time.Hour)
+	if err := reader("reader-b"); err == nil || !strings.Contains(err.Error(), "author-300") {
+		t.Errorf("a lane at work stopped holding its pull request when its claim aged: %v", err)
+	}
+	restated(StateHandedOff, 25*time.Hour)
+	if err := reader("reader-c"); err != nil {
+		t.Errorf("a handed-off lane held its pull request past the claim the sweep releases: %v", err)
+	}
+}
+
 func TestAPullRequestSpellingNamesTheSameItem(t *testing.T) {
 	src := gitFixture(t)
 	s, err := newStoreT(t.TempDir())

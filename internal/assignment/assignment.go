@@ -241,6 +241,17 @@ type Tracker interface {
 	Machine() string
 }
 
+// holdsPullRequest says whether this lane's pull request is still its own to
+// refuse a second lane on. A lane at work holds it. One that has stopped holds
+// it only while the tracker would honour its claim, so the local scan refuses
+// nothing the tracker's sweep would have released.
+func (a *Assignment) holdsPullRequest(now time.Time) bool {
+	if a.State == StateActive {
+		return true
+	}
+	return a.Claim != nil && !a.Claim.At.IsZero() && now.Sub(a.Claim.At) <= claim.StaleAfter
+}
+
 // claimRefs is every tracker item this lane holds.
 //
 // One ClaimState covers both: it is one lane, on one host, publishing at one
@@ -524,12 +535,16 @@ func (s *Store) issueUnclaimed(o OpenOptions) error {
 	if err != nil {
 		return nil // a store that cannot be listed is not evidence the issue is claimed
 	}
+	now := s.clock()
 	for _, a := range live {
 		if a.ID == o.ID {
 			continue
 		}
 		for _, ref := range a.claimRefs() {
 			if !sameIssue(a.Repo, ref, o.Repo, o.Issue) {
+				continue
+			}
+			if ref != strings.TrimSpace(a.Issue) && !a.holdsPullRequest(now) {
 				continue
 			}
 			return fmt.Errorf("assignment: %s %s is already claimed by %s (%s) on this machine, "+
