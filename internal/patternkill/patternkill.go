@@ -31,9 +31,6 @@ import (
 func Find(command string) string {
 	cmds := shellsplit.Split(command)
 	for i, c := range cmds {
-		if len(c.Words) > 1 && c.Words[0] == "command" && (c.Words[1] == "-v" || c.Words[1] == "-V") {
-			continue
-		}
 		words := shellsplit.Program(c.Words)
 		if len(words) == 0 {
 			continue
