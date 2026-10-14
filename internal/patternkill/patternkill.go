@@ -15,6 +15,7 @@ package patternkill
 
 import (
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/LetA-Tech/mellions-coxen/internal/shellsplit"
@@ -180,20 +181,41 @@ func pidScoped(args []string) bool {
 }
 
 // bounding reports that every element of a comma-separated selection value
-// names a specific family. 0 for a session or group is the caller's own, and
+// names a specific family, compared as a number, and that the value is not
+// the output of a lookup by name. 0 for a session or group is the caller's own, and
 // in a Bash tool call so is $$: the shell issuing the command, which the
 // selection then takes. 1 is init, parent of every orphan on the host.
 func bounding(opt, val string) bool {
 	if val == "" {
 		return false
 	}
+	if lookupIn(val) {
+		return false
+	}
 	own := opt == "s" || opt == "g" || opt == "session" || opt == "pgroup"
 	for _, v := range strings.Split(val, ",") {
-		if v == "" || v == "0" || v == "1" || (own && (v == "$$" || v == "${$}")) {
+		n, err := strconv.Atoi(v)
+		if v == "" || (err == nil && (n == 0 || n == 1)) || (own && (v == "$$" || v == "${$}")) {
 			return false
 		}
 	}
 	return true
+}
+
+// lookupIn reports a word that carries the output of a lookup by name or
+// pattern in a `$( )` anywhere in it: `"$(pgrep -f x)"`, `-$(pgrep -f x)`.
+func lookupIn(word string) bool {
+	i := strings.Index(word, "$(")
+	if i < 0 || strings.HasPrefix(word[i:], "$((") {
+		return false
+	}
+	inner := strings.TrimRight(word[i+2:], ")\"'")
+	for _, c := range shellsplit.Split(inner) {
+		if lookup(shellsplit.Program(c.Words)) {
+			return true
+		}
+	}
+	return false
 }
 
 // signals are the signal names kill(1) and pkill accept, without "SIG".
@@ -224,26 +246,27 @@ func signal(cluster string) bool {
 }
 
 // everyProcess reports kill arguments that target pid -1: `-1` after a signal
-// option or after `--` (`kill -9 -1`, `kill -- -1`). As the first argument
+// option, after `--` or after a first operand, where kill reads no more
+// options (`kill -9 -1`, `kill -- -1`, `kill 1234 -1`). As the first argument
 // `-1` is itself a signal, SIGHUP.
 func everyProcess(args []string) bool {
 	signalled, ended := false, false
 	for i := 0; i < len(args); i++ {
 		a := args[i]
+		if n, err := strconv.Atoi(a); err == nil && n == -1 && (ended || signalled) {
+			return true
+		}
 		switch {
-		case ended || signalled:
-			if a == "-1" {
-				return true
-			}
-			if a == "--" {
-				ended = true
-			}
+		case ended:
 		case a == "--":
 			ended = true
+		case !strings.HasPrefix(a, "-"):
+			ended = true
+		case signalled:
 		case a == "-s" || a == "-n":
 			i++
 			signalled = true
-		case strings.HasPrefix(a, "-"):
+		default:
 			signalled = true
 		}
 	}
@@ -283,8 +306,8 @@ func fedByName(args []string) bool {
 	for i, a := range args {
 		var inner string
 		switch {
-		case strings.HasPrefix(a, "$(") && !strings.HasPrefix(a, "$(("):
-			inner = strings.TrimSuffix(a[2:], ")")
+		case lookupIn(a):
+			return true
 		case strings.HasPrefix(a, "`"):
 			inner = strings.TrimPrefix(strings.Join(args[i:], " "), "`")
 			if j := strings.IndexByte(inner, '`'); j >= 0 {
