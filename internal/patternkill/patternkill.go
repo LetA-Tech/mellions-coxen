@@ -144,21 +144,30 @@ func bounding(val string) bool {
 	return val != "" && val != "0" && val != "1"
 }
 
-// signal reports a signal given as an option: `-9`, `-KILL`, `-SIGTERM`.
+// signals are the signal names kill(1) and pkill accept, without "SIG".
+var signals = map[string]bool{
+	"HUP": true, "INT": true, "QUIT": true, "ILL": true, "TRAP": true, "ABRT": true, "IOT": true,
+	"BUS": true, "FPE": true, "KILL": true, "USR1": true, "SEGV": true, "USR2": true, "PIPE": true,
+	"ALRM": true, "TERM": true, "STKFLT": true, "CHLD": true, "CLD": true, "CONT": true, "STOP": true,
+	"TSTP": true, "TTIN": true, "TTOU": true, "URG": true, "XCPU": true, "XFSZ": true, "VTALRM": true,
+	"PROF": true, "WINCH": true, "POLL": true, "IO": true, "PWR": true, "SYS": true, "UNUSED": true,
+	"RTMIN": true, "RTMAX": true,
+}
+
+// signal reports a signal given as an option: `-9`, `-KILL`, `-SIGTERM`,
+// `-RTMIN+1`. `-P1234` is a parent pid, not a signal.
 func signal(cluster string) bool {
 	if cluster == "" {
 		return false
 	}
-	digits, upper := true, len(cluster) >= 2
-	for _, r := range cluster {
-		if r < '0' || r > '9' {
-			digits = false
-		}
-		if (r < 'A' || r > 'Z') && (r < '0' || r > '9') && r != '+' && r != '-' {
-			upper = false
-		}
+	if strings.Trim(cluster, "0123456789") == "" {
+		return true
 	}
-	return digits || upper
+	name := strings.TrimPrefix(cluster, "SIG")
+	if i := strings.IndexAny(name, "+-"); i > 0 && strings.HasPrefix(name, "RT") {
+		name = name[:i]
+	}
+	return signals[name]
 }
 
 // inert reports killall arguments that list or version and signal nothing.
