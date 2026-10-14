@@ -34,12 +34,12 @@ test.
 Revert every part of the fix at once and watch the named tests fail. A complete
 revert that stays green has four readings, the third pointing at deleting the
 test: the edit did not land — read it where the test reads (off disk, in the
-database) before and after the run: an edit that no-ops (a `sed` matching
-nothing) or that the run restores (`-mod=mod`, `--fix`) reads like a pass; the
-tests never reach the fix; the fix is idle; or a part of the same revert removed
-the condition the test needs — where one half of a fix creates the state the
-other half's defect lives in, each half wants its own arm. Revert half of a fix
-alone and the half left standing can hold the test green, proving neither.
+database) before and after the run, as an edit that no-ops (a `sed` matching
+nothing) or that the run restores (`-mod=mod`, `--fix`, setup) reads like a
+pass; the tests never reach the fix; the fix is idle; or a part of the same
+revert removed the condition the test needs — where one half of a fix creates
+the state the other half's defect lives in, each half wants its own arm. Revert
+one half alone and the other can hold the test green, proving neither.
 
 Read the red: a wide revert can fail short of the assertion — a build break, a
 panic in a helper — or trip it by a mechanism you did not test. The red that
@@ -65,8 +65,8 @@ run a case it must admit; left admitting all, one it must refuse. A test cited
 as this fix's proof that is red under no arm is not evidence for it. An arm that
 reds nothing neutralised nothing a test can see: any reading above, the tests
 did not run (a skip, a build tag, a `-run` filter, a cache that did not
-fingerprint what you changed), the test is missing, or another path still
-supplies what you removed — a second grant, an inherited role, PUBLIC,
+fingerprint your edit), the code is dead, the test is missing, or another path
+still supplies what you removed — a second grant, an inherited role, PUBLIC,
 ownership, a fallback. Read what production holds, from its catalog or live
 grants: if it has that path, this test cannot be evidence for the fix; if only
 the test setup has it, correct the setup in the tree you publish, then rerun the
