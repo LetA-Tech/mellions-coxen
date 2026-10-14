@@ -33,13 +33,13 @@ test.
 
 Revert every part of the fix at once and watch the named tests fail. A complete
 revert that stays green has four readings, the third pointing at deleting the
-test: the edit did not land — confirm it where the test reads (off disk, in the
-database), since an edit that no-ops (a `sed` that matched nothing, an
-unexpanded variable) reads exactly like a pass; the tests never reach the fix;
-the fix is idle; or a part of the same revert removed the condition the test
-needs — where one half of a fix creates the state the other half's defect lives
-in, each half wants its own arm. Revert half of a fix alone and the half
-left standing can hold the test green, proving neither.
+test: the edit did not land — read it where the test reads (off disk, in the
+database) before and after the run: an edit that no-ops (a `sed` matching
+nothing) or that the run restores (`-mod=mod`, `--fix`) reads like a pass; the
+tests never reach the fix; the fix is idle; or a part of the same revert removed
+the condition the test needs — where one half of a fix creates the state the
+other half's defect lives in, each half wants its own arm. Revert half of a fix
+alone and the half left standing can hold the test green, proving neither.
 
 Read the red: a wide revert can fail short of the assertion — a build break, a
 panic in a helper — or trip it by a mechanism you did not test. The red that
@@ -53,27 +53,25 @@ a one-process test never meets what breaks it.
 
 Where the fix deletes an exemption a check honoured — a `nolint`, a skip, an
 allow-list entry — the complete revert restores the exemption and is green on
-purpose. Keep it gone and revert only
-the code that now satisfies the check: it must go red.
+purpose. Keep it gone and revert only the code that now satisfies the check: it
+must go red.
 
-With more than one arm, read which named tests went red under which arm. An
-arm that must be green and reds condemns the batch, not itself:
-the cause is usually shared — a column every insert omits, a header every
-request lacks — so no red beside it counts until the accepted case is green.
-Run each arm where the neutralised code errs: a gate left refusing all keeps
-refusal tests green, so run a case it must admit; left admitting all, one it
-must refuse. A test cited as this fix's proof that is red under no arm is not
-evidence for it. An arm that reds nothing neutralised nothing a
-test can see: the neutralisation did not land, the tests did not run (a
-skip, a build tag, a `-run` filter, a cache that did not fingerprint what you
-changed), the code is dead, the test is missing, or another path still
+With more than one arm, read which named tests went red under which arm. An arm
+that must be green and reds condemns the batch, not itself: the cause is usually
+shared — a column every insert omits, a header every request lacks — so no red
+beside it counts until the accepted case is green. Run each arm where the
+neutralised code errs: a gate left refusing all keeps refusal tests green, so
+run a case it must admit; left admitting all, one it must refuse. A test cited
+as this fix's proof that is red under no arm is not evidence for it. An arm that
+reds nothing neutralised nothing a test can see: any reading above, the tests
+did not run (a skip, a build tag, a `-run` filter, a cache that did not
+fingerprint what you changed), the test is missing, or another path still
 supplies what you removed — a second grant, an inherited role, PUBLIC,
 ownership, a fallback. Read what production holds, from its catalog or live
-grants: if it has that path, this test cannot be evidence for the fix; if
-only the test setup has it, correct the setup in the tree you publish, then
-rerun the plain arm. An arm that neutralises an
-optimisation legitimately reds nothing; a timing assertion added to red it is
-worse than none.
+grants: if it has that path, this test cannot be evidence for the fix; if only
+the test setup has it, correct the setup in the tree you publish, then rerun the
+plain arm. An arm that neutralises an optimisation legitimately reds nothing; a
+timing assertion added to red it is worse than none.
 
 ## What a red or a green can still hide
 
