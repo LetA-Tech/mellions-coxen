@@ -23,7 +23,7 @@ func TestFindRefusesASignalChosenByNameOrPattern(t *testing.T) {
 		`pkill -s 0`:                                              `pkill -s 0`,
 		`pkill -g 0 -f x`:                                         `pkill -g 0 -f x`,
 		`pkill -P 1 -f x`:                                         `pkill -P 1 -f x`,
-		`pkill -f -- -P`:                                          `pkill -f -- -P`,
+		`pkill -f -- -P1234`:                                      `pkill -f -- -P1234`,
 		`sleep 1; timeout 5 pkill -f x || true`:                   `pkill -f x`,
 		`sudo pkill -f x`:                                         `pkill -f x`,
 		`killall go`:                                              `killall go`,
