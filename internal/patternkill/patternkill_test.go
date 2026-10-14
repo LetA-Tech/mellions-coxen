@@ -16,6 +16,8 @@ func TestFindRefusesASignalChosenByNameOrPattern(t *testing.T) {
 		`pkill -f lint-gate.sh -u 1000`:                           `pkill -f lint-gate.sh -u 1000`,
 		`pkill golangci-lint`:                                     `pkill golangci-lint`,
 		`pkill -9 -f 'go test'`:                                   `pkill -9 -f go test`,
+		`pkill -PIPE -f gate`:                                     `pkill -PIPE -f gate`,
+		`pkill -SIGPROF golangci-lint`:                            `pkill -SIGPROF golangci-lint`,
 		`pkill -KILL -x postgres`:                                 `pkill -KILL -x postgres`,
 		`pkill -u leta`:                                           `pkill -u leta`,
 		`pkill -s 0`:                                              `pkill -s 0`,
