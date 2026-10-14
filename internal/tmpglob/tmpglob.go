@@ -47,7 +47,7 @@ func tmpdirVar(s string) bool {
 func Find(command, cwd string) string {
 	dir := cwd
 	for _, c := range shellsplit.Split(command) {
-		words := strip(c.Words)
+		words := shellsplit.Program(c.Words)
 		if len(words) == 0 {
 			continue
 		}
@@ -82,60 +82,6 @@ func Reason(operand string) string {
 		"`mktemp` names every session's scratch the same way, so the glob matches other sessions' files and directories — " +
 		"what harnesses and test runs are reading now — and nothing reports what was taken.\n\n" +
 		"Delete the exact paths this turn created: keep what `mktemp` printed (`f=$(mktemp)`, `d=$(mktemp -d)`) and remove `\"$f\"` or `\"$d\"`."
-}
-
-// prefixes run the command after them: shell keywords that open a body, and
-// wrappers whose own flags and counts come before it.
-var prefixes = map[string]bool{
-	"do": true, "then": true, "else": true, "{": true, "!": true,
-	"sudo": true, "command": true, "exec": true, "nice": true, "env": true,
-	"time": true, "timeout": true, "nohup": true,
-}
-
-// valued are the wrapper options whose value is the next word, so the value is
-// not read as the command: `sudo -u x rm`, `timeout -s KILL 60 rm`.
-var valued = map[string]map[string]bool{
-	"sudo":    {"-u": true, "-g": true, "-C": true, "-D": true, "-h": true, "-p": true, "-r": true, "-t": true, "-U": true, "-T": true},
-	"timeout": {"-s": true, "-k": true},
-	"nice":    {"-n": true},
-	"env":     {"-u": true, "-C": true},
-}
-
-// strip drops the prefixes that run rm without being rm.
-func strip(words []string) []string {
-	wrapper := ""
-	for len(words) > 0 {
-		w := strings.TrimLeft(words[0], "(")
-		switch {
-		case w == "":
-			words = words[1:]
-		case prefixes[w]:
-			words, wrapper = words[1:], w
-		case strings.Contains(w, "=") && !strings.HasPrefix(w, "-"):
-			words = words[1:]
-		case wrapper != "" && valued[wrapper][w] && len(words) > 1:
-			words = words[2:]
-		case wrapper != "" && (strings.HasPrefix(w, "-") || count(w)):
-			words = words[1:]
-		default:
-			return append([]string{w}, words[1:]...)
-		}
-	}
-	return words
-}
-
-// count reports a wrapper argument such as timeout's `60` or `5s`.
-func count(w string) bool {
-	w = strings.TrimRight(w, "smhd")
-	if w == "" {
-		return false
-	}
-	for _, r := range w {
-		if (r < '0' || r > '9') && r != '.' {
-			return false
-		}
-	}
-	return true
 }
 
 // operands returns rm's operands: every argument that is not an option, and
