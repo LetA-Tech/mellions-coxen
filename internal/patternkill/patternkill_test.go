@@ -12,7 +12,7 @@ import (
 func TestFindRefusesASignalChosenByNameOrPattern(t *testing.T) {
 	for cmd, want := range map[string]string{
 		`pkill -f "go test ./..." -u $(id -u)`:                    `pkill -f go test ./... -u $(id -u)`,
-		`pkill -f /home/x/run-required.sh; pkill -f lint-gate.sh`: `pkill -f /home/x/run-required.sh`,
+		`pkill -f scratch/run-required.sh; pkill -f lint-gate.sh`: `pkill -f scratch/run-required.sh`,
 		`pkill -f lint-gate.sh -u 1000`:                           `pkill -f lint-gate.sh -u 1000`,
 		`pkill golangci-lint`:                                     `pkill golangci-lint`,
 		`pkill -9 -f 'go test'`:                                   `pkill -9 -f go test`,
