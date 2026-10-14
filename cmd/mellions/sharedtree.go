@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/LetA-Tech/mellions-coxen/internal/assignment"
+	"github.com/LetA-Tech/mellions-coxen/internal/patternkill"
 	"github.com/LetA-Tech/mellions-coxen/internal/pluginreg"
 	"github.com/LetA-Tech/mellions-coxen/internal/sharedtree"
 	"github.com/LetA-Tech/mellions-coxen/internal/tmpglob"
@@ -20,8 +21,9 @@ import (
 
 // cmdSharedTreeCheck reads a PreToolUse payload on stdin and denies a Bash
 // call that runs a tree-mutating git command inside a checkout this
-// installation cuts lanes from, or deletes a glob over a temporary root every
-// session shares, and a file-writing tool call by a session holding an
+// installation cuts lanes from, deletes a glob over a temporary root every
+// session shares, or signals processes chosen by name or pattern, and a
+// file-writing tool call by a session holding an
 // assignment into such a checkout or the load path. Everything else is silence.
 func cmdSharedTreeCheck(args []string) error {
 	fs := newFlagSet("shared-tree-check", flag.ContinueOnError)
@@ -35,12 +37,13 @@ func cmdSharedTreeCheck(args []string) error {
 		guardUsage("shared-tree-check", "It denies a tree-mutating git command aimed at a "+
 			"checkout this installation cuts lanes from, and names the read that answers "+
 			"the same question; an rm that globs directly under a temporary root every "+
-			"session shares (/tmp, /var/tmp, /dev/shm, $TMPDIR); and an Edit, Write, "+
+			"session shares (/tmp, /var/tmp, /dev/shm, $TMPDIR); a pkill, killall or kill "+
+			"that chooses processes by name or pattern rather than by a pid; and an Edit, Write, "+
 			"MultiEdit or NotebookEdit by a session holding an assignment into such a "+
 			"checkout or the load path, naming the same file in its lane.")
 		return nil
 	}
-	reason := tmpglobDeny(payload)
+	reason := bashDeny(payload)
 	if reason == "" {
 		cfg, err := loadConfig(*cfgPath)
 		if err != nil {
@@ -60,9 +63,10 @@ func cmdSharedTreeCheck(args []string) error {
 	return enc.Encode(d)
 }
 
-// tmpglobDeny returns the reason to refuse a Bash payload that deletes a glob
-// over a temporary root every session shares, or "".
-func tmpglobDeny(payload []byte) string {
+// bashDeny returns the reason to refuse a Bash payload that deletes a glob
+// over a temporary root every session shares, or signals processes chosen by
+// name or pattern, or "".
+func bashDeny(payload []byte) string {
 	var ev struct {
 		ToolName string `json:"tool_name"`
 		Cwd      string `json:"cwd"`
@@ -75,6 +79,9 @@ func tmpglobDeny(payload []byte) string {
 	}
 	if op := tmpglob.Find(ev.Input.Command, ev.Cwd); op != "" {
 		return tmpglob.Reason(op)
+	}
+	if cmd := patternkill.Find(ev.Input.Command); cmd != "" {
+		return patternkill.Reason(cmd)
 	}
 	return ""
 }

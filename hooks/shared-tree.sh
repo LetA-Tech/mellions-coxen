@@ -21,6 +21,11 @@
 # session's scratch alike, so the glob takes other sessions' files or
 # directories with it.
 #
+# And it refuses a signal sent by name or pattern (`pkill -f X`, `killall X`,
+# `kill $(pgrep -f X)`): every session here runs as one user, so the match
+# reaches other sessions' processes, and `pkill -f X` takes the shell issuing
+# it. A pid the turn recorded, or `pkill -P <pid>`, passes.
+#
 # Which directory a command line leaves the shell in, which invocations are
 # git, which tree each one is aimed at and whether its verb writes — none of
 # that is a search over the payload, so it lives in the binary, where it is a
