@@ -1,6 +1,7 @@
 package assignment
 
 import (
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -222,4 +223,53 @@ func TestAdoptIntoASessionMadeLaneTightensTheScratchsAncestry(t *testing.T) {
 	}
 	a := mustOpen(t, s, OpenOptions{ID: "apre", Repo: "r", Source: repo, Objective: "o", Because: "b", Worktree: tree})
 	assertAncestryOwnerOnly(t, a.Scratch, s.Root)
+}
+
+// adoptFailingOnPublish adopts a fresh tree into lane id while the tracker
+// refuses the claim, so the open fails after the scratch was made.
+func adoptFailingOnPublish(t *testing.T, s *Store, repo, id string) (OpenOptions, error) {
+	t.Helper()
+	tree := filepath.Join(t.TempDir(), "adopted")
+	if out, err := exec.Command("git", "-C", repo, "worktree", "add", "-b", "lane/"+id, tree).CombinedOutput(); err != nil {
+		t.Fatalf("worktree add: %s", out)
+	}
+	trackerOf(t, s).failPublish = errors.New("gh: HTTP 403 (issues are disabled)")
+	o := OpenOptions{ID: id, Repo: "r", Issue: "#9", Source: repo, Objective: "o", Because: "b", Worktree: tree}
+	_, err := s.Open(o)
+	return o, err
+}
+
+// An adoption that fails into a lane place it did not make leaves no scratch
+// it made there, and the id opens afterwards.
+func TestAFailedAdoptionLeavesNoScratchItMade(t *testing.T) {
+	repo := realRepo(t)
+	s := newStore(t)
+	if err := os.MkdirAll(s.dir("adf"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	o, err := adoptFailingOnPublish(t, s, repo, "adf")
+	if err == nil {
+		t.Fatal("adopted with a claim the tracker refused")
+	}
+	if _, err := os.Stat(filepath.Join(s.dir("adf"), "scratch")); !os.IsNotExist(err) {
+		t.Fatalf("a failed adoption left its scratch behind (stat: %v)", err)
+	}
+	trackerOf(t, s).failPublish = nil
+	mustOpen(t, s, o)
+}
+
+// An adoption that fails keeps a scratch that was already there.
+func TestAFailedAdoptionKeepsAScratchItDidNotMake(t *testing.T) {
+	repo := realRepo(t)
+	s := newStore(t)
+	theirs := filepath.Join(s.dir("adk"), "scratch")
+	if err := os.MkdirAll(theirs, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := adoptFailingOnPublish(t, s, repo, "adk"); err == nil {
+		t.Fatal("adopted with a claim the tracker refused")
+	}
+	if _, err := os.Stat(theirs); err != nil {
+		t.Fatalf("a failed adoption removed a scratch it did not make: %v", err)
+	}
 }

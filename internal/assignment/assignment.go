@@ -1519,8 +1519,8 @@ func (s *Store) Take(id string) (*Assignment, error) {
 	})
 }
 
-// keepScratch gives a lane being continued the scratch an open makes now, so
-// one a session made group-writable before assign open made it is tightened.
+// keepScratch makes a continued lane's scratch as an open does, tightening one
+// a session made.
 func (s *Store) keepScratch(a *Assignment) error {
 	dir, _, err := s.makeScratch(a.ID)
 	if err != nil {
@@ -1546,6 +1546,9 @@ func (s *Store) Reopen(id string) (*Assignment, error) {
 		default:
 			return fmt.Errorf("assignment: %s is %s; a %s lane is not reopened, a new assignment is opened", id, a.State, a.State)
 		}
+		if err := s.keepScratch(a); err != nil {
+			return err
+		}
 		if a.Worktree != "" && a.Source != "" {
 			if _, err := os.Stat(filepath.Join(a.Worktree, ".git")); err != nil {
 				os.RemoveAll(a.Worktree)
@@ -1554,9 +1557,6 @@ func (s *Store) Reopen(id string) (*Assignment, error) {
 					return fmt.Errorf("assignment: %s: re-cut the worktree from %s: %w", id, a.Branch, err)
 				}
 			}
-		}
-		if err := s.keepScratch(a); err != nil {
-			return err
 		}
 		a.State = StateActive
 		return nil
