@@ -29,7 +29,7 @@ func assertOwnerOnly(t *testing.T, dir string) {
 		t.Fatalf("%s is not a directory", dir)
 	}
 	if perm := info.Mode().Perm(); perm&0o022 != 0 {
-		t.Fatalf("the lane's scratch %s is mode %o: a check that refuses a writable ancestor of its temporary directory fails under it", dir, perm)
+		t.Fatalf("%s is mode %o: a check that refuses a group- or other-writable ancestor of its temporary directory fails under the lane's scratch", dir, perm)
 	}
 }
 
