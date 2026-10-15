@@ -140,6 +140,9 @@ type Assignment struct {
 	// Adopted marks a worktree and branch that something else created. They
 	// are recorded, never removed: close and abandon leave them in place.
 	Adopted bool `json:"adopted,omitempty"`
+	// Scratch is the lane's own temporary root, beside its record, with no
+	// group or other write (see makeScratch). Empty when the record names none.
+	Scratch string `json:"scratch,omitempty"`
 
 	State     string    `json:"state"`
 	OpenedAt  time.Time `json:"opened_at"`
@@ -890,6 +893,17 @@ func (s *Store) create(id string, o OpenOptions, ours bool) (*Assignment, error)
 	if err := os.MkdirAll(s.dir(id), 0o755); err != nil {
 		return nil, fmt.Errorf("assignment: create %s: %w", s.dir(id), err)
 	}
+	scratch, made, err := s.makeScratch(id)
+	if err != nil {
+		s.discard(id, ours)
+		return nil, err
+	}
+	opened := false
+	defer func() {
+		if made && !opened {
+			os.Remove(scratch)
+		}
+	}()
 
 	base, pin := s.baseFor(o.Source, o.BaseRef)
 	if base == "" {
@@ -926,7 +940,8 @@ func (s *Store) create(id string, o OpenOptions, ours bool) (*Assignment, error)
 		ID: id, Repo: o.Repo, Issue: o.Issue, Register: s.register(o.Repo),
 		Objective: o.Objective, Because: o.Because, NotChosen: o.NotChosen,
 		Branch: branch, Worktree: worktree, Source: o.Source, Base: base, BasePin: pin,
-		State: StateActive, OpenedAt: now, UpdatedAt: now, Budget: o.Budget,
+		Scratch: scratch,
+		State:   StateActive, OpenedAt: now, UpdatedAt: now, Budget: o.Budget,
 	}
 	undo := func() {
 		s.Git(o.Source, "worktree", "remove", "--force", worktree)
@@ -942,6 +957,7 @@ func (s *Store) create(id string, o OpenOptions, ours bool) (*Assignment, error)
 		undo()
 		return nil, err
 	}
+	opened = true
 	return a, nil
 }
 
@@ -1102,6 +1118,53 @@ func (s *Store) resolveRemoteBranch(source, local, remote, branch string) (base,
 	return base, pin
 }
 
+// makeScratch makes <lane>/scratch at 0700 and removes group and other write
+// from it, the lane's directory and the store root: the ancestry a check such
+// as hipsys's deploy reader walks. made reports whether this call created it.
+func (s *Store) makeScratch(id string) (dir string, made bool, err error) {
+	dir = filepath.Join(s.dir(id), "scratch")
+	if err := os.Mkdir(dir, 0o700); err == nil {
+		made = true
+	} else if !os.IsExist(err) {
+		return "", false, fmt.Errorf("assignment: create %s: %w", dir, err)
+	}
+	for _, d := range []struct {
+		path   string
+		follow bool
+	}{{dir, false}, {s.dir(id), true}, {s.Root, true}} {
+		if err := noGroupWrite(d.path, d.follow); err != nil {
+			if made {
+				os.Remove(dir)
+			}
+			return "", false, err
+		}
+	}
+	return dir, made, nil
+}
+
+// noGroupWrite removes group and other write from a directory. A scratch that
+// is a symlink is refused rather than followed; the lane and store directories
+// are followed.
+func noGroupWrite(dir string, follow bool) error {
+	stat := os.Lstat
+	if follow {
+		stat = os.Stat
+	}
+	info, err := stat(dir)
+	if err != nil {
+		return fmt.Errorf("assignment: read %s: %w", dir, err)
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("assignment: %s exists and is not a directory", dir)
+	}
+	if perm := info.Mode().Perm(); perm&0o022 != 0 {
+		if err := os.Chmod(dir, perm&^0o022); err != nil {
+			return fmt.Errorf("assignment: remove group/other write from %s: %w", dir, err)
+		}
+	}
+	return nil
+}
+
 // discard removes the lane's directory on the way out of a failed open, when
 // this open made it.
 func (s *Store) discard(id string, ours bool) {
@@ -1146,12 +1209,24 @@ func (s *Store) adopt(id string, o OpenOptions, ours bool) (*Assignment, error) 
 	if mb, err := s.Git(o.Source, "merge-base", "HEAD", base); err == nil && strings.TrimSpace(string(mb)) != "" {
 		base = strings.TrimSpace(string(mb))
 	}
+	scratch, made, err := s.makeScratch(id)
+	if err != nil {
+		s.discard(id, ours)
+		return nil, err
+	}
+	opened := false
+	defer func() {
+		if made && !opened {
+			os.Remove(scratch)
+		}
+	}()
 	now := s.clock()
 	a := &Assignment{
 		ID: id, Repo: o.Repo, Issue: o.Issue, Register: s.register(o.Repo),
 		Objective: o.Objective, Because: o.Because, NotChosen: o.NotChosen,
 		Branch: branch, Worktree: tree, Source: o.Source, Base: base, Adopted: true,
-		State: StateActive, OpenedAt: now, UpdatedAt: now, Budget: o.Budget,
+		Scratch: scratch,
+		State:   StateActive, OpenedAt: now, UpdatedAt: now, Budget: o.Budget,
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
@@ -1164,6 +1239,7 @@ func (s *Store) adopt(id string, o OpenOptions, ours bool) (*Assignment, error) 
 		s.discard(id, ours)
 		return nil, err
 	}
+	opened = true
 	return a, nil
 }
 
@@ -1439,8 +1515,19 @@ func (s *Store) Take(id string) (*Assignment, error) {
 		if a.State != StateActive {
 			return fmt.Errorf("assignment: %s is %s, not active", id, a.State)
 		}
-		return nil
+		return s.keepScratch(a)
 	})
+}
+
+// keepScratch makes a continued lane's scratch as an open does, tightening one
+// a session made.
+func (s *Store) keepScratch(a *Assignment) error {
+	dir, _, err := s.makeScratch(a.ID)
+	if err != nil {
+		return err
+	}
+	a.Scratch = dir
+	return nil
 }
 
 // Reopen takes handed-off or blocked work back into progress, re-cutting the
@@ -1458,6 +1545,9 @@ func (s *Store) Reopen(id string) (*Assignment, error) {
 			return fmt.Errorf("assignment: %s is already active", id)
 		default:
 			return fmt.Errorf("assignment: %s is %s; a %s lane is not reopened, a new assignment is opened", id, a.State, a.State)
+		}
+		if err := s.keepScratch(a); err != nil {
+			return err
 		}
 		if a.Worktree != "" && a.Source != "" {
 			if _, err := os.Stat(filepath.Join(a.Worktree, ".git")); err != nil {
@@ -1886,6 +1976,9 @@ func (a Assignment) Text(now time.Time) string {
 		if a.BasePin != "" {
 			fmt.Fprintf(&b, "- base: %s\n", a.BasePin)
 		}
+	}
+	if a.Scratch != "" {
+		fmt.Fprintf(&b, "- scratch: %s (no group or other write, nor on its parents up to the store; point TMPDIR or GOTMPDIR here rather than making another)\n", a.Scratch)
 	}
 	fmt.Fprintf(&b, "- open: %s\n", humanDuration(a.Age(now)))
 	if a.Register != "" {
