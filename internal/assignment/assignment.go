@@ -1496,8 +1496,19 @@ func (s *Store) Take(id string) (*Assignment, error) {
 		if a.State != StateActive {
 			return fmt.Errorf("assignment: %s is %s, not active", id, a.State)
 		}
-		return nil
+		return s.keepScratch(a)
 	})
+}
+
+// keepScratch gives a lane being continued the scratch an open makes now, so
+// one a session made group-writable before assign open made it is tightened.
+func (s *Store) keepScratch(a *Assignment) error {
+	dir, _, err := s.makeScratch(a.ID)
+	if err != nil {
+		return err
+	}
+	a.Scratch = dir
+	return nil
 }
 
 // Reopen takes handed-off or blocked work back into progress, re-cutting the
@@ -1524,6 +1535,9 @@ func (s *Store) Reopen(id string) (*Assignment, error) {
 					return fmt.Errorf("assignment: %s: re-cut the worktree from %s: %w", id, a.Branch, err)
 				}
 			}
+		}
+		if err := s.keepScratch(a); err != nil {
+			return err
 		}
 		a.State = StateActive
 		return nil

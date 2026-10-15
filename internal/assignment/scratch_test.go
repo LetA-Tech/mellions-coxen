@@ -117,3 +117,58 @@ func TestAFailedOpenLeavesNoScratchInAPlaceItDidNotMake(t *testing.T) {
 	}
 	mustOpen(t, s, OpenOptions{ID: "again", Repo: "svc", Source: src, Objective: "o", Because: "b"})
 }
+
+// loosen leaves a lane's scratch as a session's own mkdir under umask 002 made
+// it before assign open made one.
+func loosen(t *testing.T, dir string) {
+	t.Helper()
+	if err := os.Chmod(dir, 0o775); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// A lane continued with Take gets its group-writable scratch tightened, and one
+// that is missing made again.
+func TestTakingALaneTightensItsScratch(t *testing.T) {
+	groupWritableUmask(t)
+	s, err := newStoreT(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := mustOpen(t, s, OpenOptions{ID: "take", Repo: "svc", Source: gitFixture(t), Objective: "o", Because: "b"})
+	loosen(t, a.Scratch)
+	if _, err := s.Take("take"); err != nil {
+		t.Fatal(err)
+	}
+	assertOwnerOnly(t, a.Scratch)
+	if err := os.Remove(a.Scratch); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Take("take"); err != nil {
+		t.Fatal(err)
+	}
+	assertOwnerOnly(t, a.Scratch)
+}
+
+// A handed-off lane taken back with Reopen gets its group-writable scratch
+// tightened.
+func TestReopeningALaneTightensItsScratch(t *testing.T) {
+	groupWritableUmask(t)
+	s := newStore(t)
+	a := mustOpen(t, s, OpenOptions{ID: "back", Repo: "r", Source: realRepo(t), Objective: "o", Because: "b"})
+	if err := s.Handoff(a.ID, "review pending"); err != nil {
+		t.Fatal(err)
+	}
+	loosen(t, a.Scratch)
+	if _, err := s.update(a.ID, func(r *Assignment) error { r.Scratch = ""; return nil }); err != nil {
+		t.Fatal(err)
+	}
+	re, err := s.Reopen(a.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if re.Scratch != a.Scratch {
+		t.Fatalf("the reopened record names scratch %q, want %q", re.Scratch, a.Scratch)
+	}
+	assertOwnerOnly(t, a.Scratch)
+}
