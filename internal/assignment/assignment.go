@@ -140,8 +140,8 @@ type Assignment struct {
 	// Adopted marks a worktree and branch that something else created. They
 	// are recorded, never removed: close and abandon leave them in place.
 	Adopted bool `json:"adopted,omitempty"`
-	// Scratch is the lane's own temporary root, beside its record, writable by
-	// its owner alone (see makeScratch). Empty on a record made before it.
+	// Scratch is the lane's own temporary root, beside its record, with no
+	// group or other write (see makeScratch). Empty when the record names none.
 	Scratch string `json:"scratch,omitempty"`
 
 	State     string    `json:"state"`
@@ -1118,12 +1118,9 @@ func (s *Store) resolveRemoteBranch(source, local, remote, branch string) (base,
 	return base, pin
 }
 
-// makeScratch makes the lane's temporary root, <lane>/scratch, and leaves it
-// writable by its owner alone whatever the umask, also when it already exists.
-// A check that distrusts a writable ancestor of its temporary directory, as
-// hipsys's deploy reader does, otherwise fails in every lane whose session
-// made scratch under umask 002. made reports whether this call created it, so
-// a failed open removes only a scratch it made.
+// makeScratch makes <lane>/scratch at 0700 and removes group and other write
+// from it, the lane's directory and the store root: the ancestry a check such
+// as hipsys's deploy reader walks. made reports whether this call created it.
 func (s *Store) makeScratch(id string) (dir string, made bool, err error) {
 	dir = filepath.Join(s.dir(id), "scratch")
 	if err := os.Mkdir(dir, 0o700); err == nil {
@@ -1131,19 +1128,41 @@ func (s *Store) makeScratch(id string) (dir string, made bool, err error) {
 	} else if !os.IsExist(err) {
 		return "", false, fmt.Errorf("assignment: create %s: %w", dir, err)
 	}
-	info, err := os.Lstat(dir)
-	if err != nil {
-		return "", false, fmt.Errorf("assignment: create %s: %w", dir, err)
-	}
-	if !info.IsDir() {
-		return "", false, fmt.Errorf("assignment: %s exists and is not a directory", dir)
-	}
-	if info.Mode().Perm()&0o022 != 0 {
-		if err := os.Chmod(dir, info.Mode().Perm()&^0o022); err != nil {
-			return "", false, fmt.Errorf("assignment: remove group/other write from %s: %w", dir, err)
+	for _, d := range []struct {
+		path   string
+		follow bool
+	}{{dir, false}, {s.dir(id), true}, {s.Root, true}} {
+		if err := noGroupWrite(d.path, d.follow); err != nil {
+			if made {
+				os.Remove(dir)
+			}
+			return "", false, err
 		}
 	}
 	return dir, made, nil
+}
+
+// noGroupWrite removes group and other write from a directory. A scratch that
+// is a symlink is refused rather than followed; the lane and store directories
+// are followed.
+func noGroupWrite(dir string, follow bool) error {
+	stat := os.Lstat
+	if follow {
+		stat = os.Stat
+	}
+	info, err := stat(dir)
+	if err != nil {
+		return fmt.Errorf("assignment: read %s: %w", dir, err)
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("assignment: %s exists and is not a directory", dir)
+	}
+	if perm := info.Mode().Perm(); perm&0o022 != 0 {
+		if err := os.Chmod(dir, perm&^0o022); err != nil {
+			return fmt.Errorf("assignment: remove group/other write from %s: %w", dir, err)
+		}
+	}
+	return nil
 }
 
 // discard removes the lane's directory on the way out of a failed open, when
@@ -1959,7 +1978,7 @@ func (a Assignment) Text(now time.Time) string {
 		}
 	}
 	if a.Scratch != "" {
-		fmt.Fprintf(&b, "- scratch: %s (owner-only; point TMPDIR or GOTMPDIR here rather than making another)\n", a.Scratch)
+		fmt.Fprintf(&b, "- scratch: %s (no group or other write, nor on its parents up to the store; point TMPDIR or GOTMPDIR here rather than making another)\n", a.Scratch)
 	}
 	fmt.Fprintf(&b, "- open: %s\n", humanDuration(a.Age(now)))
 	if a.Register != "" {

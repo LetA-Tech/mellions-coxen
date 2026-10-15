@@ -172,3 +172,54 @@ func TestReopeningALaneTightensItsScratch(t *testing.T) {
 	}
 	assertOwnerOnly(t, a.Scratch)
 }
+
+// assertAncestryOwnerOnly checks what hipsys's deploy reader walks: the scratch
+// and every directory above it up to the store root carry no group or other
+// write.
+func assertAncestryOwnerOnly(t *testing.T, scratch, root string) {
+	t.Helper()
+	for d := scratch; ; d = filepath.Dir(d) {
+		assertOwnerOnly(t, d)
+		if d == root || d == filepath.Dir(d) {
+			return
+		}
+	}
+}
+
+// sessionMadeLane leaves a lane's directory, and the store root above it, as a
+// session's mkdir under umask 002 makes them before assign open runs.
+func sessionMadeLane(t *testing.T, s *Store, id string) {
+	t.Helper()
+	if err := os.MkdirAll(s.dir(id), 0o775); err != nil {
+		t.Fatal(err)
+	}
+	for _, d := range []string{s.dir(id), s.Root} {
+		if err := os.Chmod(d, 0o775); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+// A lane cut into a directory a session already made group-writable has no
+// group or other write anywhere from its scratch up to the store root.
+func TestOpenIntoASessionMadeLaneTightensTheScratchsAncestry(t *testing.T) {
+	groupWritableUmask(t)
+	s := newStore(t)
+	sessionMadeLane(t, s, "pre")
+	a := mustOpen(t, s, OpenOptions{ID: "pre", Repo: "svc", Source: gitFixture(t), Objective: "o", Because: "b"})
+	assertAncestryOwnerOnly(t, a.Scratch, s.Root)
+}
+
+// The same holds for a lane adopted into such a directory.
+func TestAdoptIntoASessionMadeLaneTightensTheScratchsAncestry(t *testing.T) {
+	groupWritableUmask(t)
+	repo := realRepo(t)
+	s := newStore(t)
+	sessionMadeLane(t, s, "apre")
+	tree := filepath.Join(t.TempDir(), "adopted")
+	if out, err := exec.Command("git", "-C", repo, "worktree", "add", "-b", "lane/apre", tree).CombinedOutput(); err != nil {
+		t.Fatalf("worktree add: %s", out)
+	}
+	a := mustOpen(t, s, OpenOptions{ID: "apre", Repo: "r", Source: repo, Objective: "o", Because: "b", Worktree: tree})
+	assertAncestryOwnerOnly(t, a.Scratch, s.Root)
+}
