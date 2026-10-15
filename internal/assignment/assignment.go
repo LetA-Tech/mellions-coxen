@@ -140,6 +140,9 @@ type Assignment struct {
 	// Adopted marks a worktree and branch that something else created. They
 	// are recorded, never removed: close and abandon leave them in place.
 	Adopted bool `json:"adopted,omitempty"`
+	// Scratch is the lane's own temporary root, beside its record, writable by
+	// its owner alone (see makeScratch). Empty on a record made before it.
+	Scratch string `json:"scratch,omitempty"`
 
 	State     string    `json:"state"`
 	OpenedAt  time.Time `json:"opened_at"`
@@ -890,6 +893,17 @@ func (s *Store) create(id string, o OpenOptions, ours bool) (*Assignment, error)
 	if err := os.MkdirAll(s.dir(id), 0o755); err != nil {
 		return nil, fmt.Errorf("assignment: create %s: %w", s.dir(id), err)
 	}
+	scratch, made, err := s.makeScratch(id)
+	if err != nil {
+		s.discard(id, ours)
+		return nil, err
+	}
+	opened := false
+	defer func() {
+		if made && !opened {
+			os.Remove(scratch)
+		}
+	}()
 
 	base, pin := s.baseFor(o.Source, o.BaseRef)
 	if base == "" {
@@ -926,7 +940,8 @@ func (s *Store) create(id string, o OpenOptions, ours bool) (*Assignment, error)
 		ID: id, Repo: o.Repo, Issue: o.Issue, Register: s.register(o.Repo),
 		Objective: o.Objective, Because: o.Because, NotChosen: o.NotChosen,
 		Branch: branch, Worktree: worktree, Source: o.Source, Base: base, BasePin: pin,
-		State: StateActive, OpenedAt: now, UpdatedAt: now, Budget: o.Budget,
+		Scratch: scratch,
+		State:   StateActive, OpenedAt: now, UpdatedAt: now, Budget: o.Budget,
 	}
 	undo := func() {
 		s.Git(o.Source, "worktree", "remove", "--force", worktree)
@@ -942,6 +957,7 @@ func (s *Store) create(id string, o OpenOptions, ours bool) (*Assignment, error)
 		undo()
 		return nil, err
 	}
+	opened = true
 	return a, nil
 }
 
@@ -1102,6 +1118,34 @@ func (s *Store) resolveRemoteBranch(source, local, remote, branch string) (base,
 	return base, pin
 }
 
+// makeScratch makes the lane's temporary root, <lane>/scratch, and leaves it
+// writable by its owner alone whatever the umask, also when it already exists.
+// A check that distrusts a writable ancestor of its temporary directory, as
+// hipsys's deploy reader does, otherwise fails in every lane whose session
+// made scratch under umask 002. made reports whether this call created it, so
+// a failed open removes only a scratch it made.
+func (s *Store) makeScratch(id string) (dir string, made bool, err error) {
+	dir = filepath.Join(s.dir(id), "scratch")
+	if err := os.Mkdir(dir, 0o700); err == nil {
+		made = true
+	} else if !os.IsExist(err) {
+		return "", false, fmt.Errorf("assignment: create %s: %w", dir, err)
+	}
+	info, err := os.Lstat(dir)
+	if err != nil {
+		return "", false, fmt.Errorf("assignment: create %s: %w", dir, err)
+	}
+	if !info.IsDir() {
+		return "", false, fmt.Errorf("assignment: %s exists and is not a directory", dir)
+	}
+	if info.Mode().Perm()&0o022 != 0 {
+		if err := os.Chmod(dir, info.Mode().Perm()&^0o022); err != nil {
+			return "", false, fmt.Errorf("assignment: remove group/other write from %s: %w", dir, err)
+		}
+	}
+	return dir, made, nil
+}
+
 // discard removes the lane's directory on the way out of a failed open, when
 // this open made it.
 func (s *Store) discard(id string, ours bool) {
@@ -1146,12 +1190,24 @@ func (s *Store) adopt(id string, o OpenOptions, ours bool) (*Assignment, error) 
 	if mb, err := s.Git(o.Source, "merge-base", "HEAD", base); err == nil && strings.TrimSpace(string(mb)) != "" {
 		base = strings.TrimSpace(string(mb))
 	}
+	scratch, made, err := s.makeScratch(id)
+	if err != nil {
+		s.discard(id, ours)
+		return nil, err
+	}
+	opened := false
+	defer func() {
+		if made && !opened {
+			os.Remove(scratch)
+		}
+	}()
 	now := s.clock()
 	a := &Assignment{
 		ID: id, Repo: o.Repo, Issue: o.Issue, Register: s.register(o.Repo),
 		Objective: o.Objective, Because: o.Because, NotChosen: o.NotChosen,
 		Branch: branch, Worktree: tree, Source: o.Source, Base: base, Adopted: true,
-		State: StateActive, OpenedAt: now, UpdatedAt: now, Budget: o.Budget,
+		Scratch: scratch,
+		State:   StateActive, OpenedAt: now, UpdatedAt: now, Budget: o.Budget,
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
@@ -1164,6 +1220,7 @@ func (s *Store) adopt(id string, o OpenOptions, ours bool) (*Assignment, error) 
 		s.discard(id, ours)
 		return nil, err
 	}
+	opened = true
 	return a, nil
 }
 
@@ -1886,6 +1943,9 @@ func (a Assignment) Text(now time.Time) string {
 		if a.BasePin != "" {
 			fmt.Fprintf(&b, "- base: %s\n", a.BasePin)
 		}
+	}
+	if a.Scratch != "" {
+		fmt.Fprintf(&b, "- scratch: %s (owner-only; point TMPDIR or GOTMPDIR here rather than making another)\n", a.Scratch)
 	}
 	fmt.Fprintf(&b, "- open: %s\n", humanDuration(a.Age(now)))
 	if a.Register != "" {
