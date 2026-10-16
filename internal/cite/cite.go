@@ -303,12 +303,34 @@ func occurrences(doc string) []Citation {
 		if path == "" || !(inRun || introducesQuote(claimed[f.end:], lines, f.c.At)) {
 			continue
 		}
+		// A file named since the citation, with no line of its own, is the file
+		// the continuation most plausibly means: it is left ungraded rather than
+		// charged to the citation's file.
+		if !inRun && namesFile(claimed[prevEnd:f.pos]) {
+			continue
+		}
 		prevEnd = f.end
 		f.c.Path = path
 		f.c.Raw = path + ":" + strconv.Itoa(f.c.Line)
 		out = append(out, f.c)
 	}
 	return out
+}
+
+// fileSpan is an inline code span holding a path with no line: `a/b.sh`.
+var fileSpan = regexp.MustCompile("`((?:[\\w.+-]*/)*[\\w+-]+\\.[\\w+-]+|(?:[\\w.+-]+/)+[\\w.+-]+)`")
+
+// namesFile reports whether the text between a citation and a continuation
+// names another file. A span opening the text is the citation's own inline
+// quotation (`a.go:3` `cfg.Port`), not a file.
+func namesFile(between string) bool {
+	rest := strings.TrimLeft(between, " ")
+	if strings.HasPrefix(rest, "`") {
+		if i := strings.IndexByte(rest[1:], '`'); i >= 0 {
+			rest = rest[i+2:]
+		}
+	}
+	return fileSpan.MatchString(rest)
 }
 
 // introducesQuote reports whether a bare `:N` presents a quotation: an inline
