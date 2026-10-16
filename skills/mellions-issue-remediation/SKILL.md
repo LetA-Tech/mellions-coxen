@@ -96,10 +96,12 @@ the change item by item, naming what was deleted; the falsification runs;
 each acceptance criterion mapped to met or unmet; every command run and its
 result, each gate cited from a run of it and never from the file declaring
 it, because a workflow that is disabled, filtered or never triggered executes
-nothing — and, after the push, the checks the pull request itself shows
-(`gh pr checks`), every red attributed or fixed: the approver sees them, and a
-document saying CI does not run is a record, not the world; and anything out
-of scope or contradictory, surfaced not resolved silently.
+nothing; and anything out of scope or contradictory, surfaced not resolved
+silently. Once the checks the pull request itself shows have settled after the
+push (`gh pr checks`; none at all is a result to state), a red this change
+causes is fixed and any other is attributed to its cause in the body: the
+approver sees them, and a document saying CI does not run is a record, not
+the world.
 
 **8 — Finish, or hand over.** Report the branch, the pull request, the commit
 and the verdict, on both the pull request and the assignment.
