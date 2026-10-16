@@ -627,6 +627,45 @@ func TestCheck_ContinuationShapesThatAreCitations(t *testing.T) {
 	}
 }
 
+// A file named between a citation and a quote-introducing continuation is the
+// file the continuation means. Charging it to the citation's file refused a
+// correct body for a line only the named file has. The controls must still be
+// graded against the citation: no file between, and the citation's own
+// dotted inline quotation.
+func TestCheck_AContinuationPastANamedFileIsNotChargedToTheCitation(t *testing.T) {
+	read := func(path string) ([]string, error) {
+		switch path {
+		case ".claude/repo-binding.yaml":
+			return []string{"a", "x", "c"}, nil
+		case "secret-posture.sh":
+			return []string{"#!/bin/sh", "", "", "", `[[ -e "$path" ]] || return 0`}, nil
+		case "a.go":
+			return []string{"package a", "", "cfg.Port", "", "cfg.Host", "", "w"}, nil
+		}
+		return nil, errors.New("not a file in this checkout")
+	}
+	named := "Gate read at `.claude/repo-binding.yaml:2`:\n\n```\nx\n```\n\n" +
+		"- `secret-posture.sh`: existence-guarded (`:5` `[[ -e \"$path\" ]] || return 0`).\n"
+	twice := "Gate read at `.claude/repo-binding.yaml:2` `x`.\n\n" +
+		"- `secret-posture.sh`: guarded (`:5` `[[ -e \"$path\" ]] || return 0`, `:4` `-d` guard).\n"
+	for _, body := range []string{named, twice} {
+		if findings, _ := Check(body, read); len(findings) != 0 {
+			t.Errorf("a continuation past a named file was charged to the citation: %v", findings)
+		}
+	}
+	for body, want := range map[string]string{
+		"See `a.go:3` `cfg.Port`. Then `:5` `z`.\n":                    "a.go:5",
+		"See `a.go:3`:\n\n```\ncfg.Port\n```\n\nAnd later `:5` `z`.\n": "a.go:5",
+		"See `a.go:3`: `cfg.Port` and `:5` `z`.\n":                     "a.go:5",
+		"See `a.go:3` `cfg.Port`, `:5`: `cfg.Host`, `:7`: `z`.\n":      "a.go:7",
+	} {
+		findings, _ := Check(body, read)
+		if len(findings) != 1 || findings[0].Raw != want {
+			t.Errorf("control %q: findings %v, want %s reported", body, findings, want)
+		}
+	}
+}
+
 func mustFindings(f []Finding, _ []Citation) []Finding { return f }
 
 // An image reference is not a citation in either half of Check: no finding, and
