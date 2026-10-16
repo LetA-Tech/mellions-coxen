@@ -100,8 +100,8 @@ nothing; and anything out of scope or contradictory, surfaced not resolved
 silently. Once the checks the pull request itself shows have settled after the
 push (`gh pr checks`; none at all is a result to state), a red this change
 causes is fixed and any other is attributed to its cause in the body, or
-said to have none established: the approver sees them, and a document saying CI does not run is a record, not
-the world.
+said to have none established: the approver sees them, and a document saying
+CI does not run is a record, not the world.
 
 **8 — Finish, or hand over.** Report the branch, the pull request, the commit
 and the verdict, on both the pull request and the assignment.
