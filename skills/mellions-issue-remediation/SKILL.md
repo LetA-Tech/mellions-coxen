@@ -6,10 +6,6 @@ description: Load this whenever the instruction is to remediate, fix, build, shi
 
 # Remediating a work item
 
-Turns a work item into verified code and then into a closed one: a worktree,
-the change, its proof, the resolution attacked, the pull request, the merge,
-the close.
-
 The repository's own manual defines what production-grade means there; this
 skill enforces only that the bar is **applied and demonstrated**.
 
@@ -91,17 +87,14 @@ classifies an obstacle, and what it leaves to you done.
 proof document**, the one artifact where length is the point: the work item as
 `Refs #NN`, never a closing keyword (`mellions-issue-closure` says why); the
 premise re-verification and its pin; what was wrong, with `file:line`; raw
-reproduction output at a named commit;
-the change item by item, naming what was deleted; the falsification runs;
-each acceptance criterion mapped to met or unmet; every command run and its
-result, each gate cited from a run of it and never from the file declaring
-it, because a workflow that is disabled, filtered or never triggered executes
-nothing; and anything out of scope or contradictory, surfaced not resolved
-silently. Once the checks the pull request itself shows have settled after the
-push (`gh pr checks`; none at all is a result to state), a red this change
-causes is fixed and any other is attributed to its cause in the body, or
-said to have none established: the approver sees them, and a document saying
-CI does not run is a record, not the world.
+reproduction output at a named commit; the change item by item, naming what
+was deleted; the falsification runs; each acceptance criterion mapped to met
+or unmet; every command run and its result, each gate cited from a run of
+it, never from a file declaring it or one saying CI is off; anything out of
+scope or contradictory, surfaced not resolved silently; and the pull
+request's own checks once settled after the push (`gh pr checks`; none is a
+result to state): a red this change causes fixed, any other attributed to
+its cause or said to have none established.
 
 **8 — Finish, or hand over.** Report the branch, the pull request, the commit
 and the verdict, on both the pull request and the assignment.
@@ -119,10 +112,10 @@ describes. Hand over all of it or none.
 Merging and closing follow the partnership, read and never assumed, by
 `mellions-issue-closure`: where they are yours, merge, verify at the remote,
 close, take the next thing; where it reserves them, the pull request plus the
-decision package is the finished state and a successful one. Only once the merge
-is verified **at the remote** — the merge commit on the base branch at origin,
-not only locally — remove the worktree and delete the task branch. One deleted
-on the strength of a local-only merge destroys the only copy of the work.
+decision package is the finished state and a successful one. Only once the
+merge commit is on the base branch **at origin** remove the worktree and the
+task branch: one deleted on a local-only merge destroys the only copy of the
+work.
 
 ## Stop points
 
