@@ -140,6 +140,8 @@ func cmdCiteCheck(ctx context.Context, args []string) error {
 		cwd = "."
 	}
 	var reasons []string
+	// where names a redirected tree; it is kept apart so the cap below never cuts it.
+	var where []string
 	// unchecked carries what nothing denied but nothing verified either.
 	var unchecked []string
 	for _, call := range calls {
@@ -148,12 +150,25 @@ func cmdCiteCheck(ctx context.Context, args []string) error {
 		// with `cd <worktree> && gh pr create`, so the body describes the
 		// worktree while the checker read the session's checkout — and one
 		// command line can publish from two different trees.
-		dir := citeDir(call.Dir, cwd)
+		from := citeDir(call.Dir, cwd)
+		dir := laneCheckout(ctx, from)
 		read := resolver(ctx, dir, "")
+		// A redirected read is named, so the session checks the same tree the
+		// verdict came from rather than the directory it published from.
+		mapped := ""
+		if dir != from {
+			mapped = "  resolved against " + dir + ", the lane tree for " + from +
+				"; `mellions cite check -file <body> -dir " + dir + "` reads the same tree"
+		}
 		for _, body := range call.Bodies {
 			findings, unresolved := cite.Check(body, read)
 			for _, f := range findings {
 				reasons = append(reasons, "  "+f.Reason())
+			}
+			if mapped != "" && len(findings) > 0 {
+				where = append(where, mapped)
+			} else if mapped != "" && len(unresolved) > 0 {
+				unchecked = append(unchecked, mapped)
 			}
 			// Named whether or not anything else denies. Denying a body for
 			// citing another repository would refuse exactly the bodies
@@ -183,6 +198,7 @@ func cmdCiteCheck(ctx context.Context, args []string) error {
 	if n := len(reasons); n > 8 {
 		reasons = append(reasons[:8], "  … and "+strconv.Itoa(n-8)+" more.")
 	}
+	reasons = append(dedupe(where), reasons...)
 	var d decision
 	d.Output.Event = preToolUseEvent
 	d.Output.Decide = "deny"
@@ -220,6 +236,38 @@ func citeDir(dir, cwd string) string {
 		return cwd
 	}
 	return dir
+}
+
+// laneCheckout is the checkout a directory inside an assignment record stands
+// for. The record root and its scratch are no work tree, so a body published
+// from them would resolve against nothing; the lane's tree beside them is the
+// subject. A directory already in a work tree is its own subject and is kept.
+func laneCheckout(ctx context.Context, dir string) string {
+	if inWorkTree(ctx, dir) {
+		return dir
+	}
+	abs, err := filepath.Abs(dir)
+	if err != nil {
+		return dir
+	}
+	for d := abs; ; {
+		if info, err := os.Stat(filepath.Join(d, "assignment.json")); err == nil && info.Mode().IsRegular() {
+			if tree := filepath.Join(d, "tree"); inWorkTree(ctx, tree) {
+				return tree
+			}
+			return dir
+		}
+		parent := filepath.Dir(d)
+		if parent == d {
+			return dir
+		}
+		d = parent
+	}
+}
+
+func inWorkTree(ctx context.Context, dir string) bool {
+	out, err := exec.CommandContext(ctx, "git", "-C", dir, "rev-parse", "--is-inside-work-tree").Output()
+	return err == nil && strings.TrimSpace(string(out)) == "true"
 }
 
 func dedupe(in []string) []string {
