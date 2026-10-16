@@ -155,7 +155,8 @@ var citation = regexp.MustCompile(`(^|[^\w/.:-])((?:[\w.+-]*/)*[\w+-]+\.[\w+-]+|
 // continuation is a bare `:N` code span: shorthand for line N of the file the
 // nearest citation before it names. A bare `:N` is also how a port is written,
 // so one counts only where it is unambiguous: in a citation run, or
-// introducing a quotation (introducesQuote).
+// introducing a quotation (introducesQuote) with no other file named since
+// (namesFile).
 var continuation = regexp.MustCompile("`:(\\d+)`")
 
 // joined is the text allowed between members of a citation run:
@@ -320,11 +321,11 @@ func occurrences(doc string) []Citation {
 // fileSpan is an inline code span holding a path with no line: `a/b.sh`.
 var fileSpan = regexp.MustCompile("`((?:[\\w.+-]*/)*[\\w+-]+\\.[\\w+-]+|(?:[\\w.+-]+/)+[\\w.+-]+)`")
 
-// namesFile reports whether the text between a citation and a continuation
-// names another file. A span opening the text is the citation's own inline
-// quotation (`a.go:3` `cfg.Port`), not a file.
+// namesFile reports whether the text since the last graded citation or
+// continuation names another file. A span opening the text, after an optional
+// colon, is that token's own inline quotation (`a.go:3`: `cfg.Port`), not a file.
 func namesFile(between string) bool {
-	rest := strings.TrimLeft(between, " ")
+	rest := strings.TrimLeft(strings.TrimPrefix(strings.TrimLeft(between, " "), ":"), " ")
 	if strings.HasPrefix(rest, "`") {
 		if i := strings.IndexByte(rest[1:], '`'); i >= 0 {
 			rest = rest[i+2:]

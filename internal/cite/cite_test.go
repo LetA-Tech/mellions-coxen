@@ -640,22 +640,28 @@ func TestCheck_AContinuationPastANamedFileIsNotChargedToTheCitation(t *testing.T
 		case "secret-posture.sh":
 			return []string{"#!/bin/sh", "", "", "", `[[ -e "$path" ]] || return 0`}, nil
 		case "a.go":
-			return []string{"package a", "", "cfg.Port", "", "y"}, nil
+			return []string{"package a", "", "cfg.Port", "", "cfg.Host", "", "w"}, nil
 		}
 		return nil, errors.New("not a file in this checkout")
 	}
 	named := "Gate read at `.claude/repo-binding.yaml:2`:\n\n```\nx\n```\n\n" +
 		"- `secret-posture.sh`: existence-guarded (`:5` `[[ -e \"$path\" ]] || return 0`).\n"
-	if findings, _ := Check(named, read); len(findings) != 0 {
-		t.Errorf("a continuation past a named file was charged to the citation: %v", findings)
+	twice := "Gate read at `.claude/repo-binding.yaml:2` `x`.\n\n" +
+		"- `secret-posture.sh`: guarded (`:5` `[[ -e \"$path\" ]] || return 0`, `:4` `-d` guard).\n"
+	for _, body := range []string{named, twice} {
+		if findings, _ := Check(body, read); len(findings) != 0 {
+			t.Errorf("a continuation past a named file was charged to the citation: %v", findings)
+		}
 	}
-	for _, body := range []string{
-		"See `a.go:3` `cfg.Port`. Then `:5` `z`.\n",
-		"See `a.go:3`:\n\n```\ncfg.Port\n```\n\nAnd later `:5` `z`.\n",
+	for body, want := range map[string]string{
+		"See `a.go:3` `cfg.Port`. Then `:5` `z`.\n":                    "a.go:5",
+		"See `a.go:3`:\n\n```\ncfg.Port\n```\n\nAnd later `:5` `z`.\n": "a.go:5",
+		"See `a.go:3`: `cfg.Port` and `:5` `z`.\n":                     "a.go:5",
+		"See `a.go:3` `cfg.Port`, `:5`: `cfg.Host`, `:7`: `z`.\n":      "a.go:7",
 	} {
 		findings, _ := Check(body, read)
-		if len(findings) != 1 || findings[0].Raw != "a.go:5" {
-			t.Errorf("control %q: findings %v, want a.go:5 reported", body, findings)
+		if len(findings) != 1 || findings[0].Raw != want {
+			t.Errorf("control %q: findings %v, want %s reported", body, findings, want)
 		}
 	}
 }
