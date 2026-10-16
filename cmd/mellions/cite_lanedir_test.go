@@ -41,6 +41,9 @@ func TestCiteHook_FromALaneRecordResolvesAgainstItsTree(t *testing.T) {
 		if reason == "" || !strings.Contains(reason, "neonlink.go:3") {
 			t.Errorf("from %s a quote wrong for the lane's tree was not denied: %q", cwd, reason)
 		}
+		if tree := filepath.Join(record, "tree"); !strings.Contains(reason, "resolved against "+tree) {
+			t.Errorf("from %s the deny does not name the tree it read, %s: %q", cwd, tree, reason)
+		}
 
 		var raw string
 		if reason := runCiteHookRaw(t, cwd, "gh pr review 1 --comment --body-file "+right, &raw); reason != "" {

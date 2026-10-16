@@ -148,12 +148,25 @@ func cmdCiteCheck(ctx context.Context, args []string) error {
 		// with `cd <worktree> && gh pr create`, so the body describes the
 		// worktree while the checker read the session's checkout — and one
 		// command line can publish from two different trees.
-		dir := laneCheckout(ctx, citeDir(call.Dir, cwd))
+		from := citeDir(call.Dir, cwd)
+		dir := laneCheckout(ctx, from)
 		read := resolver(ctx, dir, "")
+		// A redirected read is named, so the session checks the same tree the
+		// verdict came from rather than the directory it published from.
+		mapped := ""
+		if dir != from {
+			mapped = "  resolved against " + dir + ", the lane tree for " + from +
+				"; `mellions cite check -file <body> -dir " + dir + "` reads the same tree"
+		}
 		for _, body := range call.Bodies {
 			findings, unresolved := cite.Check(body, read)
 			for _, f := range findings {
 				reasons = append(reasons, "  "+f.Reason())
+			}
+			if mapped != "" && len(findings) > 0 {
+				reasons = append(reasons, mapped)
+			} else if mapped != "" && len(unresolved) > 0 {
+				unchecked = append(unchecked, mapped)
 			}
 			// Named whether or not anything else denies. Denying a body for
 			// citing another repository would refuse exactly the bodies
