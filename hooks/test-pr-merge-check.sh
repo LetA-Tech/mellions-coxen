@@ -160,6 +160,31 @@ out=$(payload 'gh pr merge 42 --squash --delete-branch' | runhook)
 [[ -z "$out" ]] || bad "a clean, current merge was refused: $out"
 note "clean and current: silent"
 
+# 4b. Current and clean, with a body the head does not back. The merge lands
+#     the body the tracker holds, so its citations are read at the head commit
+#     in the checkout the merge runs from; one quoting the head's line passes.
+repo="$tmp/repo"
+mkdir -p "$repo/cfg"
+printf 'package cfg\n\nvar x = 1\n' >"$repo/cfg/a.go"
+git -C "$repo" init -q
+git -C "$repo" add .
+GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t \
+  git -C "$repo" commit -q -m head
+sha=$(git -C "$repo" rev-parse HEAD)
+bodied() { printf '{"number":51,"url":"https://github.com/o/r/pull/51","baseRefName":"dev","headRefOid":"%s","mergeStateStatus":"CLEAN","state":"OPEN","body":"See `cfg/a.go:3`:\\n\\n```\\n%s\\n```\\n"}' "$sha" "$1"; }
+inrepo() { printf '{"tool_name":"Bash","cwd":"%s","tool_input":{"command":"%s"}}' "$repo" "$1"; }
+export GH_PR_JSON; GH_PR_JSON=$(bodied 'var x = 2')
+out=$(inrepo "gh pr merge 51 --merge --match-head-commit $sha" | runhook)
+grep -q '"permissionDecision":"deny"' <<<"$out" ||
+  bad "a body citing a line its head does not have was merged: $out"
+grep -q 'cfg/a.go:3' <<<"$out" ||
+  bad "the refusal does not name the unbacked citation: $out"
+GH_PR_JSON=$(bodied 'var x = 1')
+out=$(inrepo "gh pr merge 51 --merge --match-head-commit $sha" | runhook)
+[[ -z "$out" ]] || bad "a body its head backs was refused: $out"
+note "a body the head does not back: denied by citation; one it backs: silent"
+export GH_COMPARE_JSON='{"ahead":0,"files":[]}'
+
 # 5. The off switch, on the state that is otherwise refused.
 export GH_PR_JSON='{"number":177,"url":"u","baseRefName":"dev","headRefOid":"abc","mergeStateStatus":"UNKNOWN","state":"OPEN","files":[]}'
 out=$(payload 'gh pr merge 177' | MELLIONS_MERGE_CHECK=off MELLIONS_BIN="$bin" CLAUDE_PLUGIN_ROOT="$root" bash "$hook")

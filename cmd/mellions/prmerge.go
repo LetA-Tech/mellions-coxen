@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/LetA-Tech/mellions-coxen/internal/cite"
 	"github.com/LetA-Tech/mellions-coxen/internal/prmerge"
 )
 
@@ -48,7 +49,8 @@ func cmdPRMergeCheck(ctx context.Context, args []string) error {
 		guardUsage("pr-merge-check", "It denies a `gh pr merge` whose mergeability GitHub has "+
 			"not computed, or whose branch is behind its base in files the pull request also "+
 			"changes and whose content differs at the two tips, or in changed files while the "+
-			"pull request's own changes could not be read whole.")
+			"pull request's own changes could not be read whole, or whose current body cites "+
+			"a path:line its head commit does not back.")
 		return nil
 	}
 	// The escape hatch is the same shape cite-check has: a session that has
@@ -123,7 +125,7 @@ func mergeStateFrom(ctx context.Context, cwd string, call prmerge.Call, read loo
 	if call.Repo != "" {
 		view = append(view, "--repo", call.Repo)
 	}
-	view = append(view, "--json", "number,url,baseRefName,headRefOid,mergeStateStatus,state")
+	view = append(view, "--json", "number,url,baseRefName,headRefOid,mergeStateStatus,state,body")
 
 	out, err := read(ctx, dir, "gh", view...)
 	if err != nil {
@@ -136,6 +138,7 @@ func mergeStateFrom(ctx context.Context, cwd string, call prmerge.Call, read loo
 		Head       string `json:"headRefOid"`
 		MergeState string `json:"mergeStateStatus"`
 		State      string `json:"state"`
+		Body       string `json:"body"`
 	}
 	if err := json.Unmarshal([]byte(out), &pr); err != nil {
 		return prmerge.State{}, err
@@ -150,7 +153,11 @@ func mergeStateFrom(ctx context.Context, cwd string, call prmerge.Call, read loo
 		URL:        pr.URL,
 		Base:       pr.Base,
 		MergeState: pr.MergeState,
+		Head:       pr.Head,
 	}
+	// Before any early answer below: the body a merge lands is a question of its
+	// own, and a branch state that ends the other reads does not settle it.
+	state.Unbacked = unbackedAtHead(ctx, dir, pr.Body, pr.Head)
 	// UNKNOWN is decided without the second read: there is nothing to compare
 	// that would change the answer, and the budget is better left unspent.
 	if strings.EqualFold(pr.MergeState, "UNKNOWN") {
@@ -207,6 +214,26 @@ func mergeStateFrom(ctx context.Context, cwd string, call prmerge.Call, read loo
 	}
 	state.Overlap = overlap
 	return state, nil
+}
+
+// unbackedAtHead is each citation in body that the head commit does not back,
+// resolved in the checkout the merge runs from. A head that checkout does not
+// hold answers nothing: every citation would read as unresolvable, which is
+// not a finding, and a merge from another repository's checkout is ordinary.
+func unbackedAtHead(ctx context.Context, dir, body, head string) []string {
+	if strings.TrimSpace(body) == "" || head == "" {
+		return nil
+	}
+	root := repoRoot(ctx, laneCheckout(ctx, dir))
+	if requireRef(ctx, root, head) != nil {
+		return nil
+	}
+	findings, _ := cite.Check(body, resolverAt(ctx, root, head))
+	var out []string
+	for _, f := range findings {
+		out = append(out, f.Reason())
+	}
+	return dedupe(out)
 }
 
 // comparison is one `compare/A...B`: how many commits B has that A does not,

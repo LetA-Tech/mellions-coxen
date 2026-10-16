@@ -39,6 +39,11 @@
 //     list at the page size leaving one of the base's files unaccounted for.
 //     No file is named, and the refusal says the overlap was not established.
 //
+//   - a body, as the tracker holds it at the moment of the merge, citing a
+//     path:line the head commit does not back. The merge makes that body the
+//     durable record, and pinning the head commit pins none of it: an edit
+//     refused or still in flight leaves the earlier body in place.
+//
 // Being behind on its own is not refused. It is ordinary, usually harmless, and
 // a guard that fires on correct work is turned off and then protects nothing.
 //
@@ -104,6 +109,12 @@ type State struct {
 	// request's own diff could not be read, so an empty Overlap does not
 	// establish that there is none.
 	Unread bool
+	// Head is the commit the pull request's head is at.
+	Head string
+	// Unbacked is each citation in the current body that the head commit does
+	// not back, as the citation check words it. A citation that could not be
+	// resolved at the head is not here: nothing established it wrong.
+	Unbacked []string
 }
 
 // Deny returns the reason to refuse a PreToolUse payload, or "" to stay silent.
@@ -224,6 +235,27 @@ func refuse(s State) string {
 			"    git fetch origin && git log --oneline HEAD..origin/" + s.Base + " -- " + s.Overlap[0] + "\n\n" +
 			"This guard reads files, not meaning: it cannot see a change that regresses " + s.Base +
 			" without touching the same file, so a clean answer here is not a review."
+
+	case len(s.Unbacked) > 0:
+		shown := s.Unbacked
+		more := ""
+		if len(shown) > overlapNamed {
+			more = "\n    … and " + plural(len(shown)-overlapNamed, "more")
+			shown = shown[:overlapNamed]
+		}
+		head := s.Head
+		if len(head) > 12 {
+			head = head[:12]
+		}
+		return "Merging " + where + " with a body that cites " + plural(len(s.Unbacked), "line") +
+			" its head " + head + " does not back:\n\n    " + strings.Join(shown, "\n    ") + more + "\n\n" +
+			"The merge makes this body the record, exactly as the tracker holds it now. Pinning " +
+			"the head commit pins the code, not the body: an edit that was refused, or that is " +
+			"running beside this merge, leaves the earlier body in place.\n\n" +
+			"Correct the body, read that the edit went through, then merge. To check a body " +
+			"against this head without publishing it:\n\n" +
+			"    gh pr view " + strconv.Itoa(s.Number) + " --json body -q .body > body.md && " +
+			"mellions cite check -file body.md -dir <checkout> -commit " + s.Head
 	}
 	return ""
 }
