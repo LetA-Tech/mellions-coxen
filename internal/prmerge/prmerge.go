@@ -39,6 +39,11 @@
 //     list at the page size leaving one of the base's files unaccounted for.
 //     No file is named, and the refusal says the overlap was not established.
 //
+//   - a body, as the tracker holds it at the moment of the merge, citing a
+//     path:line the head commit does not back. The merge makes that body the
+//     durable record, and pinning the head commit pins none of it: an edit
+//     refused or still in flight leaves the earlier body in place.
+//
 // Being behind on its own is not refused. It is ordinary, usually harmless, and
 // a guard that fires on correct work is turned off and then protects nothing.
 //
@@ -59,6 +64,7 @@ import (
 	"strings"
 
 	"github.com/LetA-Tech/mellions-coxen/internal/ghcmd"
+	"github.com/LetA-Tech/mellions-coxen/internal/prbody"
 	"github.com/LetA-Tech/mellions-coxen/internal/shellsplit"
 )
 
@@ -73,6 +79,9 @@ type Call struct {
 	Selector string
 	// Repo is what --repo named, empty for the checkout's own.
 	Repo string
+	// Dir is the directory the call runs in: where a `cd` before it moved, or
+	// empty for the session's.
+	Dir string
 }
 
 // State is what the tracker says about the pull request a call names.
@@ -104,6 +113,14 @@ type State struct {
 	// request's own diff could not be read, so an empty Overlap does not
 	// establish that there is none.
 	Unread bool
+	// Head is the commit the pull request's head is at.
+	Head string
+	// Root is the checkout the body was graded in.
+	Root string
+	// Unbacked is each citation in the current body that the head commit does
+	// not back, as the citation check words it. A citation that could not be
+	// resolved at the head is not here: nothing established it wrong.
+	Unbacked []string
 }
 
 // Deny returns the reason to refuse a PreToolUse payload, or "" to stay silent.
@@ -120,7 +137,7 @@ func Deny(payload []byte, look func(cwd string, call Call) (State, error)) strin
 	if json.Unmarshal(payload, &ev) != nil || ev.ToolName != "Bash" {
 		return ""
 	}
-	for _, call := range Calls(ev.Input.Command) {
+	for _, call := range callsFrom(ev.Input.Command, ev.Cwd) {
 		state, err := look(ev.Cwd, call)
 		if err != nil || state.Number == 0 {
 			continue
@@ -135,9 +152,18 @@ func Deny(payload []byte, look func(cwd string, call Call) (State, error)) strin
 // Calls returns every `gh pr merge` the command makes. A command line that
 // mixes one with other work yields only the merge itself, so a pull request
 // number written in some other command's text is not read as a merge.
-func Calls(command string) []Call {
+func Calls(command string) []Call { return callsFrom(command, "") }
+
+// callsFrom is Calls with each call's directory followed through the `cd`s
+// before it, from the session's cwd.
+func callsFrom(command, cwd string) []Call {
 	var out []Call
+	dir := cwd
 	for _, c := range shellsplit.Split(command) {
+		if moved, ok := prbody.Chdir(c.Words, cwd, dir); ok {
+			dir = moved
+			continue
+		}
 		args, ok := ghcmd.Args(c.Words, func(noun, verb string) bool {
 			return noun == "pr" && verb == "merge"
 		})
@@ -145,6 +171,9 @@ func Calls(command string) []Call {
 			continue
 		}
 		var call Call
+		if dir != cwd {
+			call.Dir = dir
+		}
 		for i := 0; i < len(args); i++ {
 			name, glued, hasGlued := ghcmd.SplitFlag(args[i])
 			if name == "--repo" || name == "-R" {
@@ -224,6 +253,42 @@ func refuse(s State) string {
 			"    git fetch origin && git log --oneline HEAD..origin/" + s.Base + " -- " + s.Overlap[0] + "\n\n" +
 			"This guard reads files, not meaning: it cannot see a change that regresses " + s.Base +
 			" without touching the same file, so a clean answer here is not a review."
+
+	case len(s.Unbacked) > 0:
+		shown := s.Unbacked
+		more := ""
+		if len(shown) > overlapNamed {
+			more = "\n    … and " + plural(len(shown)-overlapNamed, "more")
+			shown = shown[:overlapNamed]
+		}
+		view := strconv.Itoa(s.Number)
+		if s.URL != "" {
+			view = s.URL
+		}
+		root := s.Root
+		if root == "" {
+			root = "<checkout>"
+		}
+		head := s.Head
+		if len(head) > 12 {
+			head = head[:12]
+		}
+		return "Merging " + where + " with a body that cites " + plural(len(s.Unbacked), "line") +
+			" its head " + head + " does not back:\n\n    " + strings.Join(shown, "\n    ") + more + "\n\n" +
+			"The merge makes this body the record, exactly as the tracker holds it now. Pinning " +
+			"the head commit pins the code, not the body: an edit that was refused, or that is " +
+			"running beside this merge, leaves the earlier body in place.\n\n" +
+			"Correct the body, read that the edit went through, then merge. A citation is " +
+			"corrected one of two ways, and they differ. Where the number is wrong — a line " +
+			"that is blank, or that is not what the body quotes — open it at this head and " +
+			"cite the line that says it. Where the citation is right about another ref, the " +
+			"base or an earlier commit, write that ref in front of it (`<commit>:path:line`), " +
+			"which is not graded here; renumbering it against this head would make it wrong. " +
+			"A path in another repository is graded here when this checkout has a directory " +
+			"of the same name; write it with that repository's name in front. To check a body " +
+			"against this head without publishing it:\n\n" +
+			"    gh pr view " + view + " --json body -q .body > body.md && " +
+			"mellions cite check -file body.md -dir " + root + " -commit " + s.Head
 	}
 	return ""
 }
