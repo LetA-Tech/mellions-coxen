@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -89,5 +90,32 @@ func TestLaneCheckout_KeepsWhatItCannotMap(t *testing.T) {
 	outside := t.TempDir()
 	if got := laneCheckout(ctx, outside); got != outside {
 		t.Errorf("a directory outside any record was redirected to %s", got)
+	}
+}
+
+// A body wrong in more places than the deny shows still names the tree it was
+// graded against: the deny shows eight findings, and the name is what says which tree to
+// open before correcting anything.
+func TestCiteHook_ARedirectedDenyNamesTheTreePastTheCap(t *testing.T) {
+	record := laneRecord(t)
+	var src, doc strings.Builder
+	doc.WriteString("Root cause.\n")
+	for i := 1; i <= 12; i++ {
+		src.WriteString("var line" + strconv.Itoa(i) + " = " + strconv.Itoa(i) + "\n")
+		doc.WriteString("\n`long.go:" + strconv.Itoa(i) + "`\n\n```go\nvar line" + strconv.Itoa(i) + " = 0\n```\n")
+	}
+	if err := os.WriteFile(filepath.Join(record, "tree", "long.go"), []byte(src.String()), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	body := filepath.Join(t.TempDir(), "body.md")
+	if err := os.WriteFile(body, []byte(doc.String()), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	reason := runCiteHook(t, record, "gh pr review 1 --comment --body-file "+body)
+	if reason == "" {
+		t.Fatal("a body wrong twelve times for the lane's tree was not denied")
+	}
+	if tree := filepath.Join(record, "tree"); !strings.Contains(reason, "resolved against "+tree) {
+		t.Errorf("past the deny's cap the tree it read is not named, %s: %q", tree, reason)
 	}
 }

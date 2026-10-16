@@ -140,6 +140,8 @@ func cmdCiteCheck(ctx context.Context, args []string) error {
 		cwd = "."
 	}
 	var reasons []string
+	// where names a redirected tree; it is kept apart so the cap below never cuts it.
+	var where []string
 	// unchecked carries what nothing denied but nothing verified either.
 	var unchecked []string
 	for _, call := range calls {
@@ -164,7 +166,7 @@ func cmdCiteCheck(ctx context.Context, args []string) error {
 				reasons = append(reasons, "  "+f.Reason())
 			}
 			if mapped != "" && len(findings) > 0 {
-				reasons = append(reasons, mapped)
+				where = append(where, mapped)
 			} else if mapped != "" && len(unresolved) > 0 {
 				unchecked = append(unchecked, mapped)
 			}
@@ -196,6 +198,7 @@ func cmdCiteCheck(ctx context.Context, args []string) error {
 	if n := len(reasons); n > 8 {
 		reasons = append(reasons[:8], "  … and "+strconv.Itoa(n-8)+" more.")
 	}
+	reasons = append(dedupe(where), reasons...)
 	var d decision
 	d.Output.Event = preToolUseEvent
 	d.Output.Decide = "deny"
