@@ -148,7 +148,7 @@ func cmdCiteCheck(ctx context.Context, args []string) error {
 		// with `cd <worktree> && gh pr create`, so the body describes the
 		// worktree while the checker read the session's checkout — and one
 		// command line can publish from two different trees.
-		dir := citeDir(call.Dir, cwd)
+		dir := laneCheckout(ctx, citeDir(call.Dir, cwd))
 		read := resolver(ctx, dir, "")
 		for _, body := range call.Bodies {
 			findings, unresolved := cite.Check(body, read)
@@ -220,6 +220,38 @@ func citeDir(dir, cwd string) string {
 		return cwd
 	}
 	return dir
+}
+
+// laneCheckout is the checkout a directory inside an assignment record stands
+// for. The record root and its scratch are no work tree, so a body published
+// from them would resolve against nothing; the lane's tree beside them is the
+// subject. A directory already in a work tree is its own subject and is kept.
+func laneCheckout(ctx context.Context, dir string) string {
+	if inWorkTree(ctx, dir) {
+		return dir
+	}
+	abs, err := filepath.Abs(dir)
+	if err != nil {
+		return dir
+	}
+	for d := abs; ; {
+		if info, err := os.Stat(filepath.Join(d, "assignment.json")); err == nil && info.Mode().IsRegular() {
+			if tree := filepath.Join(d, "tree"); inWorkTree(ctx, tree) {
+				return tree
+			}
+			return dir
+		}
+		parent := filepath.Dir(d)
+		if parent == d {
+			return dir
+		}
+		d = parent
+	}
+}
+
+func inWorkTree(ctx context.Context, dir string) bool {
+	out, err := exec.CommandContext(ctx, "git", "-C", dir, "rev-parse", "--is-inside-work-tree").Output()
+	return err == nil && strings.TrimSpace(string(out)) == "true"
 }
 
 func dedupe(in []string) []string {
