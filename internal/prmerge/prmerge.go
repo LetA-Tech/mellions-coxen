@@ -252,7 +252,10 @@ func refuse(s State) string {
 			"The merge makes this body the record, exactly as the tracker holds it now. Pinning " +
 			"the head commit pins the code, not the body: an edit that was refused, or that is " +
 			"running beside this merge, leaves the earlier body in place.\n\n" +
-			"Correct the body, read that the edit went through, then merge. To check a body " +
+			"Correct the body, read that the edit went through, then merge. A number that is " +
+			"off is fixed by opening the line at this head and quoting it under the citation. " +
+			"A path in another repository is graded here when this checkout has a directory " +
+			"of the same name; write it with that repository's name in front. To check a body " +
 			"against this head without publishing it:\n\n" +
 			"    gh pr view " + strconv.Itoa(s.Number) + " --json body -q .body > body.md && " +
 			"mellions cite check -file body.md -dir <checkout> -commit " + s.Head
