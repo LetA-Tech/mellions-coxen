@@ -183,7 +183,19 @@ GH_PR_JSON=$(bodied 'var x = 1')
 out=$(inrepo "gh pr merge 51 --merge --match-head-commit $sha" | runhook)
 [[ -z "$out" ]] || bad "a body its head backs was refused: $out"
 note "a body the head does not back: denied by citation; one it backs: silent"
-export GH_COMPARE_JSON='{"ahead":0,"files":[]}'
+
+# 4c. The same merge after a cd from a directory that is no checkout: the body is
+#     graded where the merge runs, not where the session sits.
+GH_PR_JSON=$(bodied 'var x = 2')
+out=$(payload "cd $repo && gh pr merge 51 --merge" | runhook)
+grep -q 'cfg/a.go:3' <<<"$out" ||
+  bad "a merge after cd was not graded in the directory it runs in: $out"
+note "cd <checkout> && gh pr merge: graded in the checkout"
+
+# 4d. The body check off alone: the body is not graded, the rest still is.
+out=$(inrepo "gh pr merge 51 --merge" | MELLIONS_MERGE_BODY_CHECK=off MELLIONS_BIN="$bin" CLAUDE_PLUGIN_ROOT="$root" bash "$hook")
+[[ -z "$out" ]] || bad "MELLIONS_MERGE_BODY_CHECK=off did not silence the body check: $out"
+note "body check off alone: silent on the body"
 
 # 5. The off switch, on the state that is otherwise refused.
 export GH_PR_JSON='{"number":177,"url":"u","baseRefName":"dev","headRefOid":"abc","mergeStateStatus":"UNKNOWN","state":"OPEN","files":[]}'

@@ -101,10 +101,14 @@ func TestPRMergeRefusesABodyItsHeadDoesNotBack(t *testing.T) {
 	if reason == "" {
 		t.Fatal("a body quoting a line the head does not have was merged")
 	}
-	for _, want := range []string{"internal/x/a.go:4", `return \"head\"`, head} {
+	for _, want := range []string{"internal/x/a.go:4", `return \"head\"`, head, "<commit>:path:line"} {
 		if !strings.Contains(reason, want) {
 			t.Errorf("refusal does not name %q:\n%s", want, reason)
 		}
+	}
+
+	if strings.Contains(reason, "-dir <checkout>") {
+		t.Errorf("refusal does not name the checkout it graded in:\n%s", reason)
 	}
 
 	if reason := decide("Past the end: `internal/x/a.go:40`.\n", head); !strings.Contains(reason, "internal/x/a.go:40") {

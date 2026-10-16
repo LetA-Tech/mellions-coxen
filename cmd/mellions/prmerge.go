@@ -17,7 +17,8 @@ import (
 )
 
 // mergeLookBudget is the whole answer's budget, not one command's: up to four
-// reads of the tracker share it. It is not what bounds a hooked run — the hook
+// reads of the tracker and the body's grading, itself capped by
+// bodyGradeBudget, share it. It is not what bounds a hooked run — the hook
 // is declared with a 5s timeout in hooks/hooks.json, under this, so the runtime
 // kills the hook first and a tracker slower than that is silence rather than a
 // late deny. What this bounds is a run with no runtime over it, and the reads
@@ -100,7 +101,8 @@ func mergeState(ctx context.Context, cwd string, call prmerge.Call) (prmerge.Sta
 }
 
 // mergeStateFrom assembles the state from reads under one budget. The first is
-// the pull request itself; the second is the comparison from its head to its
+// the pull request itself, whose body is graded at its head in git before any
+// other read; the second is the comparison from its head to its
 // base, which is where "behind" and the base's side of the overlap come from;
 // the third is the comparison the other way, the pull request's own diff from
 // the merge base, which is the only source of its side. The file list the
@@ -116,6 +118,11 @@ func mergeStateFrom(ctx context.Context, cwd string, call prmerge.Call, read loo
 	dir := cwd
 	if dir == "" {
 		dir = "."
+	}
+	// A merge after a `cd` runs there: the pull request gh resolves and the
+	// checkout the body is graded in are that directory's.
+	if call.Dir != "" {
+		dir = citeDir(call.Dir, dir)
 	}
 
 	view := []string{"pr", "view"}
@@ -157,7 +164,7 @@ func mergeStateFrom(ctx context.Context, cwd string, call prmerge.Call, read loo
 	}
 	// Before any early answer below: the body a merge lands is a question of its
 	// own, and a branch state that ends the other reads does not settle it.
-	state.Unbacked = unbackedAtHead(ctx, dir, pr.Body, pr.Head)
+	state.Unbacked, state.Root = unbackedAtHead(ctx, dir, pr.Body, pr.Head)
 	// UNKNOWN is decided without the second read: there is nothing to compare
 	// that would change the answer, and the budget is better left unspent.
 	if strings.EqualFold(pr.MergeState, "UNKNOWN") {
@@ -216,24 +223,48 @@ func mergeStateFrom(ctx context.Context, cwd string, call prmerge.Call, read loo
 	return state, nil
 }
 
+// bodyGradeBudget bounds grading a body inside the merge budget, so a body
+// with thousands of citations cannot spend the time the tracker reads after it
+// need. Past it the grading stops: what it found still refuses, and nothing
+// after it is a finding.
+const bodyGradeBudget = 1500 * time.Millisecond
+
 // unbackedAtHead is each citation in body that the head commit does not back,
-// resolved in the checkout the merge runs from. A head that checkout does not
-// hold answers nothing: every citation would read as unresolvable, which is
-// not a finding, and a merge from another repository's checkout is ordinary.
-func unbackedAtHead(ctx context.Context, dir, body, head string) []string {
-	if strings.TrimSpace(body) == "" || head == "" {
-		return nil
+// resolved in the checkout dir stands for, and that checkout's root. A head the
+// checkout does not hold answers nothing: every citation would read as
+// unresolvable, which is not a finding, and a merge from another repository's
+// checkout is ordinary. MELLIONS_MERGE_BODY_CHECK=off turns this off alone.
+func unbackedAtHead(ctx context.Context, dir, body, head string) ([]string, string) {
+	if strings.TrimSpace(body) == "" || head == "" ||
+		strings.EqualFold(os.Getenv("MELLIONS_MERGE_BODY_CHECK"), "off") {
+		return nil, ""
 	}
+	ctx, cancel := context.WithTimeout(ctx, bodyGradeBudget)
+	defer cancel()
 	root := repoRoot(ctx, laneCheckout(ctx, dir))
 	if requireRef(ctx, root, head) != nil {
-		return nil
+		return nil, ""
 	}
-	findings, _ := cite.Check(body, resolverAt(ctx, root, head))
+	type answer struct {
+		lines []string
+		err   error
+	}
+	read := resolverAt(ctx, root, head)
+	seen := map[string]answer{}
+	cached := func(path string) ([]string, error) {
+		if a, ok := seen[path]; ok {
+			return a.lines, a.err
+		}
+		lines, err := read(path)
+		seen[path] = answer{lines, err}
+		return lines, err
+	}
+	findings, _ := cite.Check(body, cached)
 	var out []string
 	for _, f := range findings {
 		out = append(out, f.Reason())
 	}
-	return dedupe(out)
+	return dedupe(out), root
 }
 
 // comparison is one `compare/A...B`: how many commits B has that A does not,
