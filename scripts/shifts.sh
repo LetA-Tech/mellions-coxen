@@ -149,16 +149,23 @@ lock_holder() {
 # description, so it outlives the python3 that takes it and survives the
 # runner's exec of its own updated copy, and children are started with fd 9
 # closed so none can keep it after the runner.
+# Held elsewhere is exit 75 from either tool; any other failure, such as a
+# python3 that is only an installer stub, is "cannot flock", never "held".
 dirlock() {
+  local rc
   if [ "${MELLIONS_FLOCK:-flock}" = flock ] && command -v flock >/dev/null 2>&1; then
-    flock -n 9; case $? in 0) return 0 ;; 1) return 1 ;; *) return 2 ;; esac
-  fi
-  command -v python3 >/dev/null 2>&1 || return 2
-  python3 -c 'import errno, fcntl, sys
+    flock -n -E 75 9; rc=$?
+  elif command -v python3 >/dev/null 2>&1; then
+    python3 -c 'import errno, fcntl, sys
 try:
     fcntl.flock(9, fcntl.LOCK_EX | fcntl.LOCK_NB)
 except OSError as e:
-    sys.exit(1 if e.errno in (errno.EAGAIN, errno.EWOULDBLOCK) else 2)'
+    sys.exit(75 if e.errno in (errno.EAGAIN, errno.EWOULDBLOCK) else 2)'
+    rc=$?
+  else
+    return 2
+  fi
+  case $rc in 0) return 0 ;; 75) return 1 ;; *) return 2 ;; esac
 }
 # Returns 0 with the lock taken, 1 when another runner holds it, 2 when it
 # cannot be taken at all.

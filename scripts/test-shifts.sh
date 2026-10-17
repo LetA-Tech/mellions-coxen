@@ -278,6 +278,14 @@ grep -q 'runner stop: signal' "$log" || bad "C: the signal stop was not logged"
 kill "$sleeper" "$hung" 2>/dev/null
 rm -f "$STUB_DIR/hang"
 
+# ---- C3. a python3 that is only an installer stub is "cannot flock", not "held" --
+home="$tmp/c3"; mkdir -p "$home" "$tmp/stubpy"; log="$home/shifts/runner.log"
+printf '#!/bin/sh\necho "xcode-select: note: No developer tools were found" >&2\nexit 1\n' > "$tmp/stubpy/python3"; chmod +x "$tmp/stubpy/python3"
+start_runner "$home" "MELLIONS_FLOCK=python3 MELLIONS_SHIFTS_PER_DAY=0 PATH=$tmp/stubpy:$PATH"; c3=$pid
+wait_for 5 'runner start' "$log" || bad "C3: a failing python3 was read as a held lock and the only runner refused: $(cat "$home.out")"
+grep -q 'cannot flock' "$home.out" || bad "C3: the fallback to runner.lock was not said: $(cat "$home.out")"
+kill -TERM "$c3"; wait_gone 5 "$c3" || bad "C3: the runner did not stop on SIGTERM"
+
 # ---- C2. a session that outlives a killed runner does not keep its flock --------
 home="$tmp/c2"; mkdir -p "$home"; log="$home/shifts/runner.log"
 rm -f "$STUB_DIR/hang.pid"; touch "$STUB_DIR/hang"
