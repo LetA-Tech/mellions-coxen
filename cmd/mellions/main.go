@@ -162,9 +162,11 @@ const usage = `mellions — the second engineer's deterministic surface
         not back — a line the file does not have, and a line that exists and
         says something the document quotes nowhere. Existence is not the
         predicate: every citation this was built for resolved and named the
-        wrong line. Ranges, paths the checkout does not hold, and path:line
-        inside a fenced block or blockquote are quotation or another
-        repository's, and are silent. Exit 1 where there are findings.
+        wrong line. A range is held to existence alone; path:line inside a
+        fenced block or blockquote is quotation and skipped. Paths the
+        checkout does not hold, and bare :N continuations left ungraded
+        because a file is named since the citation before them, are listed
+        and never refused. Exit 1 where there are findings.
 
   mellions cite-check
         The same check as a PreToolUse decision: reads a payload on stdin and

@@ -432,8 +432,8 @@ func unresolvedLine(unresolved []cite.Citation, dir string) string {
 
 // ungradedLine names the bare `:N` continuations the check did not grade: a
 // file was named between each and the citation before it, so which file it
-// means is not known. Reported and never refused, since charging one to either
-// file refuses correct bodies.
+// means is not known. Reported and never refused: charged to a file the author
+// did not mean, it refuses a correct body.
 func ungradedLine(ungraded []cite.Citation) string {
 	const show = 6
 	names := make([]string, 0, len(ungraded))
@@ -534,7 +534,7 @@ const preToolUseEvent = "PreToolUse"
 // channel. It was wrong, and it foreclosed the remedy for whoever read it next.
 // It is not capped the way the deny path is, and the reason is a different
 // shape rather than a smaller number: `reasons` grows one entry per FINDING, so
-// a body wrong throughout produces a wall; `unchecked` grows at most one line
+// a body wrong throughout produces a wall; `unchecked` grows at most three lines
 // per (call, body), and each line already caps the names it prints at six
 // unconditionally. Its length is bounded by how many bodies one command
 // publishes — one to three in practice.
@@ -552,10 +552,10 @@ func emitUnchecked(unchecked []string) error {
 	c.Output.Event = preToolUseEvent
 	c.Output.Context = "This body publishes citations nothing here checked:\n\n" +
 		strings.Join(unchecked, "\n") + "\n\n" +
-		"Nothing is wrong with citing another repository — deep-research asks for it — but " +
-		"nothing here verified those lines, and the body reads to a reader exactly like one " +
-		"whose citations were all checked. Open them, or say in the body that they are " +
-		"unverified from here."
+		"Nothing here verified those lines, and the body reads to a reader exactly like one " +
+		"whose citations were all checked. Citing another repository is fine — deep-research " +
+		"asks for it — so open those lines, or say in the body that they are unverified from " +
+		"here. A continuation left ungraded is checked once it is written as path:line."
 	enc := json.NewEncoder(os.Stdout)
 	enc.SetEscapeHTML(false)
 	return enc.Encode(c)

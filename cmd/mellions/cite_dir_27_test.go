@@ -529,6 +529,26 @@ func TestCiteHook_AnUngradedContinuationInformsWithoutDenying(t *testing.T) {
 	}
 }
 
+// TestCiteHook_AnUngradedContinuationIsNamedBesideADeny drives the deny path: a
+// body denied for an unbacked citation also names the continuation it left
+// ungraded, since a deny carries no context.
+func TestCiteHook_AnUngradedContinuationIsNamedBesideADeny(t *testing.T) {
+	root := citeGitRepo(t)
+	body := filepath.Join(root, "b.md")
+	if err := os.WriteFile(body, []byte("see `internal/a.go:1` for it.\n\n"+
+		"- `other.sh`: guarded (`:5` `[[ -e x ]]`).\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var out string
+	runCiteHookRaw(t, root, "gh pr create --base dev --body-file "+body, &out)
+	if !strings.Contains(out, `"permissionDecision":"deny"`) {
+		t.Fatalf("an unbacked same-repo citation no longer denies.\ngot: %s", out)
+	}
+	if !strings.Contains(out, "`:5` (line 3)") {
+		t.Errorf("the deny does not name the continuation left ungraded.\ngot: %s", out)
+	}
+}
+
 // TestRequireRef_TheCommitPeelIsWhatMakesItACommitProbe drives `^{commit}`.
 //
 // Without the peel, rev-parse --verify accepts any valid OBJECT, so a blob or
