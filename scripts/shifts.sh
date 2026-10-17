@@ -5,7 +5,8 @@
 # verify and when a piece of work is finished stay in the session.
 #
 # One runner per $MELLIONS_HOME, held by shifts/runner.lock with the runner's
-# pid in it; a lock whose pid is not a live runner is taken over. Between
+# pid in it; a lock whose pid is not a live runner is taken over, and before
+# each shift a runner whose lock now names another live runner stops. Between
 # shifts the runner pulls the checkout and installs the binary built from it,
 # waits out a cooldown that doubles while shifts fail, holds while
 # $MELLIONS_HOME/pause exists, holds while $MELLIONS_HOME/owner says the owner
@@ -396,6 +397,16 @@ while ! stop_wanted; do
   fi
   if [ "$AUTOUPDATE" != 0 ] && update; then reexec_if_changed; fi
   stop_wanted && break
+  # The lock is checked again before every shift: a file removed under a live
+  # runner lets a second one take it, and two loops start every shift twice.
+  if [ "$(cat "$LOCK" 2>/dev/null)" != "$$" ]; then
+    acquire; case $? in
+      0) log "lock re-taken: $LOCK no longer named pid $$" ;;
+      1) stopping="$LOCK is held by another runner, pid $(cat "$LOCK" 2>/dev/null); this one yields so no shift starts twice"
+         break ;;
+      *) log "lock: $LOCK cannot be re-taken; this runner goes on as the only one it can see" ;;
+    esac
+  fi
   n=$((n + 1))
   survey_args=""
   [ "$EVERY" -gt 0 ] && [ $((n % EVERY)) -eq 0 ] && survey_args="-repos mellions-coxen"
