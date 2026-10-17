@@ -51,7 +51,7 @@ func cmdAssign(ctx context.Context, args []string) error {
 			"mellions assign list [-all] | get <id> | record <id> <text> [-kind found|hypothesis|next|note]\n" +
 			"mellions assign claim <id> -pr N            # this lane holds that change set; a peer reads the claim before merging\n" +
 			"mellions assign handoff <id> [-file f|-] | reopen <id> | close <id> | abandon <id> -discarding \"...\"\n" +
-			"mellions assign sweep [-repo R] [-apply]   # close the handed-off lanes whose pull request is merged or closed\n" +
+			"mellions assign sweep [-repo R] [-apply]   # close the handed-off lanes whose pull request is merged or closed; retry a claim release that failed\n" +
 			"Each verb takes -h for its flags.")
 		return nil
 	// Older verbs, kept so a session following an older method is told what
@@ -107,9 +107,13 @@ func assignOpen(args []string) error {
 	if err != nil {
 		return err
 	}
-	a, claimed, err := claimExisting(store, o.ID)
+	_, me := presence.Here()
+	a, claimed, holder, err := claimExisting(store, o.ID, heldNow(cfg.presences().Live(), me, presence.SelfPID()))
 	if err != nil {
 		return err
+	}
+	if holder != nil {
+		fmt.Fprint(os.Stderr, heldElsewhere(a.ID, *holder))
 	}
 	if !claimed {
 		if o.Source, err = cfg.checkout(o.Repo); err != nil {
@@ -163,22 +167,45 @@ func noteWorking(cfg *Config, a *assignment.Assignment) {
 // Reopen decides what may be taken up: it re-cuts a worktree that has gone, and
 // it refuses a closed or abandoned lane in the words that say a new assignment
 // is the answer. Active is not a refusal — a lane you already hold is claimed,
-// and the record prints who last worked it, so a second session meets the
-// collision rather than an exit code.
-func claimExisting(store *assignment.Store, id string) (*assignment.Assignment, bool, error) {
+// and the record prints who last worked it as read before this session was
+// stamped, so a second session meets the collision rather than an exit code.
+//
+// Either way the session becomes one of the lane's sessions here, so a note it
+// later writes from outside the lane's tree restates the claim — unless
+// another live session holds the active lane, when this session has met the
+// collision rather than taken the lane up, is not stamped, and is handed the
+// holder to be told about. held is the running sessions other than this one,
+// by session id.
+func claimExisting(store *assignment.Store, id string, held map[string]presence.Session) (*assignment.Assignment, bool, *presence.Session, error) {
 	a, err := store.Get(id)
 	if errors.Is(err, assignment.ErrNotFound) {
-		return nil, false, nil
+		return nil, false, nil, nil
 	}
 	if err != nil {
-		return nil, true, err
+		return nil, true, nil, err
 	}
-	if a.State != assignment.StateActive {
-		if a, err = store.Reopen(id); err != nil {
-			return nil, true, err
+	if a.State == assignment.StateActive {
+		if p, live := liveHolder(a, held); live {
+			return a, true, &p, nil
 		}
+		if _, err := store.Take(id); err != nil {
+			return nil, true, nil, err
+		}
+		return a, true, nil, nil
 	}
-	return a, true, nil
+	if a, err = store.Reopen(id); err != nil {
+		return nil, true, nil, err
+	}
+	return a, true, nil, nil
+}
+
+// heldElsewhere is what a session is told when the lane it opened is held by
+// another running session: it was not taken up, so its notes from outside the
+// lane's tree leave the claim to the holder.
+func heldElsewhere(id string, holder presence.Session) string {
+	return fmt.Sprintf("mellions: %s is held right now by %s session %s, so this session was not taken up as one of its sessions;\n"+
+		"its notes from outside the lane's tree leave the claim to that session. Reach it before working beside it.\n",
+		id, holder.Runtime, holder.ID)
 }
 
 // parseOpen reads what `assign open` was asked for. Separate from opening it so
@@ -364,7 +391,7 @@ func assignRecord(args []string) error {
 	if len(rest) == 0 {
 		return assignRecordUsageError()
 	}
-	store, _, err := assignStore(*cfgPath)
+	store, cfg, err := assignStore(*cfgPath)
 	if err != nil {
 		return err
 	}
@@ -389,14 +416,40 @@ func assignRecord(args []string) error {
 	if id == "" || len(text) == 0 {
 		return assignRecordUsageError()
 	}
-	if err := store.Record(id, *kind, strings.Join(text, " ")); err != nil {
+	// Written from inside another lane's tree, or by a runtime session from no
+	// lane's tree at all, the note may be a reader's: Annotate restates the
+	// target's claim only when this session already worked that lane. A write
+	// with no runtime session behind it has no session to judge and restates.
+	foreign := here != nil && here.ID != id
+	unplaced := here == nil && len(assignment.Here()) > 0
+	write := store.Record
+	if foreign || unplaced {
+		write = store.Annotate
+	}
+	var before *assignment.Assignment
+	if a, err := store.Get(id); err == nil {
+		before = a
+	}
+	worked := before != nil && before.WorkedHere()
+	if err := write(id, *kind, strings.Join(text, " ")); err != nil {
 		return err
 	}
-	if here != nil && here.ID != id {
+	if foreign {
 		fmt.Fprintf(os.Stderr,
-			"mellions: recorded on %s, but this tree is %s's lane.\n"+
+			"mellions: recorded on %s, but this tree is %s's lane; %s's tracker claim is restated only if this session already worked it.\n"+
 				"A record on a lane you are not working is working memory the next session reads under the wrong objective.\n",
-			id, here.ID)
+			id, here.ID, id)
+	}
+	if unplaced && !worked && before != nil {
+		_, me := presence.Here()
+		if p, live := liveHolder(before, heldNow(cfg.presences().Live(), me, presence.SelfPID())); live {
+			fmt.Fprint(os.Stderr, heldElsewhere(id, p))
+			return nil
+		}
+		fmt.Fprintf(os.Stderr,
+			"mellions: recorded on %s from outside its tree by a session that has not worked it; its tracker claim was left as it stood.\n"+
+				"Taking the lane up is `mellions assign open %s`; a note alone keeps no lane's claim alive.\n",
+			id, id)
 	}
 	return nil
 }
@@ -640,8 +693,9 @@ func readInput(path string) (string, error) {
 }
 
 // assignSweep closes the lanes the tracker says are finished, or says which
-// it would close. One line per open lane either way, so what the sweep read
-// is on the screen next to what it did.
+// it would close. One line per open lane, and per finished lane whose claim is
+// still on the tracker, so what the sweep read is on the screen next to what
+// it did.
 func assignSweep(ctx context.Context, args []string) error {
 	fs := newFlagSet("assign sweep", flag.ExitOnError)
 	cfgPath := fs.String("config", "", "config file")
@@ -677,6 +731,10 @@ func assignSweep(ctx context.Context, args []string) error {
 		fmt.Printf("%-28s %-9s %s\n", v.ID, v.Verdict, v.Why)
 	}
 	fmt.Println()
+	if n := counts["released"] + counts["stranded"]; n > 0 {
+		fmt.Printf("%d finished lane(s) whose claim a failed release left on the tracker: %d released now, %d still stranded.\n",
+			n, counts["released"], counts["stranded"])
+	}
 	switch {
 	case *apply:
 		fmt.Printf("%d closed — worktree removed, branch and record kept; %d kept.\n", counts["closed"], counts["kept"])

@@ -6,9 +6,8 @@ description: How to run a repository work session, and how to review the work of
 
 # Running a session
 
-A session is a competent engineer who arrived this morning, has no memory of the
-programme, and cannot see your record. It has the repository, its own judgment,
-and whatever you tell it. That is the whole gap a dispatch has to close.
+A new session has its own judgment and repository, but not your record.
+A dispatch supplies that gap.
 
 ## What a dispatch carries
 
@@ -41,13 +40,15 @@ mellions assign open -id <id> -repo <repo> -objective "..."
 It prints a worktree on a branch of its own. That path is what the dispatch
 says, and it is the whole of what the session may write.
 
-A boundary written as a prohibition — *never touch `<path>`* — is not a
-boundary: it breaks when a failed `cd` leaves the rest of a compound command
-running in the tree it was told to stay out of.
+A prohibition such as *never touch `<path>`* is not a boundary: a failed
+`cd` can leave a compound command writing in the wrong tree.
 
-Keep it around two kilobytes; its own `CLAUDE.md` and the skills it names
-supply the rest. Tier is the runtime's, from the operator's standing
-configuration; never re-derived per dispatch.
+Keep the dispatch near two kilobytes; its `CLAUDE.md` and named skills
+supply the rest. Runtime owns model/effort; honor the operator's standing
+preference. Lead handles unknown causes, architecture, novel complex code and
+high-stakes independent validation; capable workers implement grounded fixes,
+maintenance and routine reviews. Reassign if findings reopen design; skip
+needless handoffs. Verify actual model/effort. Restricted tiers need approval.
 
 ## Judging what comes back
 
@@ -58,8 +59,7 @@ and `mellions-deep-research`.
 The failure to watch for is a session that says a thing is fixed because the
 diff exists. Ask what it ran, and what it saw.
 
-When a report is thin, say what is missing rather than accepting it and
-discovering the gap later.
+When a report is thin, say what is missing before building on it.
 
 ## Reviewing a peer's change set
 
@@ -72,10 +72,10 @@ nobody else will read it: an evidenced draft none reads is the shift's work
 undone. A draft's size is a measurement, not a verdict.
 
 **A review count of zero is not evidence nobody read it.** A read here is posted
-as a comment, so a change set read twice still reports `reviews: 0` — 18 of 31
-open ones across eight repositories did. Read the disposition of any read already
-there: where one returned changes requested and the head has not moved since, the
-work waiting is the remedy it named, not a second opinion.
+as a comment, so a change set read twice can still report `reviews: 0`. Read the
+disposition of any read already there: where one returned changes requested and
+the head has not moved since, the work waiting is the remedy it named, not a
+second opinion.
 
 **A change set carrying `mellions:claimed` is held.** A survey prints
 `CLAIMED`; read the claim before deciding anything. An active lane is still on
@@ -103,10 +103,11 @@ the change dropping production behaviour.
 **Then argue on the record.** Say what you established and what you could not.
 Re-run their gate and falsification locally, on the head merged into the
 target's tip: a stale branch can pass alone and break merged with no file in
-common. The tip is the one at publishing: fetch target and head again, and a
+common. At publishing, re-read the target's tip and the PR's state and head
+(`gh pr view --json state,headRefOid`; a ref read can miss a deleted head): a
 new commit that could reach what you ran is a merge you have not verified —
-re-run it, or name the commits the verdict holds for. A cited test the tree
-lacks is an account, not evidence.
+re-run it, or a review names the commits it holds for; a review of a PR no
+longer open says so. A cited test the tree lacks is an account.
 
 Then one of two, never a third:
 
@@ -150,7 +151,6 @@ host, or a hypothesis worth separating from everything else. Name
 Close when the objective is met, or when the work has moved somewhere a fresh
 session would serve better than this one's accumulated context.
 
-An idle session holds a model context and memory; the reaper is a backstop.
 
 Record what was learned before closing. The session's context dies with it; your
 record is what survives.

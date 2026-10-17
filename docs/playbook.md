@@ -200,6 +200,12 @@ These files can contain private repository names, organizational facts and
 working preferences. Keep the configured program and partner directories out
 of source repositories unless you intentionally mean to publish them.
 
+An operator's standing preference for allocating high-stakes reasoning,
+implementation, and independent review across models belongs in the partnership
+and the native runtime, not a Mellions model router. For a concrete optional
+Opus/Sonnet example, see [Claude Code model delegation](claude-code-model-delegation.md).
+The example is not automatically installed or enabled.
+
 ## Attended and unattended operation
 
 The operator sets host state explicitly:

@@ -12,7 +12,8 @@ The runtime owns native permissions, tools, MCP, sandboxing, credentials and
 model settings; configuration keys that would shadow them are refused.
 Mellions also ships narrow PreToolUse safeguards for closing references,
 shared-checkout mutation, glob deletes over shared temporary roots,
-unsupported citations and credential reads. They are
+signals sent by process name or pattern, unsupported citations and
+credential reads. They are
 not a replacement for runtime permissions or operator-enforced boundaries.
 
 ## Layout

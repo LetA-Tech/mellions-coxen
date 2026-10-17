@@ -5,7 +5,7 @@
 #
 # The predicate is a table in internal/prmerge, which is where a case about
 # which states are refused belongs. What is proven here is the wiring that
-# table cannot see: the payload shape the runtime sends, the two tracker reads
+# table cannot see: the payload shape the runtime sends, the tracker reads
 # actually being made and their answers reaching the decision, one line of JSON
 # out, a descriptor the runtime closed, and the off switch.
 set -uo pipefail
@@ -50,10 +50,11 @@ case "$1 $2" in
     # other: head...base is what the base gained and carries each file's blob
     # at the base tip, base...head carries the same file's blob at the head
     # tip. A stub that served one answer to both would hide the difference the
-    # guard now decides on.
+    # guard now decides on. GH_HEAD_JSON is the files of base...head, which is
+    # the pull request's own diff; empty, the answer does not parse.
     case "$2" in
       *"...dev") printf '%s\n' "$GH_COMPARE_JSON" ;;
-      *"...abc") printf '%s\n' "$GH_HEAD_JSON" ;;
+      *"...abc") printf '{"ahead":2,"files":%s}\n' "$GH_HEAD_JSON" ;;
     esac ;;
 esac
 exit 0
@@ -97,13 +98,27 @@ out=$(payload 'gh pr merge 42' | runhook)
 [[ -z "$out" ]] || bad "a merge that overwrites nothing was refused: $out"
 note "behind in a shared file identical at both tips: silent"
 
-# 2c. The content at the head tip unreadable. An overlap cannot be cleared by a
-#     read that did not answer, so the refusal stands.
+# 2c. The pull request's own diff unreadable. An overlap cannot be cleared by a
+#     read that did not answer, so the merge is refused, and with no diff read
+#     no file is named.
 export GH_HEAD_JSON=''
 out=$(payload 'gh pr merge 42' | runhook)
 grep -q '"permissionDecision":"deny"' <<<"$out" ||
   bad "an overlap was cleared by a read that answered nothing: $out"
-note "the head-side read answering nothing: still denied"
+grep -q 'could not be established' <<<"$out" ||
+  bad "the refusal on an unread diff claims more than it established: $out"
+grep -q 'internal/a.go' <<<"$out" &&
+  bad "the refusal names a file from a diff that was never read: $out"
+note "the head-side read answering nothing: denied as unread, no file named"
+
+# 2f. The tracker's file list names a file the head never changed. GH_PR_JSON
+#     lists internal/a.go, the base changed it, and the pull request's own diff
+#     from the merge base is internal/b.go alone. The merge takes the base's
+#     internal/a.go, so nothing is written over.
+export GH_HEAD_JSON='[{"name":"internal/b.go","sha":"head2"}]'
+out=$(payload 'gh pr merge 42' | runhook)
+[[ -z "$out" ]] || bad "a file only the tracker's file list names was refused: $out"
+note "a file the pull request's file list names and its diff does not: silent"
 export GH_HEAD_JSON='[{"name":"internal/a.go","sha":"head1"}]'
 
 # 2d. A file both sides deleted. A deletion's sha is the pre-image — the blob
@@ -145,6 +160,43 @@ out=$(payload 'gh pr merge 42 --squash --delete-branch' | runhook)
 [[ -z "$out" ]] || bad "a clean, current merge was refused: $out"
 note "clean and current: silent"
 
+# 4b. Current and clean, with a body the head does not back. The merge lands
+#     the body the tracker holds, so its citations are read at the head commit
+#     in the checkout the merge runs from; one quoting the head's line passes.
+repo="$tmp/repo"
+mkdir -p "$repo/cfg"
+printf 'package cfg\n\nvar x = 1\n' >"$repo/cfg/a.go"
+git -C "$repo" init -q
+git -C "$repo" add .
+GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t \
+  git -C "$repo" commit -q -m head
+sha=$(git -C "$repo" rev-parse HEAD)
+bodied() { printf '{"number":51,"url":"https://github.com/o/r/pull/51","baseRefName":"dev","headRefOid":"%s","mergeStateStatus":"CLEAN","state":"OPEN","body":"See `cfg/a.go:3`:\\n\\n```\\n%s\\n```\\n"}' "$sha" "$1"; }
+inrepo() { printf '{"tool_name":"Bash","cwd":"%s","tool_input":{"command":"%s"}}' "$repo" "$1"; }
+export GH_PR_JSON; GH_PR_JSON=$(bodied 'var x = 2')
+out=$(inrepo "gh pr merge 51 --merge --match-head-commit $sha" | runhook)
+grep -q '"permissionDecision":"deny"' <<<"$out" ||
+  bad "a body citing a line its head does not have was merged: $out"
+grep -q 'cfg/a.go:3' <<<"$out" ||
+  bad "the refusal does not name the unbacked citation: $out"
+GH_PR_JSON=$(bodied 'var x = 1')
+out=$(inrepo "gh pr merge 51 --merge --match-head-commit $sha" | runhook)
+[[ -z "$out" ]] || bad "a body its head backs was refused: $out"
+note "a body the head does not back: denied by citation; one it backs: silent"
+
+# 4c. The same merge after a cd from a directory that is no checkout: the body is
+#     graded where the merge runs, not where the session sits.
+GH_PR_JSON=$(bodied 'var x = 2')
+out=$(payload "cd $repo && gh pr merge 51 --merge" | runhook)
+grep -q 'cfg/a.go:3' <<<"$out" ||
+  bad "a merge after cd was not graded in the directory it runs in: $out"
+note "cd <checkout> && gh pr merge: graded in the checkout"
+
+# 4d. The body check off alone: the body is not graded, the rest still is.
+out=$(inrepo "gh pr merge 51 --merge" | MELLIONS_MERGE_BODY_CHECK=off MELLIONS_BIN="$bin" CLAUDE_PLUGIN_ROOT="$root" bash "$hook")
+[[ -z "$out" ]] || bad "MELLIONS_MERGE_BODY_CHECK=off did not silence the body check: $out"
+note "body check off alone: silent on the body"
+
 # 5. The off switch, on the state that is otherwise refused.
 export GH_PR_JSON='{"number":177,"url":"u","baseRefName":"dev","headRefOid":"abc","mergeStateStatus":"UNKNOWN","state":"OPEN","files":[]}'
 out=$(payload 'gh pr merge 177' | MELLIONS_MERGE_CHECK=off MELLIONS_BIN="$bin" CLAUDE_PLUGIN_ROOT="$root" bash "$hook")
@@ -171,7 +223,11 @@ note "closed descriptor: returns, decides nothing"
 err=$(MELLIONS_HOOK= "$bin" pr-merge-check </dev/null 2>&1 >/dev/null)
 grep -q 'examined nothing' <<<"$err" ||
   bad "run by hand the guard does not say it examined nothing: $err"
-note "run by hand: says it examined nothing"
+# A payload piped without the variable is not read; the message has to say
+# how to hand one, or it tells whoever piped one that none was handed.
+grep -q 'MELLIONS_HOOK=1 mellions pr-merge-check' <<<"$err" ||
+  bad "run by hand the guard does not say how to hand it a payload: $err"
+note "run by hand: says it examined nothing, and how to hand it a payload"
 
 [[ $fail -eq 0 ]] || exit 1
 echo "ok  pr-merge-check"

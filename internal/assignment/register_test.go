@@ -370,3 +370,106 @@ func TestAStrandedReleaseNamesEveryRefStillHeld(t *testing.T) {
 		}
 	}
 }
+
+// A claim a failed release left on the tracker is said wherever the lane is
+// read, and the sweep asks the tracker again until it is gone.
+func TestAStrandedClaimIsShownAndTheSweepRetriesIt(t *testing.T) {
+	src := gitFixture(t)
+	s, err := newStoreT(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.Registers = map[string]string{"svc": "docs/tracker.md"}
+	f := trackerOf(t, s)
+	if _, err := s.Open(OpenOptions{
+		ID: "svc-imp17", Repo: "svc", Issue: "IMP-017", Source: src,
+		Objective: "implement the work unit", Because: "it is ready",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.ClaimPullRequest(context.Background(), "svc-imp17", "180"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Handoff("svc-imp17", "done and pushed"); err != nil {
+		t.Fatal(err)
+	}
+	f.mu.Lock()
+	f.fail = errors.New("gh: HTTP 403")
+	f.mu.Unlock()
+	if err := s.Close("svc-imp17"); err != nil {
+		t.Fatal(err)
+	}
+	if !f.label("svc", "PR #180") {
+		t.Fatal("precondition: the failed release should leave PR #180 labelled")
+	}
+	a, err := s.Get("svc-imp17")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if txt := a.Text(time.Now()); !strings.Contains(txt, "NOT RELEASED") || !strings.Contains(txt, "PR #180") {
+		t.Errorf("the lane's text does not say its claim on PR #180 is still on the tracker:\n%s", txt)
+	}
+
+	// The tracker answers again before the dry run, so a dry run that released
+	// would succeed and take the label off.
+	f.mu.Lock()
+	f.fail = nil
+	f.mu.Unlock()
+	dry, err := s.Sweep(context.Background(), SweepOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v := sweptFor(dry, "svc-imp17"); v == nil || v.Verdict != "stranded" || !strings.Contains(v.Why, "PR #180") {
+		t.Fatalf("a dry-run sweep does not report the stranded claim: %+v", dry)
+	}
+	if !f.label("svc", "PR #180") {
+		t.Fatal("a dry-run sweep released a claim")
+	}
+
+	s.Tracker = nil
+	blind, err := s.Sweep(context.Background(), SweepOptions{Apply: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v := sweptFor(blind, "svc-imp17"); v == nil || v.Verdict != "stranded" || !strings.Contains(v.Why, "cannot retry") {
+		t.Fatalf("with no tracker the sweep does not say it cannot retry: %+v", blind)
+	}
+	if a, err = s.Get("svc-imp17"); err != nil || a.Claim == nil || !strings.Contains(a.Claim.Stranded, "PR #180") {
+		t.Fatalf("with no tracker the sweep rewrote the stranded record: %+v %v", a.Claim, err)
+	}
+	s.Tracker = f
+
+	applied, err := s.Sweep(context.Background(), SweepOptions{Apply: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v := sweptFor(applied, "svc-imp17"); v == nil || v.Verdict != "released" {
+		t.Fatalf("the sweep did not retry the stranded release: %+v", applied)
+	}
+	if f.label("svc", "PR #180") {
+		t.Error("PR #180 still carries mellions:claimed after the retried release")
+	}
+	a, err = s.Get("svc-imp17")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a.Claim != nil && a.Claim.Stranded != "" {
+		t.Errorf("the record still says stranded after a release that succeeded: %q", a.Claim.Stranded)
+	}
+	again, err := s.Sweep(context.Background(), SweepOptions{Apply: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v := sweptFor(again, "svc-imp17"); v != nil {
+		t.Errorf("a released lane is swept again: %+v", v)
+	}
+}
+
+func sweptFor(vs []Swept, id string) *Swept {
+	for i := range vs {
+		if vs[i].ID == id {
+			return &vs[i]
+		}
+	}
+	return nil
+}

@@ -11,9 +11,9 @@ been red.
 
 ## The copy you falsify in
 
-One copy per arm: a neutralisation left from the previous arm can mask the
-next. `git archive <rev>` carries that commit, not the index: a staged,
-uncommitted test is absent.
+One copy per arm: one arm's neutralisation can mask the next. A
+`git archive` holds no staged test and no `.git`: read
+`references/copies.md` before a suite runs in it.
 Never falsify by restoring a working tree: it discards uncommitted work —
 yours or another session's. With one arm and nothing
 uncommitted at stake, toggling the edit in place — red, then green — is the
@@ -33,19 +33,19 @@ test.
 
 Revert every part of the fix at once and watch the named tests fail. A complete
 revert that stays green has four readings, the third pointing at deleting the
-test: the edit did not land — confirm it where the test reads (off disk, in the
-database), since an edit that no-ops (a `sed` that matched nothing, an
-unexpanded variable) reads exactly like a pass; the tests never reach the fix;
-the fix is idle; or a part of the same revert removed the condition the test
-needs — where one half of a fix creates the state the other half's defect lives
-in, each half wants its own arm. Revert half of a fix on its own and the half
-left standing can hold the test green, proving nothing about either.
+test: the edit did not land — read it where the test reads (off disk, in the
+database) before and after the run, as an edit that no-ops (a `sed` matching
+nothing) or that the run restores (`-mod=mod`, `--fix`, setup) reads like a
+pass; the tests never reach the fix; the fix is idle; or a part of the same
+revert removed the condition the test needs — where one half of a fix creates
+the state the other half's defect lives in, each half wants its own arm. Revert
+one half alone and the other can hold the test green, proving neither.
 
 Read the red: a wide revert can fail short of the assertion — a build break, a
 panic in a helper — or trip it by a mechanism you did not test. The red that
 counts is the assertion the fix exists for, by name.
 
-Where the fix is an instruction aimed at a model — a Skill, a prompt, a hook —
+Where the fix is aimed at a model — a Skill, a prompt, a hook —
 read `references/model-arms.md` first: the untreated run must be able to fail,
 and what counts as a difference is decided before either is read. Where
 something outside the process settles a race, read `references/race-arms.md`:
@@ -53,32 +53,30 @@ a one-process test never meets what breaks it.
 
 Where the fix deletes an exemption a check honoured — a `nolint`, a skip, an
 allow-list entry — the complete revert restores the exemption and is green on
-purpose. Keep it gone and revert only
-the code that now satisfies the check: it must go red.
+purpose. Keep it gone and revert only the code that now satisfies the check: it
+must go red.
 
-With more than one arm, read which named tests went red under which arm. An
-arm that must be green and reds condemns the batch, not itself:
-the cause is usually shared — a column every insert omits, a header every
-request lacks — so no red beside it counts until the accepted case is green.
-Run each arm where the neutralised code errs: a gate left refusing all keeps
-refusal tests green, so run a case it must admit; left admitting all, one it
-must refuse. A test cited as this fix's proof that is red under no arm is not
-evidence for it. An arm that reds nothing neutralised nothing a
-test can see: the neutralisation did not land, the tests did not run (a
-skip, a build tag, a `-run` filter, a cache that did not fingerprint what you
-changed), the code is dead, the test is missing, or another path still
-supplies what you removed — a second grant, an inherited role, PUBLIC,
+With more than one arm, read which named tests went red under which arm. An arm
+that must be green and reds condemns the batch, not itself: the cause is usually
+shared — a column every insert omits, a header every request lacks — so no red
+beside it counts until the accepted case is green. Run each arm where the
+neutralised code errs: a gate left refusing all keeps refusal tests green, so
+run a case it must admit; left admitting all, one it must refuse. A test cited
+as this fix's proof that is red under no arm is not evidence for it. An arm that
+reds nothing neutralised nothing a test can see: any reading above, the tests
+did not run (a skip, a build tag, a `-run` filter, a cache that did not
+fingerprint your edit), the code is dead, the test is missing, or another path
+still supplies what you removed — a second grant, an inherited role, PUBLIC,
 ownership, a fallback. Read what production holds, from its catalog or live
-grants: if it has that path, this test cannot be evidence for the fix; if
-only the test setup has it, correct the setup in the tree you publish, then
-rerun the plain arm. An arm that neutralises an
-optimisation legitimately reds nothing; a timing assertion added to red it is
-worse than none.
+grants: if it has that path, this test cannot be evidence for the fix; if only
+the test setup has it, correct the setup in the tree you publish, then rerun the
+plain arm. An arm that neutralises an optimisation legitimately reds nothing; a
+timing assertion added to red it is worse than none.
 
 ## What a red or a green can still hide
 
-A status belongs to the last thing that produced it, and a green can be a
-verdict nobody computed this time.
+A status belongs to the last thing that produced it: a green can be a verdict
+nobody computed this time.
 
 A test that expects a failure is green on whatever stopped the path first — a
 missing table, a refused permission. Read which failure the run got; if it is
@@ -93,10 +91,9 @@ directory or cache reproduces the environment, not the tree, and reads exactly
 like "it fails at base too". Vary the one thing the claim is about.
 
 A pipeline's exit is its last stage's (`make check | tail` reports `tail`
-without `pipefail`), and a backgrounded command's can be the launcher's, so
-"completed, exit 0" may attest only that the spawn succeeded. Read
-the check's own output: a non-zero exit falsifies a green claim on its own, a
-zero exit never establishes one.
+without `pipefail`); a backgrounded command's can be the launcher's, so
+"completed, exit 0" may attest only the spawn. Read the check's own output: a
+non-zero exit falsifies a green claim, a zero exit never establishes one.
 
 Mutation proves the tests see the change, not that the change reaches the
 outcome. Where a caller the tests never execute mediates the effect
@@ -104,11 +101,12 @@ outcome. Where a caller the tests never execute mediates the effect
 drive the entry point once at whatever fidelity is reachable and assert on
 the outcome the requirement names, not the unit's return value.
 
-Where the fix widens what something accepts — a matcher, a filter, a guard, an
+Where the fix widens what something accepts — a matcher, a filter, an
 allow-list — the revert arm shows what it now admits, never what it stopped
-catching. Enumerate the cases the narrow form caught and the wide one lets
-through, remove only the clause meant to hold them back, and watch those go red.
-A widening whose guard reds nothing is not guarded.
+catching: enumerate what the narrow form caught and the wide one lets through,
+remove only the clause meant to hold those back, and watch them go red. Where
+the fix refuses more, run the production predicate, old and new, over what it
+will meet — sessions, rows, sampled future input — and judge each newly refused.
 
 Where the claim is placement — a write inside another operation's
 transaction, lock or publish order — removing the write proves the write, not
@@ -122,11 +120,10 @@ touched: drive the write path the system drives, then read.
 Where what you measure is emitted once — a note said once per session, an
 at-most-once delivery, a lock taken by whoever asks first — the measurement is a
 consumable: a consumer you did not account for takes it, and your instrument
-records nothing, exactly like an arm producing nothing. Read the durable record
+records nothing. Read the durable record
 the emission leaves (the ledger, the offset, the holder), not the stream
 somebody else may have drained; a second reader on that stream is the same
 defect, now yours.
-
 
 ## Writing it down
 

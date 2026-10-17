@@ -2,8 +2,10 @@
 // Built and maintained by LetA Tech Ltd.
 // Contact: leta@letatech.ca
 
-// Package sharedtree decides whether a Bash tool call runs a tree-mutating git
-// command inside a checkout that is not the session's own lane.
+// Package sharedtree decides whether a tool call writes a checkout that is not
+// the session's own lane: a Bash call that runs a tree-mutating git command
+// there, or an Edit, Write, MultiEdit or NotebookEdit call, made by a session
+// that holds an assignment, whose target file is there.
 //
 // Every lane on a host is a worktree cut from one long-lived checkout per
 // repository, and that checkout is nobody's lane. Its working tree carries
@@ -22,9 +24,9 @@
 // its verb writes the working tree, the index or the stash. A search over the
 // raw string answers none of those, so all four are parsed here.
 //
-// A lane worktree is refused nothing, and neither is a checkout this
-// installation names explicitly rather than surveying — Mellions' own source
-// among them, which the partnership says the engineer works in.
+// A lane worktree is refused nothing. A checkout this installation names
+// explicitly rather than surveying is not guarded, except the load path, which
+// a file-writing tool is refused like a shared checkout.
 package sharedtree
 
 import (
@@ -100,6 +102,33 @@ type Estate struct {
 	// its worktrees to live inside the checkout, and a write there reaches
 	// neither the checkout's index nor its files.
 	OtherTree func(dir, checkout string) bool
+	// Assigned reports that the session holds an open assignment, so it has a
+	// lane of its own and a file it writes belongs there. Nil is the same as
+	// no.
+	//
+	// A file-writing tool is refused only for such a session. An Edit is
+	// ordinary work, and a session the owner drives in a checkout directly,
+	// holding no lane, is doing what he chose; a lane session editing the tree
+	// every lane is cut from is the failure this guard exists for.
+	Assigned func(session, cwd string) bool
+	// Ignored reports that git ignores path in the checkout, or false where it
+	// cannot tell. Nil is the same as false.
+	//
+	// It narrows one exemption and grants nothing on its own: a file under
+	// `.remember/` at the checkout's root, where the memory plugin keeps a
+	// project's buffer, is written by that plugin through these tools, and is
+	// let through only while git ignores it there. Every other ignored file —
+	// `.claude/settings.local.json`, `.env`, build output — has no index or
+	// object copy and stays refused.
+	Ignored func(path, checkout string) bool
+	// LoadAliases are other names of the tree this installation is loaded
+	// from — the registry's answer where the runtime's differs, and symlink
+	// targets — guarded for file tools like LoadPath, and exempt from nothing.
+	LoadAliases []string
+	// LoadRepo names the repository the load path is a checkout of, so a
+	// refusal can name the session's lane for it; "" names it by the last
+	// element of LoadPath.
+	LoadRepo string
 }
 
 // Deny returns the reason to refuse a PreToolUse payload, or "" to stay
@@ -111,10 +140,26 @@ func Deny(payload []byte, e Estate) string {
 		Cwd      string `json:"cwd"`
 		Session  string `json:"session_id"`
 		Input    struct {
-			Command string `json:"command"`
+			Command      string `json:"command"`
+			FilePath     string `json:"file_path"`
+			NotebookPath string `json:"notebook_path"`
 		} `json:"tool_input"`
 	}
-	if json.Unmarshal(payload, &ev) != nil || ev.ToolName != "Bash" {
+	if json.Unmarshal(payload, &ev) != nil {
+		return ""
+	}
+	if fileTools[ev.ToolName] {
+		target := ev.Input.FilePath
+		if target == "" {
+			target = ev.Input.NotebookPath
+		}
+		fw := FindFileWrite(ev.ToolName, target, ev.Session, ev.Cwd, e)
+		if fw == nil {
+			return ""
+		}
+		return fw.Reason(e, ev.Session, ev.Cwd)
+	}
+	if ev.ToolName != "Bash" {
 		return ""
 	}
 	f := Find(ev.Input.Command, ev.Cwd, e)
@@ -122,6 +167,98 @@ func Deny(payload []byte, e Estate) string {
 		return ""
 	}
 	return f.Reason(e, ev.Session, ev.Cwd)
+}
+
+// fileTools are the tools that write a file named in their input rather than
+// through a command line.
+var fileTools = map[string]bool{"Edit": true, "Write": true, "MultiEdit": true, "NotebookEdit": true}
+
+// FileWrite is one file-writing tool call aimed at a tree the session does not
+// own.
+type FileWrite struct {
+	// Tool is the tool name, and Path the file it writes, absolute.
+	Tool, Path string
+	// Repo and Checkout are the guarded checkout Path is inside.
+	Repo, Checkout string
+}
+
+// FindFileWrite returns the write when a session holding an assignment aims
+// tool at a file inside a guarded checkout, outside every lane and not the
+// memory plugin's ignored state, or nil.
+//
+// The guarded set is the shared checkouts and the load path. The load path is
+// exempt from exactly one Bash verb, the deployment pull, which has no
+// file-tool equivalent: an edit there changes what every later session loads,
+// and Mellions' own changes are made in lanes like any other.
+func FindFileWrite(tool, path, session, cwd string, e Estate) *FileWrite {
+	if !fileTools[tool] || path == "" || e.Assigned == nil {
+		return nil
+	}
+	// A tool's path is a literal, never shell text, so it is joined rather
+	// than read through abs, which gives up on a `$` or a glob character.
+	target := filepath.Clean(path)
+	if !filepath.IsAbs(target) {
+		if !filepath.IsAbs(cwd) {
+			return nil
+		}
+		target = filepath.Join(cwd, target)
+	}
+	guarded := e
+	guarded.Shared = append([]Checkout(nil), e.Shared...)
+	loadRepo := e.LoadRepo
+	if loadRepo == "" && e.LoadPath != "" {
+		loadRepo = filepath.Base(filepath.Clean(e.LoadPath))
+	}
+	for _, dir := range append([]string{e.LoadPath}, e.LoadAliases...) {
+		if dir != "" {
+			guarded.Shared = append(guarded.Shared, Checkout{Repo: loadRepo, Dir: dir})
+		}
+	}
+	repo, checkout, ok := shared(filepath.Dir(target), guarded)
+	if !ok || memoryState(target, checkout, e) {
+		return nil
+	}
+	// Asked last: it reads the assignment store, and most writes land in no
+	// guarded tree at all.
+	if !e.Assigned(session, cwd) {
+		return nil
+	}
+	return &FileWrite{Tool: tool, Path: target, Repo: repo, Checkout: checkout}
+}
+
+// Reason says which tree the file is in and why that tree is not the
+// session's, what the write costs there, and where the same file is in the
+// session's own lane.
+func (w *FileWrite) Reason(e Estate, session, cwd string) string {
+	var b strings.Builder
+	b.WriteString("`" + w.Tool + "` writes " + w.Path + ", which is inside " + w.Checkout +
+		", the " + w.Repo + " checkout every lane on this host is cut from, not your worktree.\n\n" +
+		"It carries whatever the owner or another session has not committed, and this write " +
+		"lands on top of that in place: no reflog entry, no stash, and nothing that reports what was there.\n\n")
+	if lane := laneFor(e, w.Repo, session, cwd); lane != "" {
+		rel, err := filepath.Rel(w.Checkout, w.Path)
+		if err == nil && !strings.HasPrefix(rel, "..") {
+			b.WriteString("Your lane for " + w.Repo + " is " + lane + ", and the same file there is:\n" +
+				indent(filepath.Join(lane, rel)) + "\n")
+		} else {
+			b.WriteString("Your lane for " + w.Repo + " is " + lane + ", and it is a worktree of your own.\n")
+		}
+	} else {
+		b.WriteString("To change " + w.Repo + ", work in a lane of your own:\n" +
+			"    mellions assign open -id <id> -repo " + w.Repo + " -objective \"...\" -because \"...\"\n")
+	}
+	b.WriteString("\nmellions-territory carries the rule this enforces: never delete, move or revert " +
+		"what another session may hold.")
+	return b.String()
+}
+
+// memoryState reports that target is the memory plugin's own state in the
+// checkout: under `.remember/` at its root, and ignored by git there.
+func memoryState(target, checkout string, e Estate) bool {
+	if e.Ignored == nil || !under(target, filepath.Join(checkout, ".remember")) {
+		return false
+	}
+	return e.Ignored(target, checkout)
 }
 
 // Checkout is one long-lived tree lanes are cut from.

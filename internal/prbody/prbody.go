@@ -196,6 +196,10 @@ func calls(command, cwd string, accept func(noun, verb string) bool) []Call {
 	return out
 }
 
+// Chdir is chdir for a guard that reads another gh verb in the same command:
+// where a `cd` earlier in the line moves the directory a call runs in.
+func Chdir(words []string, cwd, dir string) (string, bool) { return chdir(words, cwd, dir) }
+
 // chdir reports the directory a `cd` moves to, and whether the command was a
 // `cd` at all. A target this cannot establish — no argument, `cd -`, a `~user`
 // form — resets to the session directory rather than guessing: the whole point
