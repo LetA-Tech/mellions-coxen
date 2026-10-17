@@ -147,12 +147,12 @@ lock_holder() {
 }
 # fd 9 is an open descriptor of $SHIFTS; the flock belongs to its open file
 # description, so it outlives the python3 that takes it and survives the
-# runner's exec of its own updated copy, and children are started with fd 9
-# closed so none can keep it after the runner.
+# runner's exec of its own updated copy. The shift, nap's sleep, and update's
+# git and make run with fd 9 closed, so none of them keeps it after the runner.
 # Held elsewhere is exit 75 from either tool; any other failure, such as a
 # python3 that is only an installer stub, is "cannot flock", never "held".
 dirlock() {
-  local rc py=python3
+  local rc py=${PYTHON:-python3}
   [ "${MELLIONS_FLOCK:-flock}" = flock ] || py=$MELLIONS_FLOCK
   if [ "${MELLIONS_FLOCK:-flock}" = flock ] && command -v flock >/dev/null 2>&1; then
     flock -n -E 75 9; rc=$?
@@ -219,7 +219,7 @@ on_signal() {
 }
 trap on_signal TERM INT HUP
 nap() {
-  sleep "$1" & napper=$!
+  sleep "$1" 9<&- & napper=$!
   wait "$napper" 2>/dev/null
   napper=""
 }
@@ -344,7 +344,7 @@ tracked_dirt() { git -C "$CHECKOUT" status --porcelain=v1 --untracked-files=no 2
 update() {
   local head step dirt
   : > "$UPDATELOG"
-  if ! git -C "$CHECKOUT" -c merge.autoStash=false -c rebase.autoStash=false pull --ff-only >> "$UPDATELOG" 2>&1; then
+  if ! git -C "$CHECKOUT" -c merge.autoStash=false -c rebase.autoStash=false pull --ff-only >> "$UPDATELOG" 2>&1 9<&-; then
     log "update failed at git pull --ff-only in $CHECKOUT; the binary that runs stays — $UPDATELOG"
     return 1
   fi
@@ -364,7 +364,7 @@ update() {
     return 0
   fi
   for step in "make -C $CHECKOUT build" "make -C $CHECKOUT check"; do
-    if ! $step >> "$UPDATELOG" 2>&1; then
+    if ! $step >> "$UPDATELOG" 2>&1 9<&-; then
       log "update failed at $step; the binary that runs stays — $UPDATELOG"
       return 1
     fi
