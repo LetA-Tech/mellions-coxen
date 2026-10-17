@@ -757,6 +757,24 @@ func TestCheck_AColonNumberInsideALongerBacktickSpanIsNotAContinuation(t *testin
 	}
 }
 
+// A code span is what CommonMark delimits: a run of n backticks closed by the
+// next run of exactly n, and a run nothing closes is literal text the scan
+// continues past. The continuation reading and the quotation reading share this
+// scanner, so they cannot disagree about where a span is.
+func TestSpans_AsCommonMarkDelimitsThem(t *testing.T) {
+	for line, want := range map[string]string{
+		"`foo``bar`":                "foo``bar",
+		"`` x `y`":                  "y",
+		"``:8080`` and `:5`":        ":8080|:5",
+		"`` `:8080` `` then `a.go`": " `:8080` |a.go",
+		"no span ` here":            "",
+	} {
+		if got := strings.Join(spans(line), "|"); got != want {
+			t.Errorf("spans(%q) = %q, want %q", line, got, want)
+		}
+	}
+}
+
 func mustFindings(f []Finding, _ []Citation) []Finding { return f }
 
 // An image reference is not a citation in either half of Check: no finding, and
