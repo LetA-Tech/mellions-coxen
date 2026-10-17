@@ -348,10 +348,8 @@ var fileSpan = regexp.MustCompile("`((?:[\\w.+-]*/)*[\\w+-]+\\.[\\w+-]+|(?:[\\w.
 // colon, is that token's own inline quotation (`a.go:3`: `cfg.Port`), not a file.
 func namesFile(between string) bool {
 	rest := strings.TrimLeft(strings.TrimPrefix(strings.TrimLeft(between, " "), ":"), " ")
-	if strings.HasPrefix(rest, "`") {
-		if i := strings.IndexByte(rest[1:], '`'); i >= 0 {
-			rest = rest[i+2:]
-		}
+	if sp := codeSpans(rest); len(sp) > 0 && sp[0].open == 0 {
+		rest = rest[sp[0].close:]
 	}
 	return fileSpan.MatchString(rest)
 }

@@ -721,11 +721,15 @@ func TestUngraded_AContinuationPastANamedFileIsReportedNotRefused(t *testing.T) 
 // Charging it to the citation before it refused a correct body for a line the
 // file never had. The controls are real continuations beside such a span, and
 // a double-backtick span that is itself a continuation's quotation: each is
-// still graded against the citation.
+// still graded against the citation, as is one after a citation whose own
+// double-backtick quotation holds a backticked file name.
 func TestCheck_AColonNumberInsideALongerBacktickSpanIsNotAContinuation(t *testing.T) {
 	read := func(path string) ([]string, error) {
-		if path == "a.go" {
+		switch path {
+		case "a.go":
 			return []string{"package a", "", "cfg.Port", "", "cfg.Host", "", "w"}, nil
+		case "c.go":
+			return []string{"package c", "", "use `b.go` here", "", "cfg.Host"}, nil
 		}
 		return nil, errors.New("not a file in this checkout")
 	}
@@ -749,6 +753,7 @@ func TestCheck_AColonNumberInsideALongerBacktickSpanIsNotAContinuation(t *testin
 		"See `a.go:3` `cfg.Port`. Then `:5` ``z`` and ``:8080``.\n": "a.go:5",
 		"See `a.go:3` `cfg.Port`, `:5`: `cfg.Host`, `:7`: ``z``.\n": "a.go:7",
 		"See `a.go:3` `cfg.Port`. ``x`` then `:9`:\n```\nw\n```\n":  "a.go:9",
+		"See `c.go:3` `` use `b.go` here `` then `:5` `z`.\n":       "c.go:5",
 	} {
 		findings, _ := Check(body, read)
 		if len(findings) != 1 || findings[0].Raw != want {
