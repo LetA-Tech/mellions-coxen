@@ -478,7 +478,8 @@ scripts/shifts.sh
 ```
 
 Runs shifts back to back on one host: one runner per `MELLIONS_HOME`, held by
-`shifts/runner.lock`; a self-update from the checkout before each shift; a
+`shifts/runner.lock` and re-checked before each shift, so a runner whose lock
+another live runner took stops rather than run every shift twice; a self-update from the checkout before each shift; a
 cooldown that doubles while shifts fail; a wait for the named window, and no
 doubling, where the runtime refused the shift with the account's usage limit; a
 cap per UTC day counted from the shift files, which a refused shift does not

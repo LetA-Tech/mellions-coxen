@@ -5,7 +5,8 @@
 # verify and when a piece of work is finished stay in the session.
 #
 # One runner per $MELLIONS_HOME, held by shifts/runner.lock with the runner's
-# pid in it; a lock whose pid is not a live runner is taken over. Between
+# pid in it; a lock whose pid is not a live runner is taken over, and before
+# each shift a runner whose lock now names another live runner stops. Between
 # shifts the runner pulls the checkout and installs the binary built from it,
 # waits out a cooldown that doubles while shifts fail, holds while
 # $MELLIONS_HOME/pause exists, holds while $MELLIONS_HOME/owner says the owner
