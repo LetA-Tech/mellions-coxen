@@ -715,6 +715,105 @@ func TestUngraded_AContinuationPastANamedFileIsReportedNotRefused(t *testing.T) 
 	}
 }
 
+// A `:N` written inside a span delimited by two or more backticks is that
+// span's literal content, how a port or a backticked token is shown: it is no
+// continuation, and the enclosing span's closing delimiter is no quotation.
+// Charging it to the citation before it refused a correct body for a line the
+// file never had. The controls are real continuations beside such a span, and
+// a double-backtick span that is itself a continuation's quotation: each is
+// still graded against the citation, as is one after a citation whose own
+// double-backtick quotation holds a backticked file name.
+func TestCheck_AColonNumberInsideALongerBacktickSpanIsNotAContinuation(t *testing.T) {
+	read := func(path string) ([]string, error) {
+		switch path {
+		case "a.go":
+			return []string{"package a", "", "cfg.Port", "", "cfg.Host", "", "w"}, nil
+		case "c.go":
+			return []string{"package c", "", "use `b.go` here", "", "cfg.Host"}, nil
+		}
+		return nil, errors.New("not a file in this checkout")
+	}
+	for _, body := range []string{
+		"See `a.go:3` `cfg.Port`. The service listens on ``:8080`` in production.\n",
+		"See `a.go:3` `cfg.Port`. The service listens on `` `:8080` `` in production.\n",
+		"See `a.go:3` `cfg.Port`. The service in `b.go` listens on ``:8080`` in production.\n",
+		"See `a.go:3` `cfg.Port`. Ports ```:8080``` and ``:9090`` only.\n",
+		"See `a.go:3` `cfg.Port`. The tunnel listens on `:8428` ``:9428``.\n",
+		"See `a.go:3` `cfg.Port`. It binds ``:8080`` `0.0.0.0` only.\n",
+	} {
+		if findings, _ := Check(body, read); len(findings) != 0 {
+			t.Errorf("a port inside a longer backtick span was graded in %q: %v", body, findings)
+		}
+		if u := Ungraded(body); len(u) != 0 {
+			t.Errorf("a port inside a longer backtick span was reported ungraded in %q: %v", body, u)
+		}
+	}
+	for body, want := range map[string]string{
+		"See `a.go:3` `cfg.Port`. Port ``:8080``; then `:5` `z`.\n": "a.go:5",
+		"See `a.go:3` `cfg.Port`. Then `:5` ``z`` and ``:8080``.\n": "a.go:5",
+		"See `a.go:3` `cfg.Port`, `:5`: `cfg.Host`, `:7`: ``z``.\n": "a.go:7",
+		"See `a.go:3` `cfg.Port`. ``x`` then `:9`:\n```\nw\n```\n":  "a.go:9",
+		"See `c.go:3` `` use `b.go` here `` then `:5` `z`.\n":       "c.go:5",
+	} {
+		findings, _ := Check(body, read)
+		if len(findings) != 1 || findings[0].Raw != want {
+			t.Errorf("control %q: findings %v, want %s reported", body, findings, want)
+		}
+	}
+}
+
+// Excluding a port in a longer span must not drop a real continuation the
+// one-line span scan misreads: after a code span that wraps onto the next line
+// (a published body had one before `:612`), or after an escaped backtick. Each
+// is still graded against the citation.
+func TestCheck_AContinuationAfterAWrappedSpanOrAnEscapedBacktickIsStillGraded(t *testing.T) {
+	read := func(path string) ([]string, error) {
+		if path == "a.go" {
+			return []string{"package a", "", "cfg.Port", "", "cfg.Host", "", "w"}, nil
+		}
+		return nil, errors.New("not a file in this checkout")
+	}
+	for body, want := range map[string]string{
+		"See `a.go:3` `cfg.Port` and `some\nwrapped` text; then `:5` `w`.\n": "a.go:5",
+		"See `a.go:3` `cfg.Port`, then \\``:5` `w`.\n":                       "a.go:5",
+	} {
+		findings, _ := Check(body, read)
+		if len(findings) != 1 || findings[0].Raw != want {
+			t.Errorf("%q: findings %v, want %s reported", body, findings, want)
+		}
+	}
+	for _, body := range []string{
+		"The `long\nspan` holds `a.go:3`, `:5` and `:7`.\n",
+		"Escape it as \\` here: `a.go:3`, `:5` and `:7`.\n",
+	} {
+		got := map[string]bool{}
+		for _, c := range Extract(body) {
+			got[c.Raw] = true
+		}
+		if !got["a.go:5"] || !got["a.go:7"] {
+			t.Errorf("a run after a misread span in %q extracted %v, want a.go:5 and a.go:7", body, got)
+		}
+	}
+}
+
+// A code span is what CommonMark delimits: a run of n backticks closed by the
+// next run of exactly n, and a run nothing closes is literal text the scan
+// continues past. The continuation reading and the quotation reading share this
+// scanner, so they cannot disagree about where a span is.
+func TestSpans_AsCommonMarkDelimitsThem(t *testing.T) {
+	for line, want := range map[string]string{
+		"`foo``bar`":                "foo``bar",
+		"`` x `y`":                  "y",
+		"``:8080`` and `:5`":        ":8080|:5",
+		"`` `:8080` `` then `a.go`": " `:8080` |a.go",
+		"no span ` here":            "",
+	} {
+		if got := strings.Join(spans(line), "|"); got != want {
+			t.Errorf("spans(%q) = %q, want %q", line, got, want)
+		}
+	}
+}
+
 func mustFindings(f []Finding, _ []Citation) []Finding { return f }
 
 // An image reference is not a citation in either half of Check: no finding, and
