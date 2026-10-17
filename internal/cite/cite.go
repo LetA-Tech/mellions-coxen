@@ -152,12 +152,13 @@ func (f Finding) Reason() string {
 // judged against a line the author never claimed.
 var citation = regexp.MustCompile(`(^|[^\w/.:-])((?:[\w.+-]*/)*[\w+-]+\.[\w+-]+|(?:[\w.+-]+/)+[\w.+-]+):(\d+)([-–—]\d+)?`)
 
-// continuation is a bare `:N` code span: shorthand for line N of the file the
-// nearest citation before it names. A bare `:N` is also how a port is written,
-// so one counts only where it is unambiguous: in a citation run, or
-// introducing a quotation (introducesQuote) with no other file named since
-// (namesFile).
-var continuation = regexp.MustCompile("`:(\\d+)`")
+// continuation is the content of a bare `:N` code span: shorthand for line N of
+// the file the nearest citation before it names. Only a span delimited by one
+// backtick is one; inside a longer delimiter `:N` is literal content, how a
+// backticked port is shown. A bare `:N` is also how a port is written, so one
+// counts only where it is unambiguous: in a citation run, or introducing a
+// quotation (introducesQuote) with no other file named since (namesFile).
+var continuation = regexp.MustCompile(`^:(\d+)$`)
 
 // joined is the text allowed between members of a citation run:
 // "`a.go:3`, `:5` and `:9`".
@@ -293,12 +294,19 @@ func occurrences(doc string) (graded, ungraded []Citation) {
 		}
 		all = append(all, found{m[4], end, c})
 	}
-	for _, m := range continuation.FindAllStringSubmatchIndex(claimed, -1) {
-		n, err := strconv.Atoi(claimed[m[2]:m[3]])
+	for _, s := range codeSpans(claimed) {
+		if s.start-s.open != 1 {
+			continue
+		}
+		m := continuation.FindStringSubmatch(claimed[s.start:s.end])
+		if m == nil {
+			continue
+		}
+		n, err := strconv.Atoi(m[1])
 		if err != nil || n < 1 {
 			continue
 		}
-		all = append(all, found{m[0], m[1], Citation{Line: n, At: strings.Count(claimed[:m[0]], "\n")}})
+		all = append(all, found{s.open, s.close, Citation{Line: n, At: strings.Count(claimed[:s.open], "\n")}})
 	}
 	sort.SliceStable(all, func(i, j int) bool { return all[i].pos < all[j].pos })
 
@@ -358,8 +366,11 @@ func introducesQuote(after string, lines []string, at int) bool {
 	}
 	rest = strings.TrimSpace(rest)
 	if q := strings.TrimPrefix(strings.TrimPrefix(rest, ":"), " "); strings.HasPrefix(q, "`") {
-		// Another bare `:N` beside it is a second port, not a quotation.
-		return !continuation.MatchString(q[:min(len(q), strings.IndexByte(q[1:], '`')+2)])
+		// A span holding another bare `:N`, however delimited, is a second
+		// port, not a quotation.
+		sp := codeSpans(q)
+		return len(sp) == 0 || sp[0].open != 0 ||
+			!continuation.MatchString(strings.TrimSpace(q[sp[0].start:sp[0].end]))
 	}
 	if rest != ":" {
 		return false
@@ -724,21 +735,43 @@ func runLen(s string) int {
 // style, and a span is where that lands.
 func spans(line string) []string {
 	var out []string
-	for {
-		i := strings.IndexByte(line, '`')
-		if i < 0 {
-			return out
-		}
-		n := runLen(line[i:])
-		delim := line[i : i+n]
-		rest := line[i+n:]
-		j := strings.Index(rest, delim)
-		if j < 0 {
-			return out
-		}
-		out = append(out, rest[:j])
-		line = rest[j+n:]
+	for _, s := range codeSpans(line) {
+		out = append(out, line[s.start:s.end])
 	}
+	return out
+}
+
+// codeSpan is one inline code span, as byte offsets: its opening delimiter at
+// open, its content in [start, end), and its closing delimiter ending at close.
+type codeSpan struct{ open, start, end, close int }
+
+// codeSpans returns every inline code span in text, as CommonMark reads them on
+// a line: a run of n backticks opens a span the next run of exactly n closes,
+// and a run nothing closes before the line ends is literal text.
+func codeSpans(text string) []codeSpan {
+	var out []codeSpan
+	for i := 0; i < len(text); {
+		if text[i] != '`' {
+			i++
+			continue
+		}
+		n := runLen(text[i:])
+		j := i + n
+		for j < len(text) && text[j] != '\n' && (text[j] != '`' || runLen(text[j:]) != n) {
+			if text[j] == '`' {
+				j += runLen(text[j:])
+			} else {
+				j++
+			}
+		}
+		if j >= len(text) || text[j] == '\n' {
+			i += n
+			continue
+		}
+		out = append(out, codeSpan{i, i + n, j, j + n})
+		i = j + n
+	}
+	return out
 }
 
 // wholeSpan is the text of the one inline code span s consists of, or "" when

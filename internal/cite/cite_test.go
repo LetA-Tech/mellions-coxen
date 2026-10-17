@@ -715,6 +715,48 @@ func TestUngraded_AContinuationPastANamedFileIsReportedNotRefused(t *testing.T) 
 	}
 }
 
+// A `:N` written inside a span delimited by two or more backticks is that
+// span's literal content, how a port or a backticked token is shown: it is no
+// continuation, and the enclosing span's closing delimiter is no quotation.
+// Charging it to the citation before it refused a correct body for a line the
+// file never had. The controls are real continuations beside such a span, and
+// a double-backtick span that is itself a continuation's quotation: each is
+// still graded against the citation.
+func TestCheck_AColonNumberInsideALongerBacktickSpanIsNotAContinuation(t *testing.T) {
+	read := func(path string) ([]string, error) {
+		if path == "a.go" {
+			return []string{"package a", "", "cfg.Port", "", "cfg.Host", "", "w"}, nil
+		}
+		return nil, errors.New("not a file in this checkout")
+	}
+	for _, body := range []string{
+		"See `a.go:3` `cfg.Port`. The service listens on ``:8080`` in production.\n",
+		"See `a.go:3` `cfg.Port`. The service listens on `` `:8080` `` in production.\n",
+		"See `a.go:3` `cfg.Port`. The service in `b.go` listens on ``:8080`` in production.\n",
+		"See `a.go:3` `cfg.Port`. Ports ```:8080``` and ``:9090`` only.\n",
+		"See `a.go:3` `cfg.Port`. The tunnel listens on `:8428` ``:9428``.\n",
+		"See `a.go:3` `cfg.Port`. It binds ``:8080`` `0.0.0.0` only.\n",
+	} {
+		if findings, _ := Check(body, read); len(findings) != 0 {
+			t.Errorf("a port inside a longer backtick span was graded in %q: %v", body, findings)
+		}
+		if u := Ungraded(body); len(u) != 0 {
+			t.Errorf("a port inside a longer backtick span was reported ungraded in %q: %v", body, u)
+		}
+	}
+	for body, want := range map[string]string{
+		"See `a.go:3` `cfg.Port`. Port ``:8080``; then `:5` `z`.\n": "a.go:5",
+		"See `a.go:3` `cfg.Port`. Then `:5` ``z`` and ``:8080``.\n": "a.go:5",
+		"See `a.go:3` `cfg.Port`, `:5`: `cfg.Host`, `:7`: ``z``.\n": "a.go:7",
+		"See `a.go:3` `cfg.Port`. ``x`` then `:9`:\n```\nw\n```\n":  "a.go:9",
+	} {
+		findings, _ := Check(body, read)
+		if len(findings) != 1 || findings[0].Raw != want {
+			t.Errorf("control %q: findings %v, want %s reported", body, findings, want)
+		}
+	}
+}
+
 func mustFindings(f []Finding, _ []Citation) []Finding { return f }
 
 // An image reference is not a citation in either half of Check: no finding, and
