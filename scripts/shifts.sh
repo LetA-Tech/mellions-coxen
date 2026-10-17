@@ -164,14 +164,17 @@ except OSError as e:
 # cannot be taken at all.
 acquire() {
   local holder try
-  if [ "${MELLIONS_RUNNER_FD9:-}" != "$$" ] || ! { : <&9; } 2>/dev/null; then
-    exec 9<"$SHIFTS" || { echo "shifts: cannot open $SHIFTS" >&2; return 2; }
+  local locked=2
+  if [ "${MELLIONS_RUNNER_FD9:-}" = "$$" ] && { : <&9; } 2>/dev/null; then
+    dirlock; locked=$?
+  elif exec 9<"$SHIFTS"; then
+    dirlock; locked=$?
   fi
-  dirlock; case $? in
+  case $locked in
     0) ;;
     1) echo "shifts: a runner is already alive here — pid $(cat "$LOCK" 2>/dev/null || echo unknown) holds the flock on $SHIFTS"
        return 1 ;;
-    *) echo "shifts: cannot flock $SHIFTS (no flock(1) and no python3, or the flock failed); runner.lock alone keeps one runner here" >&2 ;;
+    *) echo "shifts: cannot flock $SHIFTS (it does not open, there is no flock(1) or python3, or the flock failed); runner.lock alone keeps one runner here" >&2 ;;
   esac
   export MELLIONS_RUNNER_FD9=$$
   for try in 1 2; do
