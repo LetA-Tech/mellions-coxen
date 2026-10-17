@@ -421,6 +421,28 @@ grep -q 'stale lock replaced' "$log" || bad "F: the stale lock was not reported"
 [ "$(cat "$home/shifts/runner.lock")" = "$f" ] || bad "F: the lock does not hold the new runner's pid"
 kill -TERM "$f"; wait_gone 5 "$f" || bad "F: the runner did not stop"
 
+# ---- F2. a lock removed under a live runner never yields two loops -------------
+# The first runner's shift is held while its lock is deleted and a second runner
+# takes it; once that shift ends, the first must yield instead of starting another.
+home="$tmp/f2"; mkdir -p "$home/shifts"; log="$home/shifts/runner.log"; record "$root"
+rm -f "$STUB_DIR/n"; touch "$STUB_DIR/pin.1"
+start_runner "$home"; f2a=$pid
+wait_count 10 1 'starting' "$log" || bad "F2: the first runner's shift never started: $(tail -3 "$log")"
+rm -f "$home/shifts/runner.lock"
+start_runner "$home"; f2b=$pid
+wait_count 10 2 'runner start' "$log" || bad "F2: the second runner did not start on the removed lock: $(cat "$home.out")"
+[ "$(cat "$home/shifts/runner.lock" 2>/dev/null)" = "$f2b" ] || bad "F2: the second runner does not hold the lock"
+rm -f "$STUB_DIR/pin.1"
+wait_gone 15 "$f2a" || bad "F2: the runner that lost its lock is still running: $(tail -5 "$log")"
+grep -q "runner stop: $home/shifts/runner.lock is held by another runner, pid $f2b; this one yields" "$log" || bad "F2: the yield was not logged with the holder"
+kill -0 "$f2b" 2>/dev/null || bad "F2: the runner holding the lock stopped too"
+[ "$(cat "$home/shifts/runner.lock" 2>/dev/null)" = "$f2b" ] || bad "F2: the yielding runner disturbed the holder's lock"
+rm -f "$home/shifts/runner.lock"
+wait_for 15 "lock re-taken: $home/shifts/runner.lock no longer named pid $f2b" "$log" || bad "F2: a sole runner did not re-take its removed lock: $(tail -3 "$log")"
+[ "$(cat "$home/shifts/runner.lock" 2>/dev/null)" = "$f2b" ] || bad "F2: the re-taken lock does not hold the runner's pid"
+kill -TERM "$f2b"; wait_gone 10 "$f2b" || bad "F2: the holder did not stop"
+note "F2: a runner whose lock was taken yields before its next shift, and a sole runner re-takes a removed lock"
+
 # ---- G. a checkout the runtime does not load from is refused ---------------------
 # Started with a deadline, as in A: a runner that is not refused loops, and
 # the assertion has to fail rather than hang.

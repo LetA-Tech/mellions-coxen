@@ -396,6 +396,16 @@ while ! stop_wanted; do
   fi
   if [ "$AUTOUPDATE" != 0 ] && update; then reexec_if_changed; fi
   stop_wanted && break
+  # The lock is checked again before every shift: a file removed under a live
+  # runner lets a second one take it, and two loops start every shift twice.
+  if [ "$(cat "$LOCK" 2>/dev/null)" != "$$" ]; then
+    if acquire; then
+      log "lock re-taken: $LOCK no longer named pid $$"
+    else
+      stopping="$LOCK is held by another runner, pid $(cat "$LOCK" 2>/dev/null); this one yields so no shift starts twice"
+      break
+    fi
+  fi
   n=$((n + 1))
   survey_args=""
   [ "$EVERY" -gt 0 ] && [ $((n % EVERY)) -eq 0 ] && survey_args="-repos mellions-coxen"
