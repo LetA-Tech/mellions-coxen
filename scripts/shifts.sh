@@ -5,11 +5,11 @@
 # verify and when a piece of work is finished stay in the session.
 #
 # One runner per $MELLIONS_HOME, held by an exclusive flock on the shifts/
-# directory itself for the runner's whole life (flock(1), else python3's fcntl;
-# MELLIONS_FLOCK=<python3> forces the second with that interpreter): removing runner.lock or any file
-# beside it cannot release it. runner.lock carries the holder's pid for messages
-# and for a runner from before the flock; a lock whose pid is not a live runner
-# is taken over. Between
+# directory itself for the runner's whole life (flock(1), else python3's
+# fcntl; MELLIONS_FLOCK=<python3> forces the second with that interpreter):
+# removing runner.lock or any file beside it cannot release it. runner.lock
+# carries the holder's pid for messages and for a runner from before the
+# flock; a lock whose pid is not a live runner is taken over. Between
 # shifts the runner pulls the checkout and installs the binary built from it,
 # waits out a cooldown that doubles while shifts fail, holds while
 # $MELLIONS_HOME/pause exists, holds while $MELLIONS_HOME/owner says the owner
