@@ -266,7 +266,10 @@ mellions secret-check
   they start (a range owes no quotation), and exits non-zero on findings. The
   document is `-file <path>` (or
   `-` for stdin); a positional argument or an empty document is refused, and a
-  clean result says how many citations it checked. `cite-check` applies it to GitHub
+  clean result says how many citations it checked. Citations it cannot open,
+  and bare `:N` continuations it leaves ungraded because a file is named
+  between them and the citation before them, are listed and never refused.
+  `cite-check` applies it to GitHub
   publication commands; `MELLIONS_CITE_CHECK=off` disables the hook when set
   in the session environment.
 - `secret check` is the hand-run credential-read classifier. `secret-check`
