@@ -152,13 +152,16 @@ func (f Finding) Reason() string {
 // judged against a line the author never claimed.
 var citation = regexp.MustCompile(`(^|[^\w/.:-])((?:[\w.+-]*/)*[\w+-]+\.[\w+-]+|(?:[\w.+-]+/)+[\w.+-]+):(\d+)([-–—]\d+)?`)
 
-// continuation is the content of a bare `:N` code span: shorthand for line N of
-// the file the nearest citation before it names. Only a span delimited by one
-// backtick is one; inside a longer delimiter `:N` is literal content, how a
-// backticked port is shown. A bare `:N` is also how a port is written, so one
-// counts only where it is unambiguous: in a citation run, or introducing a
-// quotation (introducesQuote) with no other file named since (namesFile).
-var continuation = regexp.MustCompile(`^:(\d+)$`)
+// continuation is a bare `:N` code span: shorthand for line N of the file the
+// nearest citation before it names. Inside a span with a longer delimiter it is
+// that span's literal content, how a backticked port is shown (inLongerSpan). A
+// bare `:N` is also how a port is written, so one counts only where it is
+// unambiguous: in a citation run, or introducing a quotation (introducesQuote)
+// with no other file named since (namesFile).
+var continuation = regexp.MustCompile("`:(\\d+)`")
+
+// bareLine is the content of a code span that is a bare `:N`.
+var bareLine = regexp.MustCompile(`^:\d+$`)
 
 // joined is the text allowed between members of a citation run:
 // "`a.go:3`, `:5` and `:9`".
@@ -294,19 +297,13 @@ func occurrences(doc string) (graded, ungraded []Citation) {
 		}
 		all = append(all, found{m[4], end, c})
 	}
-	for _, s := range codeSpans(claimed) {
-		if s.start-s.open != 1 {
+	cs := codeSpans(claimed)
+	for _, m := range continuation.FindAllStringSubmatchIndex(claimed, -1) {
+		n, err := strconv.Atoi(claimed[m[2]:m[3]])
+		if err != nil || n < 1 || inLongerSpan(cs, m[0], m[1]) {
 			continue
 		}
-		m := continuation.FindStringSubmatch(claimed[s.start:s.end])
-		if m == nil {
-			continue
-		}
-		n, err := strconv.Atoi(m[1])
-		if err != nil || n < 1 {
-			continue
-		}
-		all = append(all, found{s.open, s.close, Citation{Line: n, At: strings.Count(claimed[:s.open], "\n")}})
+		all = append(all, found{m[0], m[1], Citation{Line: n, At: strings.Count(claimed[:m[0]], "\n")}})
 	}
 	sort.SliceStable(all, func(i, j int) bool { return all[i].pos < all[j].pos })
 
@@ -368,7 +365,7 @@ func introducesQuote(after string, lines []string, at int) bool {
 		// port, not a quotation.
 		sp := codeSpans(q)
 		return len(sp) == 0 || sp[0].open != 0 ||
-			!continuation.MatchString(strings.TrimSpace(q[sp[0].start:sp[0].end]))
+			!bareLine.MatchString(strings.TrimSpace(q[sp[0].start:sp[0].end]))
 	}
 	if rest != ":" {
 		return false
@@ -737,6 +734,19 @@ func spans(line string) []string {
 		out = append(out, line[s.start:s.end])
 	}
 	return out
+}
+
+// inLongerSpan reports whether text[from:to] lies inside a code span delimited
+// by two or more backticks. Only that exclusion rests on the span scan: a
+// one-line scan can misread a span that wraps a line or an escaped backtick,
+// and a continuation it misread must still be found.
+func inLongerSpan(cs []codeSpan, from, to int) bool {
+	for _, s := range cs {
+		if s.start-s.open >= 2 && s.open <= from && to <= s.close {
+			return true
+		}
+	}
+	return false
 }
 
 // codeSpan is one inline code span, as byte offsets: its opening delimiter at

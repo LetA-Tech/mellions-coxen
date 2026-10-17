@@ -762,6 +762,40 @@ func TestCheck_AColonNumberInsideALongerBacktickSpanIsNotAContinuation(t *testin
 	}
 }
 
+// Excluding a port in a longer span must not drop a real continuation the
+// one-line span scan misreads: after a code span that wraps onto the next line
+// (a published body had one before `:612`), or after an escaped backtick. Each
+// is still graded against the citation.
+func TestCheck_AContinuationAfterAWrappedSpanOrAnEscapedBacktickIsStillGraded(t *testing.T) {
+	read := func(path string) ([]string, error) {
+		if path == "a.go" {
+			return []string{"package a", "", "cfg.Port", "", "cfg.Host", "", "w"}, nil
+		}
+		return nil, errors.New("not a file in this checkout")
+	}
+	for body, want := range map[string]string{
+		"See `a.go:3` `cfg.Port` and `some\nwrapped` text; then `:5` `w`.\n": "a.go:5",
+		"See `a.go:3` `cfg.Port`, then \\``:5` `w`.\n":                       "a.go:5",
+	} {
+		findings, _ := Check(body, read)
+		if len(findings) != 1 || findings[0].Raw != want {
+			t.Errorf("%q: findings %v, want %s reported", body, findings, want)
+		}
+	}
+	for _, body := range []string{
+		"The `long\nspan` holds `a.go:3`, `:5` and `:7`.\n",
+		"Escape it as \\` here: `a.go:3`, `:5` and `:7`.\n",
+	} {
+		got := map[string]bool{}
+		for _, c := range Extract(body) {
+			got[c.Raw] = true
+		}
+		if !got["a.go:5"] || !got["a.go:7"] {
+			t.Errorf("a run after a misread span in %q extracted %v, want a.go:5 and a.go:7", body, got)
+		}
+	}
+}
+
 // A code span is what CommonMark delimits: a run of n backticks closed by the
 // next run of exactly n, and a run nothing closes is literal text the scan
 // continues past. The continuation reading and the quotation reading share this
