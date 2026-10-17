@@ -6,7 +6,7 @@
 #
 # One runner per $MELLIONS_HOME, held by an exclusive flock on the shifts/
 # directory itself for the runner's whole life (flock(1), else python3's fcntl;
-# MELLIONS_FLOCK=python3 forces the second): removing runner.lock or any file
+# MELLIONS_FLOCK=<python3> forces the second with that interpreter): removing runner.lock or any file
 # beside it cannot release it. runner.lock carries the holder's pid for messages
 # and for a runner from before the flock; a lock whose pid is not a live runner
 # is taken over. Between
@@ -152,11 +152,12 @@ lock_holder() {
 # Held elsewhere is exit 75 from either tool; any other failure, such as a
 # python3 that is only an installer stub, is "cannot flock", never "held".
 dirlock() {
-  local rc
+  local rc py=python3
+  [ "${MELLIONS_FLOCK:-flock}" = flock ] || py=$MELLIONS_FLOCK
   if [ "${MELLIONS_FLOCK:-flock}" = flock ] && command -v flock >/dev/null 2>&1; then
     flock -n -E 75 9; rc=$?
-  elif command -v python3 >/dev/null 2>&1; then
-    python3 -c 'import errno, fcntl, sys
+  elif command -v "$py" >/dev/null 2>&1; then
+    "$py" -c 'import errno, fcntl, sys
 try:
     fcntl.flock(9, fcntl.LOCK_EX | fcntl.LOCK_NB)
 except OSError as e:
