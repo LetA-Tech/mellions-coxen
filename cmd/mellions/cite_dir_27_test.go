@@ -486,6 +486,49 @@ func TestCiteHook_AnUnbackedCitationStillDenies(t *testing.T) {
 	}
 }
 
+// ungradedBody backs its one citation and carries a quote-introducing `:5` past a
+// file named after that citation, which the check leaves ungraded.
+const ungradedBody = "see `internal/a.go:1`:\n\n```go\npackage a\n```\n\n" +
+	"- `other.sh`: guarded (`:5` `[[ -e x ]]`).\n"
+
+// TestCiteCheck_SaysWhichContinuationItLeftUngraded drives `cite check`: a clean
+// result names the continuation it did not grade, and still exits 0.
+func TestCiteCheck_SaysWhichContinuationItLeftUngraded(t *testing.T) {
+	root := citeGitRepo(t)
+	body := filepath.Join(root, "b.md")
+	if err := os.WriteFile(body, []byte(ungradedBody), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var err error
+	out := captureStdout(t, func() {
+		err = cmdCite(context.Background(), []string{"check", "-file", body, "-dir", root})
+	})
+	if err != nil {
+		t.Fatalf("cmdCite: %v — an ungraded continuation is reported, never refused", err)
+	}
+	if !strings.Contains(out, "1 continuation(s) left ungraded") || !strings.Contains(out, "`:5` (line 7)") {
+		t.Errorf("a clean check does not say which continuation it left ungraded.\ngot: %s", out)
+	}
+}
+
+// TestCiteHook_AnUngradedContinuationInformsWithoutDenying drives the hook: the
+// continuation reaches the session as context, and nothing is denied.
+func TestCiteHook_AnUngradedContinuationInformsWithoutDenying(t *testing.T) {
+	root := citeGitRepo(t)
+	body := filepath.Join(root, "b.md")
+	if err := os.WriteFile(body, []byte(ungradedBody), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var out string
+	runCiteHookRaw(t, root, "gh pr create --base dev --body-file "+body, &out)
+	if strings.Contains(out, "permissionDecision") {
+		t.Errorf("the hook DENIED a body whose only gap is an ungraded continuation.\ngot: %s", out)
+	}
+	if !strings.Contains(out, "additionalContext") || !strings.Contains(out, "`:5` (line 7)") {
+		t.Errorf("the context does not name the continuation left ungraded.\ngot: %s", out)
+	}
+}
+
 // TestRequireRef_TheCommitPeelIsWhatMakesItACommitProbe drives `^{commit}`.
 //
 // Without the peel, rev-parse --verify accepts any valid OBJECT, so a blob or

@@ -213,7 +213,8 @@ func NotACitation(c Citation, err error) bool {
 func Extract(doc string) []Citation {
 	var out []Citation
 	seen := map[string]bool{}
-	for _, c := range occurrences(doc) {
+	graded, _ := occurrences(doc)
+	for _, c := range graded {
 		if c.Ranged || seen[c.Raw] {
 			continue
 		}
@@ -229,7 +230,8 @@ func Extract(doc string) []Citation {
 func Ranges(doc string) []Citation {
 	var out []Citation
 	seen := map[string]bool{}
-	for _, c := range occurrences(doc) {
+	graded, _ := occurrences(doc)
+	for _, c := range graded {
 		if !c.Ranged || seen[c.Raw] {
 			continue
 		}
@@ -239,11 +241,22 @@ func Ranges(doc string) []Citation {
 	return out
 }
 
+// Ungraded returns every quote-introducing bare `:N` Check leaves ungraded
+// because a file was named between it and the citation before it, in the order
+// written. Raw is the `:N` as written and Path is empty: which file it means is
+// not known, so it is neither a finding nor checked, and a caller states it so a
+// clean result says what it covered.
+func Ungraded(doc string) []Citation {
+	_, ungraded := occurrences(doc)
+	return ungraded
+}
+
 // occurrences is every citation token as written, each carrying the document
 // line it sits on. The same citation written twice is two occurrences here
 // where Extract reports one: backing is anchored, so which of the two places
-// it was written in decides whether the document backs it.
-func occurrences(doc string) []Citation {
+// it was written in decides whether the document backs it. The continuations
+// it declines to attribute to a file come back separately, as ungraded.
+func occurrences(doc string) (graded, ungraded []Citation) {
 	type found struct {
 		pos, end int
 		c        Citation
@@ -289,14 +302,13 @@ func occurrences(doc string) []Citation {
 	}
 	sort.SliceStable(all, func(i, j int) bool { return all[i].pos < all[j].pos })
 
-	var out []Citation
 	path := ""
 	prevEnd := -1
 	for _, f := range all {
 		if f.c.Path != "" {
 			path = f.c.Path
 			prevEnd = f.end
-			out = append(out, f.c)
+			graded = append(graded, f.c)
 			continue
 		}
 		// A continuation with no citation before it names no file.
@@ -306,16 +318,18 @@ func occurrences(doc string) []Citation {
 		}
 		// A file named since the citation, with no line of its own, is the file
 		// the continuation most plausibly means: it is left ungraded rather than
-		// charged to the citation's file.
+		// charged to the citation's file, and returned so it is said.
 		if !inRun && namesFile(claimed[prevEnd:f.pos]) {
+			f.c.Raw = ":" + strconv.Itoa(f.c.Line)
+			ungraded = append(ungraded, f.c)
 			continue
 		}
 		prevEnd = f.end
 		f.c.Path = path
 		f.c.Raw = path + ":" + strconv.Itoa(f.c.Line)
-		out = append(out, f.c)
+		graded = append(graded, f.c)
 	}
-	return out
+	return graded, ungraded
 }
 
 // fileSpan is an inline code span holding a path with no line: `a/b.sh`.
@@ -393,7 +407,8 @@ func Check(doc string, read func(path string) ([]string, error)) ([]Finding, []C
 			first[f.Raw] = f
 		}
 	}
-	for _, c := range occurrences(doc) {
+	graded, _ := occurrences(doc)
+	for _, c := range graded {
 		if backed[c.Raw] {
 			continue
 		}

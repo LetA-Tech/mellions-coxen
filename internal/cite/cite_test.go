@@ -6,6 +6,7 @@ package cite
 
 import (
 	"errors"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -662,6 +663,54 @@ func TestCheck_AContinuationPastANamedFileIsNotChargedToTheCitation(t *testing.T
 		findings, _ := Check(body, read)
 		if len(findings) != 1 || findings[0].Raw != want {
 			t.Errorf("control %q: findings %v, want %s reported", body, findings, want)
+		}
+	}
+}
+
+// A continuation left ungraded because a file was named since the citation is
+// returned by Ungraded, so a clean check can say what it did not cover, and it
+// is still no finding. The controls are continuations Check grades and a port
+// that is no continuation at all: none of them is ungraded.
+func TestUngraded_AContinuationPastANamedFileIsReportedNotRefused(t *testing.T) {
+	read := func(path string) ([]string, error) {
+		switch path {
+		case ".claude/repo-binding.yaml":
+			return []string{"a", "x", "c"}, nil
+		case "a.go":
+			return []string{"package a", "", "cfg.Port", "", "cfg.Host", "", "w"}, nil
+		}
+		return nil, errors.New("not a file in this checkout")
+	}
+	named := "Gate read at `.claude/repo-binding.yaml:2`:\n\n```\nx\n```\n\n" +
+		"- `secret-posture.sh`: existence-guarded (`:5` `[[ -e \"$path\" ]] || return 0`).\n"
+	twice := "Gate read at `.claude/repo-binding.yaml:2` `x`.\n\n" +
+		"- `secret-posture.sh`: guarded (`:5` `[[ -e \"$path\" ]] || return 0`, `:4` `-d` guard).\n"
+	for body, want := range map[string][]string{
+		named: {":5@7"},
+		twice: {":5@3", ":4@3"},
+	} {
+		if findings, _ := Check(body, read); len(findings) != 0 {
+			t.Errorf("an ungraded continuation became a finding: %v", findings)
+		}
+		var got []string
+		for _, c := range Ungraded(body) {
+			if c.Path != "" {
+				t.Errorf("ungraded %s carries a file, %q; which file it means is not known", c.Raw, c.Path)
+			}
+			got = append(got, c.Raw+"@"+strconv.Itoa(c.At+1))
+		}
+		if strings.Join(got, " ") != strings.Join(want, " ") {
+			t.Errorf("Ungraded(%q) = %v, want %v", body, got, want)
+		}
+	}
+	for _, body := range []string{
+		"See `a.go:3` `cfg.Port`. Then `:5` `z`.\n",
+		"See `a.go:3` `cfg.Port`, `:5`: `cfg.Host`, `:7`: `w`.\n",
+		"See `a.go:3` `cfg.Port`. The service in `b.go` listens on `:8080` in production.\n",
+		"No citation before `:5` `cfg.Host`.\n",
+	} {
+		if u := Ungraded(body); len(u) != 0 {
+			t.Errorf("control %q reported ungraded %v", body, u)
 		}
 	}
 }
