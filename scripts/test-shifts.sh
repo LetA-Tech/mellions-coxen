@@ -182,7 +182,17 @@ if wait_gone 5 "$second"; then
 else
   kill -KILL "$second" 2>/dev/null; bad "A: a second runner was not refused — it is still running"
 fi
-[ "$(count 'runner start' "$log")" -eq 1 ] || bad "A: the refused runner wrote to the log"
+# runner.lock is a label: with it removed under the live runner, as an
+# age-based cleanup of shifts/ removes it, a third runner is still refused.
+rm -f "$home/shifts/runner.lock"
+MELLIONS_HOME="$home" "$runner" > "$home.third" 2>&1 & third=$!
+if wait_gone 5 "$third"; then
+  wait "$third"; rc=$?
+  { [ "$rc" -eq 0 ] && grep -q "already alive here" "$home.third"; } || bad "A: with runner.lock removed, a third runner was not refused (rc=$rc): $(cat "$home.third")"
+else
+  kill -KILL "$third" 2>/dev/null; bad "A: with runner.lock removed, a third runner was not refused — it is still running"
+fi
+[ "$(count 'runner start' "$log")" -eq 1 ] || bad "A: a refused runner wrote to the log"
 
 wait_count 20 2 'starting' "$log" || bad "A: the second shift did not start: $(tail -5 "$log")"
 touch "$home/pause"; rm "$STUB_DIR/pin.2"
@@ -229,8 +239,17 @@ rm -f "$STUB_DIR"/pin.* "$STUB_DIR"/fail.*
 # ---- B. the daily cap, counted from the files ----------------------------------
 home="$tmp/b"; mkdir -p "$home/shifts"; log="$home/shifts/runner.log"
 day=$(date -u +%Y%m%d); : > "$home/shifts/$day-000001.log"; : > "$home/shifts/$day-000002.log"
-start_runner "$home" "MELLIONS_SHIFTS_PER_DAY=2"; b=$pid
+start_runner "$home" "MELLIONS_SHIFTS_PER_DAY=2 MELLIONS_FLOCK=python3"; b=$pid
 wait_for 5 'cap reached: 2 of 2' "$log" || bad "B: the cap was not noticed"
+# The same through python3's fcntl, the path a host without flock(1) takes.
+rm -f "$home/shifts/runner.lock"
+MELLIONS_FLOCK=python3 MELLIONS_HOME="$home" "$runner" > "$home.second" 2>&1 & second=$!
+if wait_gone 5 "$second"; then
+  wait "$second"; rc=$?
+  { [ "$rc" -eq 0 ] && grep -q "already alive here" "$home.second"; } || bad "B: with runner.lock removed, a python3-locked runner did not refuse a second (rc=$rc): $(cat "$home.second")"
+else
+  kill -KILL "$second" 2>/dev/null; bad "B: with runner.lock removed, a second runner was not refused — it is still running"
+fi
 sleep 2
 grep -q 'starting' "$log" && bad "B: a shift started over the cap"
 kill -TERM "$b"
@@ -258,6 +277,30 @@ grep -q 'runner stop: signal' "$log" || bad "C: the signal stop was not logged"
 # Whatever the verdict, nothing of the hung session outlives this test.
 kill "$sleeper" "$hung" 2>/dev/null
 rm -f "$STUB_DIR/hang"
+
+# ---- C3. a python3 that is only an installer stub is "cannot flock", not "held" --
+home="$tmp/c3"; mkdir -p "$home" "$tmp/stubpy"; log="$home/shifts/runner.log"
+printf '#!/bin/sh\necho "xcode-select: note: No developer tools were found" >&2\nexit 1\n' > "$tmp/stubpy/python3"; chmod +x "$tmp/stubpy/python3"
+start_runner "$home" "MELLIONS_FLOCK=$tmp/stubpy/python3 MELLIONS_SHIFTS_PER_DAY=0"; c3=$pid
+wait_for 5 'runner start' "$log" || bad "C3: a failing python3 was read as a held lock and the only runner refused: $(cat "$home.out")"
+grep -q 'cannot flock' "$home.out" || bad "C3: the fallback to runner.lock was not said: $(cat "$home.out")"
+kill -TERM "$c3"; wait_gone 5 "$c3" || bad "C3: the runner did not stop on SIGTERM"
+
+# ---- C2. a session that outlives a killed runner does not keep its flock --------
+home="$tmp/c2"; mkdir -p "$home"; log="$home/shifts/runner.log"
+rm -f "$STUB_DIR/hang.pid"; touch "$STUB_DIR/hang"
+start_runner "$home"; c2=$pid
+end=$(( $(date +%s) + 10 ))
+while [ ! -s "$STUB_DIR/hang.pid" ] && [ "$(date +%s)" -lt "$end" ]; do sleep 0.2; done
+[ -s "$STUB_DIR/hang.pid" ] || bad "C2: the hung session never started"
+hung=$(cat "$STUB_DIR/hang.pid" 2>/dev/null || echo 0)
+kill -KILL "$c2"; wait_gone 5 "$c2" || bad "C2: the runner survived SIGKILL"
+rm -f "$STUB_DIR/hang"
+kill -0 "$hung" 2>/dev/null || bad "C2: the session did not outlive its runner, so this case proves nothing"
+start_runner "$home"; c2b=$pid
+wait_count 5 2 'runner start' "$log" || bad "C2: a session left by a killed runner kept the flock and refused the next runner: $(cat "$home.out")"
+kill -TERM "$c2b"; wait_gone 10 "$c2b" || bad "C2: the second runner did not stop on SIGTERM"
+pkill -P "$hung" 2>/dev/null; kill "$hung" 2>/dev/null
 
 # ---- D. an update that fails never blocks the shift ------------------------------
 home="$tmp/d"; mkdir -p "$home"; log="$home/shifts/runner.log"

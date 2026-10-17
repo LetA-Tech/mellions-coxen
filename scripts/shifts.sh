@@ -4,8 +4,12 @@
 # previous one ends, and that is all it does: what to work on, how deep to
 # verify and when a piece of work is finished stay in the session.
 #
-# One runner per $MELLIONS_HOME, held by shifts/runner.lock with the runner's
-# pid in it; a lock whose pid is not a live runner is taken over. Between
+# One runner per $MELLIONS_HOME, held by an exclusive flock on the shifts/
+# directory itself for the runner's whole life (flock(1), else python3's
+# fcntl; MELLIONS_FLOCK=<python3> forces the second with that interpreter):
+# removing runner.lock or any file beside it cannot release it. runner.lock
+# carries the holder's pid for messages and for a runner from before the
+# flock; a lock whose pid is not a live runner is taken over. Between
 # shifts the runner pulls the checkout and installs the binary built from it,
 # waits out a cooldown that doubles while shifts fail, holds while
 # $MELLIONS_HOME/pause exists, holds while $MELLIONS_HOME/owner says the owner
@@ -141,10 +145,46 @@ lock_holder() {
   ps -o args= -p "$pid" 2>/dev/null | grep -q 'shifts\.sh' || return 1
   printf '%s\n' "$pid"
 }
+# fd 9 is an open descriptor of $SHIFTS; the flock belongs to its open file
+# description, so it outlives the python3 that takes it and survives the
+# runner's exec of its own updated copy. The shift, nap's sleep, and update's
+# git and make run with fd 9 closed, so none of them keeps it after the runner.
+# Held elsewhere is exit 75 from either tool; any other failure, such as a
+# python3 that is only an installer stub, is "cannot flock", never "held".
+dirlock() {
+  local rc py=${PYTHON:-python3}
+  [ "${MELLIONS_FLOCK:-flock}" = flock ] || py=$MELLIONS_FLOCK
+  if [ "${MELLIONS_FLOCK:-flock}" = flock ] && command -v flock >/dev/null 2>&1; then
+    flock -n -E 75 9; rc=$?
+  elif command -v "$py" >/dev/null 2>&1; then
+    "$py" -c 'import errno, fcntl, sys
+try:
+    fcntl.flock(9, fcntl.LOCK_EX | fcntl.LOCK_NB)
+except OSError as e:
+    sys.exit(75 if e.errno in (errno.EAGAIN, errno.EWOULDBLOCK) else 2)'
+    rc=$?
+  else
+    return 2
+  fi
+  case $rc in 0) return 0 ;; 75) return 1 ;; *) return 2 ;; esac
+}
 # Returns 0 with the lock taken, 1 when another runner holds it, 2 when it
 # cannot be taken at all.
 acquire() {
   local holder try
+  local locked=2
+  if [ "${MELLIONS_RUNNER_FD9:-}" = "$$" ] && { : <&9; } 2>/dev/null; then
+    dirlock; locked=$?
+  elif exec 9<"$SHIFTS"; then
+    dirlock; locked=$?
+  fi
+  case $locked in
+    0) ;;
+    1) echo "shifts: a runner is already alive here — pid $(cat "$LOCK" 2>/dev/null || echo unknown) holds the flock on $SHIFTS"
+       return 1 ;;
+    *) echo "shifts: cannot flock $SHIFTS (it does not open, there is no flock(1) or python3, or the flock failed); runner.lock alone keeps one runner here" >&2 ;;
+  esac
+  export MELLIONS_RUNNER_FD9=$$
   for try in 1 2; do
     if (set -o noclobber; printf '%s\n' "$$" > "$LOCK") 2>/dev/null; then return 0; fi
     if holder=$(lock_holder); then
@@ -179,14 +219,14 @@ on_signal() {
 }
 trap on_signal TERM INT HUP
 nap() {
-  sleep "$1" & napper=$!
+  sleep "$1" 9<&- & napper=$!
   wait "$napper" 2>/dev/null
   napper=""
 }
 run_shift() {
   local rc
   interrupted=""
-  "$SHIFT" & shift_pid=$!
+  "$SHIFT" 9<&- & shift_pid=$!
   wait "$shift_pid"; rc=$?
   while [ -n "$interrupted" ] && kill -0 "$shift_pid" 2>/dev/null; do
     interrupted=""
@@ -304,7 +344,7 @@ tracked_dirt() { git -C "$CHECKOUT" status --porcelain=v1 --untracked-files=no 2
 update() {
   local head step dirt
   : > "$UPDATELOG"
-  if ! git -C "$CHECKOUT" -c merge.autoStash=false -c rebase.autoStash=false pull --ff-only >> "$UPDATELOG" 2>&1; then
+  if ! git -C "$CHECKOUT" -c merge.autoStash=false -c rebase.autoStash=false pull --ff-only >> "$UPDATELOG" 2>&1 9<&-; then
     log "update failed at git pull --ff-only in $CHECKOUT; the binary that runs stays — $UPDATELOG"
     return 1
   fi
@@ -324,7 +364,7 @@ update() {
     return 0
   fi
   for step in "make -C $CHECKOUT build" "make -C $CHECKOUT check"; do
-    if ! $step >> "$UPDATELOG" 2>&1; then
+    if ! $step >> "$UPDATELOG" 2>&1 9<&-; then
       log "update failed at $step; the binary that runs stays — $UPDATELOG"
       return 1
     fi
