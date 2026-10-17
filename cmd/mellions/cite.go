@@ -70,6 +70,9 @@ func cmdCite(ctx context.Context, args []string) error {
 	// about the tree is what lets that green read as verified.
 	fmt.Printf("cite: resolved against %s at %s\n", root, treeRef(ctx, root, *commit))
 	reportUnresolved(unresolved)
+	if ungraded := cite.Ungraded(doc); len(ungraded) > 0 {
+		fmt.Println("  " + ungradedLine(ungraded))
+	}
 
 	if len(findings) == 0 {
 		cited := 0
@@ -180,6 +183,14 @@ func cmdCiteCheck(ctx context.Context, args []string) error {
 			// something else is wrong, and as context when nothing is.
 			if len(unresolved) > 0 {
 				line := "  " + unresolvedLine(unresolved, dir)
+				if len(findings) > 0 {
+					reasons = append(reasons, line)
+				} else {
+					unchecked = append(unchecked, line)
+				}
+			}
+			if ungraded := cite.Ungraded(body); len(ungraded) > 0 {
+				line := "  " + ungradedLine(ungraded)
 				if len(findings) > 0 {
 					reasons = append(reasons, line)
 				} else {
@@ -419,6 +430,28 @@ func unresolvedLine(unresolved []cite.Citation, dir string) string {
 		len(unresolved), where, strings.Join(shown, ", "), suffix)
 }
 
+// ungradedLine names the bare `:N` continuations the check did not grade: a
+// file was named between each and the citation before it, so which file it
+// means is not known. Reported and never refused: charged to a file the author
+// did not mean, it refuses a correct body.
+func ungradedLine(ungraded []cite.Citation) string {
+	const show = 6
+	names := make([]string, 0, len(ungraded))
+	for _, c := range ungraded {
+		names = append(names, fmt.Sprintf("`%s` (line %d)", c.Raw, c.At+1))
+	}
+	shown := names
+	suffix := ""
+	if len(shown) > show {
+		shown = shown[:show]
+		suffix = fmt.Sprintf(" and %d more", len(names)-show)
+	}
+	return fmt.Sprintf("%d continuation(s) left ungraded, because a file is named between each and "+
+		"the citation before it, so which file it means is not known and nothing here checked it: "+
+		"%s%s — write it as path:line to have it checked.",
+		len(ungraded), strings.Join(shown, ", "), suffix)
+}
+
 // claimsTree reports whether a path asserts it belongs to this checkout: its
 // leading segment names a directory the checkout has.
 //
@@ -501,7 +534,7 @@ const preToolUseEvent = "PreToolUse"
 // channel. It was wrong, and it foreclosed the remedy for whoever read it next.
 // It is not capped the way the deny path is, and the reason is a different
 // shape rather than a smaller number: `reasons` grows one entry per FINDING, so
-// a body wrong throughout produces a wall; `unchecked` grows at most one line
+// a body wrong throughout produces a wall; `unchecked` grows at most three lines
 // per (call, body), and each line already caps the names it prints at six
 // unconditionally. Its length is bounded by how many bodies one command
 // publishes — one to three in practice.
@@ -517,12 +550,12 @@ func emitUnchecked(unchecked []string) error {
 		} `json:"hookSpecificOutput"`
 	}
 	c.Output.Event = preToolUseEvent
-	c.Output.Context = "This body publishes citations this checkout could not open:\n\n" +
+	c.Output.Context = "This body publishes citations nothing here checked:\n\n" +
 		strings.Join(unchecked, "\n") + "\n\n" +
-		"Nothing is wrong with citing another repository — deep-research asks for it — but " +
-		"nothing here verified those lines, and the body reads to a reader exactly like one " +
-		"whose citations were all checked. Open them, or say in the body that they are " +
-		"unverified from here."
+		"Nothing here verified those lines, and the body reads to a reader exactly like one " +
+		"whose citations were all checked. Citing another repository is fine — deep-research " +
+		"asks for it — so open those lines, or say in the body that they are unverified from " +
+		"here. A continuation left ungraded is checked once it is written as path:line."
 	enc := json.NewEncoder(os.Stdout)
 	enc.SetEscapeHTML(false)
 	return enc.Encode(c)
