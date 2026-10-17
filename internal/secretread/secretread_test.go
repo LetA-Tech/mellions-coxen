@@ -266,6 +266,12 @@ func TestScanBash_FalseDenials(t *testing.T) {
 		// The two words appear inside an identifier, not a filename.
 		{"the words inside a match pattern", `grep -ln -i 'credential\|secret' hooks/*.sh`},
 		{"an assignment id naming the package", `mellions assign open cx-secretread-false-denials -repo mellions-coxen`},
+		// The guard's own subcommand word read as a file named `secret`: the
+		// shape #77 opens with, and the guard denying a check of itself.
+		{"the guard's own check subcommand", `mellions secret check "ls -la"`},
+		{"the guard's hook entry fed a payload", `printf '%s' '{"tool_name":"Bash"}' | ./bin/mellions secret-check`},
+		{"asking the guard about a command that reads one", `mellions secret check "cat .env"`},
+		{"a safe reader counting a process substitution", `wc -l <(cat .env)`},
 		// `git` is deliberately not a safe reader — `git show` prints file
 		// content — so this one turns on the name, not on the command word.
 		{"git add on the package directory", `git add internal/secretread/`},
@@ -313,11 +319,131 @@ func TestScanBash_NarrowingDidNotWiden(t *testing.T) {
 		// identity file to ssh and an in-place edit to sed, so the exoneration
 		// is keyed by reader and does not travel with the letter.
 		{"the same flag on a printer", `sed -i 's/x/y/' .env`},
+
+		// Only the word `mellions` dispatches on is exonerated: every other
+		// operand is still a path it may store and print back.
+		{"a mellions file flag after the subcommand", `mellions report write -id d -file .env`},
+		{"a subcommand-shaped word in a later position", `mellions report write -id d -file secret`},
+		{"a mellions command led by a flag", `mellions -file .env report`},
+		{"a printer after the guard in a pipeline", `mellions secret check x | cat .env`},
+		{"a printer after the guard in a sequence", `mellions secret-check; cat .pgpass`},
+		// A substitution hands the command a file's bytes, and the guard's
+		// findings and the unknown-command message print operand text back.
+		{"a credential substituted into a check", `mellions secret check "$(cat .env)"`},
+		{"the same with backticks", "mellions secret check `cat .env`"},
+		{"a credential substituted as the subcommand", `mellions "$(cat .env)"`},
+		{"a variable holding a credential path", `F=.env; mellions secret check $F`},
+		{"a captured credential handed to a report", `U="$(tail -1 .db_connection)"; mellions report write -id d -body "$U"`},
+		// A redirection is the shell opening the file, whatever reads stdin.
+		{"a credential redirected into the hook entry", `mellions secret-check < .env`},
+		{"a credential redirected into a check", `mellions secret check x < .env`},
+		// Bash takes a redirection anywhere on the line, so the word after
+		// `mellions` can be stdin's file rather than the subcommand, and
+		// `-file -` stores stdin where `report latest` prints it.
+		{"a credential redirected before the subcommand", `mellions < .env report write -file -`},
+		{"the same without a space", `mellions <.env report write -file -`},
+		{"the same behind a wrapper", `timeout 5 ./bin/mellions < ~/.pgpass assign handoff x -file -`},
+		{"a credential redirected with nothing after", `mellions < .env`},
+		{"a redirection before the command word", `< .env cat`},
+		{"a process substitution redirected before the subcommand", `mellions < <(cat .env) report write -file -`},
+		{"a read-write redirection", `cat <>.env`},
+		// A process substitution is a path to what its command reads: the
+		// reader's own default applies, and `>(` runs a command of its own.
+		{"a process substitution read by a non-printer", `perl -pe1 <(cat .env)`},
+		{"a nested process substitution", `perl -pe1 <(<(cat .env))`},
+		{"a process substitution redirected into an interpreter", `python3 < <(tail -1 .db_connection)`},
+		{"an output process substitution that prints", `mellions >(cat .env)`},
+		{"the same behind a safe reader", `wc >(cat .env)`},
+		{"a process substitution as the subcommand", `mellions <(cat .env)`},
+		{"a read-write redirection before the subcommand", `mellions <>.env report write -file -`},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			if got := ScanBash(tt.cmd); len(got) == 0 {
 				t.Errorf("ScanBash(%q) allowed a credential read", tt.cmd)
 			}
 		})
+	}
+}
+
+// Every substitution runs where bash finds it — an operand, a redirection
+// target, mid-word, inside another substitution — so its commands are scanned
+// wherever it sits, and a captured one only for what escapes the capture.
+func TestScanBash_SubstitutionsAreScannedWhereBashRunsThem(t *testing.T) {
+	for _, tt := range []struct{ name, cmd string }{
+		{"an output substitution as a redirection target", `echo hi > >(cat .env)`},
+		{"the same on stderr", `echo hi 2> >(cat .env)`},
+		{"the same appending", `echo hi >> >(cat .env)`},
+		{"the same for both streams", `echo hi &> >(cat .env)`},
+		{"the same with a mellions reader", `mellions version > >(cat .env)`},
+		{"an output substitution mid-word", `ls x>(cat .env)`},
+		{"an input substitution whose stdout goes to stderr", `ls <(cat .env >&2)`},
+		{"the same written 1>&2", `ls <(cat .env 1>&2)`},
+		{"a revision:path read by a printer", `diff <(git show x:.env) y`},
+		{"a revision:path at the top level", `git show HEAD:.env`},
+		{"an output substitution inside a captured one", `ls "$(true >(cat .env))"`},
+		{"a captured read sent to stderr", `X="$(cat .env >&2)"`},
+		{"a captured read piped to the terminal", `X="$(cat .env | tee /dev/stderr)"`},
+		{"a captured read redirected to the terminal", `X=$(cat .env > /dev/tty)`},
+		{"a backquoted read sent to stderr", "ls `cat .env >&2`"},
+		{"an output substitution inside backquotes", "true `true >(cat .env)`"},
+		{"an output substitution inside double quotes", `echo "x$(true >(cat .env))"`},
+		{"an output substitution as an input target", `cat < >(cat .env)`},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := ScanBash(tt.cmd); len(got) == 0 {
+				t.Errorf("ScanBash(%q) found nothing; its substitution prints a credential", tt.cmd)
+			}
+		})
+	}
+	for _, tt := range []struct{ name, cmd string }{
+		{"a captured read handed to a non-printer", `psql "$(tail -1 .db_connection)"`},
+		{"a captured read in an assignment", `URL="$(tail -1 .db_connection)"`},
+		{"a backquoted capture in an assignment", "URL=`tail -1 .db_connection`"},
+		{"a captured read whose stderr joins the capture", `X="$(cat .env 2>&1)"`},
+		{"a safe reader counting an input substitution", `wc -l <(cat .env)`},
+		{"output substitutions reading nothing", `echo hi > >(tee out.log)`},
+		{"input substitutions reading nothing", `diff <(ls) <(ls -a)`},
+		{"a substitution reading nothing", `ls $(pwd)`},
+		{"a revision:path that is not a credential", `git show HEAD:go.mod`},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := ScanBash(tt.cmd); len(got) != 0 {
+				t.Errorf("ScanBash(%q) = %+v; nothing here prints a credential", tt.cmd, got)
+			}
+		})
+	}
+}
+
+// A subshell's ")" inside a substitution closes the subshell, not the
+// substitution, so what the subshell does is still read as inside it.
+func TestScanBash_ASubshellDoesNotCloseTheSubstitution(t *testing.T) {
+	for _, cmd := range []string{
+		`X=$( (cat .env) >&2 )`,
+		`ls <( (cat .env) >&2 )`,
+		`( echo "$(cat .env)" )`,
+	} {
+		if got := ScanBash(cmd); len(got) == 0 {
+			t.Errorf("ScanBash(%q) found nothing; the subshell prints a credential", cmd)
+		}
+	}
+	for _, cmd := range []string{`X=$( (tail -1 .db_connection) )`, `(cd sub && make build)`, `X=$( (ls) ) ; echo "$X"`} {
+		if got := ScanBash(cmd); len(got) != 0 {
+			t.Errorf("ScanBash(%q) = %+v; nothing here prints a credential", cmd, got)
+		}
+	}
+}
+
+// A string a shell parses again carries substitutions the lexer never
+// recorded, and a backquoted name is a path the reader opens.
+func TestScanBash_TextIsStillReadWhereNoSubstitutionWasRecorded(t *testing.T) {
+	for _, cmd := range []string{
+		`bash -c 'echo hi > >(cat .env)'`,
+		`bash -c "true >(cat .env)"`,
+		`eval 'ls >(cat .env)'`,
+		"perl -pe1 `echo .env`",
+	} {
+		if got := ScanBash(cmd); len(got) == 0 {
+			t.Errorf("ScanBash(%q) found nothing; bash runs a read of a credential here", cmd)
+		}
 	}
 }
