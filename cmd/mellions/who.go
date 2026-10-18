@@ -101,6 +101,9 @@ func cmdWho(args []string) error {
 		return err
 	}
 	runtime, me := presence.Here()
+	if me == "" && os.Getenv("MELLIONS_HOOK") != "" {
+		me, _ = hookContext(os.Stdin)
+	}
 	mine := presence.SelfPID()
 	live := cfg.presences().Live()
 	here, repo := workingIn(live, me, mine, here)

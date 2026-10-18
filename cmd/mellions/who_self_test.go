@@ -137,3 +137,36 @@ func TestTheHeldLineNamesTheReader(t *testing.T) {
 		}
 	}
 }
+
+// TestWhoFromAHookNamesTheReaderFromThePayload: the session-start hook pipes
+// its payload to `who`; where the hook's environment carries no session id, the
+// payload's is the reader's, and saying "not in your environment" would be
+// false about a session that has one.
+func TestWhoFromAHookNamesTheReaderFromThePayload(t *testing.T) {
+	cfgPath, tree := twoSessionsInOneTree(t)
+	t.Setenv("CLAUDE_CODE_SESSION_ID", "")
+	t.Setenv("MELLIONS_HOOK", "1")
+	payload := filepath.Join(t.TempDir(), "payload.json")
+	if err := os.WriteFile(payload, []byte(`{"session_id":"`+readerID+`","cwd":"`+tree+`"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	f, err := os.Open(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	saved := os.Stdin
+	os.Stdin = f
+	defer func() { os.Stdin = saved }()
+	out := captureStdout(t, func() { err = cmdWho([]string{"-config", cfgPath, "-C", tree}) })
+	if err != nil {
+		t.Fatalf("who: %v", err)
+	}
+	if !strings.Contains(out, "claude session 8eb893f9") {
+		t.Fatalf("positive control: the peer is not listed; got:\n%s", out)
+	}
+	want := fmt.Sprintf("You are claude session ff16449a (pid %d).", os.Getpid())
+	if !strings.Contains(out, want) {
+		t.Errorf("who under a hook does not name the reader from the payload (%q); got:\n%s", want, out)
+	}
+}
