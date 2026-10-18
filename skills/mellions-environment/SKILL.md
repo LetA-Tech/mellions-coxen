@@ -36,8 +36,7 @@ origin` is what the remote actually has.
 Reproducing, testing, falsifying and validating a fix inside a container thrown
 away afterwards have no external effect and no owner decision in them. Where
 the owner has said nothing, use the sandbox as you would a temporary
-directory: without asking, and without announcing it. An engineer that has a
-sandbox and believes it must ask behaves exactly like one that has none.
+directory: without asking, and without announcing it.
 
 Where the owner has said something — the partnership, or this machine's
 runtime instructions — that wins. Where starting a container for engineering
@@ -130,7 +129,9 @@ are functions.
 `-race` scratch and any `mktemp`ing suite land by default; full, writes fail
 `disk quota exceeded`, a silent exit 1 read as a broken build. Put `GOTMPDIR`
 and `TMPDIR` under `$HOME` for a gate wider than a package, and tree copies
-off `/tmp`. `t.TempDir()` takes `GOTMPDIR` over `TMPDIR`, and a shift sets it.
+off `/tmp`. A shift sets `GOTMPDIR`, and `t.TempDir()` calls
+`os.MkdirTemp(os.Getenv("GOTMPDIR"), …)`, not `MkdirTemp("", …)`
+(`go doc testing.T.TempDir`): set it to move a test's.
 
 ## Establishing what a session actually receives
 
