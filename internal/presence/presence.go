@@ -450,6 +450,25 @@ func Here() (runtime, id string) {
 	return "", ""
 }
 
+// YouAre names the reading session in one sentence, for every listing that
+// names another one. The runtime does not tell a model its own session id, so
+// a peer's id printed with nothing beside it reads as a description of the
+// reader whenever the two share a tree.
+func YouAre(runtime, id string, pid int) string {
+	if runtime == "" {
+		runtime = "claude"
+	}
+	switch {
+	case id != "" && pid > 0:
+		return fmt.Sprintf("You are %s session %s (pid %d).", runtime, Session{ID: id}.Short(), pid)
+	case id != "":
+		return fmt.Sprintf("You are %s session %s.", runtime, Session{ID: id}.Short())
+	case pid > 0:
+		return fmt.Sprintf("You are the %s session on pid %d; your session id is not in your environment.", runtime, pid)
+	}
+	return "Your session id and pid are not in your environment, so no session named here is known not to be you."
+}
+
 // SelfStarted is when the runtime process this code runs under began, or the
 // zero time where the runtime exports no pid or the kernel no longer knows the
 // one it exports.

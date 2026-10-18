@@ -77,11 +77,12 @@ func cmdContinue(ctx context.Context, args []string) error {
 		if cwd == "" {
 			cwd, _ = os.Getwd()
 		}
-		_, me := presence.Here()
+		runtime, me := presence.Here()
 		if me == "" {
 			me = sess
 		}
-		return continueBrief(as, repoOf(cwd), heldNow(cfg.presences().Live(), me, presence.SelfPID()))
+		mine := presence.SelfPID()
+		return continueBrief(as, repoOf(cwd), heldNow(cfg.presences().Live(), me, mine), me, presence.YouAre(runtime, me, mine))
 	}
 	tr := continuity.Tracker{}
 	if !*offline {
@@ -107,7 +108,7 @@ func cmdContinue(ctx context.Context, args []string) error {
 // Lanes on the repository the session is standing in come first: a session on
 // one repository that reads three lanes on another before its own is reading
 // somebody else's desk.
-func continueBrief(as *assignment.Store, repo string, held map[string]presence.Session) error {
+func continueBrief(as *assignment.Store, repo string, held map[string]presence.Session, me, self string) error {
 	open, damaged, err := as.ListWithDamage(false)
 	if err != nil {
 		return err
@@ -156,12 +157,15 @@ func continueBrief(as *assignment.Store, repo string, held map[string]presence.S
 		// launched seconds apart were both handed one lane this way, and the
 		// second was invited to `claude --resume` a session that was alive.
 		if p, ok := liveHolder(a, held); ok {
-			fmt.Printf("    HELD RIGHT NOW by a live %s session %s (pid %d) in %s — not yours to take.\n",
-				p.Runtime, shortSHA(p.ID), p.PID, p.Cwd)
+			fmt.Printf("    HELD RIGHT NOW by a live %s session %s (pid %d) in %s — not yours to take. %s\n",
+				p.Runtime, shortSHA(p.ID), p.PID, p.Cwd, self)
 			fmt.Printf("    Choose other work. If two lanes on this really are wanted, `mellions assign open ... -alongside` says so deliberately; `mellions who` shows the peer.\n")
-		} else if s, ok := a.Latest(); ok && s.Resume() != "" {
-			fmt.Printf("    last worked in %s session %s — `%s` if it still opens\n",
-				s.Runtime, shortSHA(s.ID), s.Resume())
+		} else if s, ok := a.Latest(); ok && s.Resume() != "" && me != "" && s.ID == me {
+			fmt.Printf("    last worked in %s session %s, which is your own session id — nothing to resume\n",
+				s.Runtime, shortSHA(s.ID))
+		} else if ok && s.Resume() != "" {
+			fmt.Printf("    last worked in %s session %s — `%s` if it still opens. %s\n",
+				s.Runtime, shortSHA(s.ID), s.Resume(), self)
 		}
 		if a.Handoff != "" {
 			fmt.Printf("    handoff: %s\n", clip(firstLineOf(a.Handoff), 240))
