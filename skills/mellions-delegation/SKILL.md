@@ -25,9 +25,9 @@ evidence         which claims will need what proof
 completion       the condition, not the steps to reach it
 ```
 
-**High specificity about the problem and the boundary. Near-zero prescription of
-how to think.** A dispatch that scripts the reasoning gets you a worse engineer
-than the one you have.
+Specify the problem and boundary, not the reasoning. Honor owner concurrency
+limits; coordinate shared files, devices, heavy jobs and merges. The lead stays
+accountable alongside independent review and Git support.
 
 ## The boundary is a path, not a paragraph
 
@@ -44,11 +44,13 @@ A prohibition such as *never touch `<path>`* is not a boundary: a failed
 `cd` can leave a compound command writing in the wrong tree.
 
 Keep the dispatch near two kilobytes; its `CLAUDE.md` and named skills
-supply the rest. Runtime owns model/effort; honor the operator's standing
-preference. Lead handles unknown causes, architecture, novel complex code and
-high-stakes independent validation; capable workers implement grounded fixes,
-maintenance and routine reviews. Reassign if findings reopen design; skip
-needless handoffs. Verify actual model/effort. Restricted tiers need approval.
+supply the rest. Owner-configured role mapping: Opus 5.5 (or Sol 6.1) XHigh
+reviews risky contracts and implementation early; subsequent review covers
+corrections and remaining gaps. Sonnet 5.5 or Sol 6.1 High handles Git and landing.
+Honor owner overrides and actual native model/effort names and settings;
+this mapping asserts no availability. Capable implementers carry
+grounded fixes; reassign if cause or design reopens, and skip needless handoffs.
+Restricted tiers need approval.
 
 ## Judging what comes back
 
@@ -86,27 +88,24 @@ for a day is stale: swept, not obeyed. Draft state separates none of these.
 `mellions assign claim <lane> -pr <n>` — before sending the review. A
 comment is not what another host sees; the claim is.
 
-**Read the requirement at the base commit before the diff.** The body is the
-author's account, and a reviewer who starts there can no longer produce a first
-judgment — `mellions-reasoning`. Take that reading from a subagent that has not
-seen the diff where being wrong is expensive, and give it the claim as written:
-a count it may take on trust, a claimed zero included, or a citation tidied on
-the way, comes back verified about your version. Give it paths you never
-write to — an extraction, not the lane tree nor review scratch — and the issue
-body without comments, where the lane states its fix's shape. The base
-commit is the merge base — `git merge-base <target> <head>` — not the tip the
-metadata reports: a branch behind its target diffs as though it *removes*
-everything landed since it was cut, and the phantom deletion reads exactly like
-the change dropping production behaviour.
+**First review: read the requirement at the base commit before the diff.** The
+body is the author's account, which biases a first judgment — `mellions-reasoning`.
+Where being wrong is expensive, take that reading from a subagent that has not
+seen the diff. Give it the original claim, including counts, zeros and citations,
+not a tidied version. Use an extraction you never write to, separate from lane
+and review scratch, and the issue body without comments revealing the fix.
+The base is `git merge-base <target> <head>`, not the metadata's target tip:
+a branch behind its target appears to remove newer production changes at that tip.
 
-**Then argue on the record.** Say what you established and what you could not.
-Re-run their gate and falsification locally, on the head merged into the
-target's tip: a stale branch can pass alone and break merged with no file in
-common. At publishing, re-read the target's tip and the PR's state and head
+**Then argue on the record.** Inspect the diff and raw proof. Reuse accepted
+validation under `mellions-deep-research`'s input-validity rule; independently
+settle gaps and risky claims. Required gates and falsification apply to the head
+reconciled with the current target; a stale branch can pass alone and fail merged.
+Follow-up review covers the delta and affected paths; reopen completed conclusions
+where their inputs changed. At publishing, read the target's tip and PR state/head
 (`gh pr view --json state,headRefOid`; a ref read can miss a deleted head): a
-new commit that could reach what you ran is a merge you have not verified —
-re-run it, or a review names the commits it holds for; a review of a PR no
-longer open says so. A cited test the tree lacks is an account.
+changed input requires affected checks or a verdict scoped to verified pins.
+Say if the PR is no longer open. A cited test the tree lacks is an account.
 
 Then one of two, never a third:
 

@@ -60,27 +60,25 @@ What a claim costs to make:
 
 ## The record is not the world
 
-An issue, a design document, a prior analysis, a test, a completion statement,
-an advisory's affected range, a tool's report of live state — a lock, a pid:
-each describes a moment. Before acting on one, establish whether the thing it
-describes moved — the code at HEAD, the pull request, the deploy, a release cut
-after the record was last modified, whose own source says whether the fix is in
-it. Pin what you verified against, so the next reader can tell your reading
-from the world's later state.
+Records describe a moment. Reuse established source understanding and accepted
+evidence while relevant requirements, source, dependencies, build configuration,
+fixtures, toolchain, environment, device and target state remain unchanged.
+Bind evidence to its pin and inputs; inspect their delta. Changed inputs,
+missing provenance or unresolved gaps reopen affected claims, not the whole
+investigation. Reuse never waives a required fresh check. Read a release cut
+after an advisory's last modification in source to establish whether it has
+the fix; an older affected range alone cannot settle it.
 
-A checkout is a record of a moment too. Where an artifact's content is what
-permits the act — configuration, doctrine, an installed gate — read it and run
-it at the ref you are acting against; a working tree serves once you can say
-which ref it came from and how far behind it is. Where the tree is instead the
-subject, the build that failed out of it, its staleness is the evidence rather
-than a fault. A tree behind the ref answers an authority question wrong in the
-plausible direction: the names it gives are names, the gate it runs passes.
+A checkout is a record too. Where content permits the act — configuration,
+doctrine, an installed gate — read and run it at the ref being acted against;
+a working tree serves with its ref and lag established. A stale tree cannot
+settle current authority even if its old gate passes. Where that tree is the
+subject, such as its failed build, staleness is evidence rather than a fault.
 
-An account is not the artifact. A subagent's summary, a transcript, a peer's
-description of a file are two removes from the bytes. Your own context is no
-exception: what reached a session is settled by the request on the wire or the
-file it was handed, never by asking a session what it sees — and a transcript
-does not record the system prompt, so finding nothing there is not absence.
+An account is not the artifact. A summary, transcript or peer's description
+does not establish the bytes. What reached a session is settled by the request
+on the wire or file handed over, never its own account of what it sees;
+a transcript omits the system prompt, so finding nothing there is not absence.
 
 ## Exhaust what is reachable before asking
 
