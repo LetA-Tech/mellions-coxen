@@ -2054,9 +2054,21 @@ func (a Assignment) Text(now time.Time) string {
 	b.WriteString("\nThese are working notes, not the record of the work. Anything another " +
 		"person needs belongs on the issue or the pull request.\n")
 	if s, ok := a.Latest(); ok && s.Resume() != "" {
-		fmt.Fprintf(&b, "\nLast worked in %s session %s. If it still resumes, resume it — it "+
-			"holds the reasoning these notes are a summary of:\n\n  %s\n",
-			s.Runtime, short(s.ID), s.Resume())
+		readers := Here()
+		switch {
+		case slices.ContainsFunc(readers, func(r Session) bool { return r.Runtime == s.Runtime && r.ID == s.ID }):
+			fmt.Fprintf(&b, "\nLast worked in %s session %s, which is your own session id: "+
+				"the session reading this is the one that worked it, and there is nothing to resume.\n",
+				s.Runtime, short(s.ID))
+		default:
+			you := ""
+			if len(readers) > 0 {
+				you = fmt.Sprintf(" — not you: you are %s session %s", readers[0].Runtime, short(readers[0].ID))
+			}
+			fmt.Fprintf(&b, "\nLast worked in %s session %s%s. If it still resumes, resume it — it "+
+				"holds the reasoning these notes are a summary of:\n\n  %s\n",
+				s.Runtime, short(s.ID), you, s.Resume())
+		}
 	}
 	fmt.Fprintf(&b, "\nWhat the world says now is not in this file. `mellions continue` "+
 		"establishes it.\n")

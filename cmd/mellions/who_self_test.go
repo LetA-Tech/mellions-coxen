@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/LetA-Tech/mellions-coxen/internal/assignment"
 	"github.com/LetA-Tech/mellions-coxen/internal/awareness"
@@ -168,5 +169,66 @@ func TestWhoFromAHookNamesTheReaderFromThePayload(t *testing.T) {
 	want := fmt.Sprintf("You are claude session ff16449a (pid %d).", os.Getpid())
 	if !strings.Contains(out, want) {
 		t.Errorf("who under a hook does not name the reader from the payload (%q); got:\n%s", want, out)
+	}
+}
+
+// TestWhoWithNoIdentityDoesNotCallTheListOthers: with neither a session id nor
+// a pid, nothing can filter the reader out of the listing, so saying every
+// session below is another one would be false about the one that is the reader.
+func TestWhoWithNoIdentityDoesNotCallTheListOthers(t *testing.T) {
+	cfgPath, tree := twoSessionsInOneTree(t)
+	t.Setenv("CLAUDE_CODE_SESSION_ID", "")
+	t.Setenv("CLAUDE_PID", "")
+	t.Setenv("MELLIONS_HOOK", "")
+	var err error
+	out := captureStdout(t, func() { err = cmdWho([]string{"-config", cfgPath, "-C", tree}) })
+	if err != nil {
+		t.Fatalf("who: %v", err)
+	}
+	if !strings.Contains(out, "claude session 8eb893f9") || !strings.Contains(out, "not in your environment") {
+		t.Fatalf("positive control: the peer or the no-identity sentence is missing, so nothing below is tested; got:\n%s", out)
+	}
+	if strings.Contains(out, "Every session listed below is another one.") {
+		t.Errorf("who cannot filter the reader and still says every listed session is another one; got:\n%s", out)
+	}
+}
+
+// TestTheResumeLineSaysWhoTheReaderIs: an assignment's text names the session
+// that last worked it and says to resume it. Read by that same session, it is
+// told to resume itself; read by another, the id beside it reads as its own.
+func TestTheResumeLineSaysWhoTheReaderIs(t *testing.T) {
+	const worker = "aaaa1111-0000-4000-8000-000000000000"
+	const other = "bbbb2222-0000-4000-8000-000000000000"
+	t.Setenv("CODEX_SESSION_ID", "")
+	t.Setenv("CLAUDE_CODE_SESSION_ID", worker)
+	store, err := assignment.NewStore(filepath.Join(t.TempDir(), "assignments"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	a, err := store.Open(assignment.OpenOptions{
+		ID: "resume-8", Repo: "mellions-coxen", Objective: "o", Because: "b", Source: claimRepo(t),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s, ok := a.Latest(); !ok || s.ID != worker {
+		t.Fatalf("positive control: the opening session is not the lane's latest (%+v, %v), so nothing below is tested", s, ok)
+	}
+
+	own := a.Text(time.Now())
+	if !strings.Contains(own, "Last worked in claude session aaaa1111-000, which is your own session id") {
+		t.Errorf("read by the session that worked it, the text does not say so; got:\n%s", own)
+	}
+	if strings.Contains(own, "claude --resume "+worker) {
+		t.Errorf("the session that worked the lane is told to resume itself; got:\n%s", own)
+	}
+
+	t.Setenv("CLAUDE_CODE_SESSION_ID", other)
+	theirs := a.Text(time.Now())
+	if !strings.Contains(theirs, "claude --resume "+worker) {
+		t.Fatalf("positive control: another session is not offered the resume; got:\n%s", theirs)
+	}
+	if !strings.Contains(theirs, "not you: you are claude session bbbb2222-000") {
+		t.Errorf("another session is offered the resume with nothing naming it; got:\n%s", theirs)
 	}
 }
