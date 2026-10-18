@@ -87,7 +87,21 @@ func TestLaneCheckout_KeepsWhatItCannotMap(t *testing.T) {
 		t.Errorf("a checkout inside scratch was redirected to %s", got)
 	}
 
+	// t.TempDir() is under GOTMPDIR when that is set, else TMPDIR; a session
+	// may point either into its own lane.
 	outside := t.TempDir()
+	abs, err := filepath.Abs(outside)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for d := abs; ; d = filepath.Dir(d) {
+		if info, err := os.Stat(filepath.Join(d, "assignment.json")); err == nil && info.Mode().IsRegular() {
+			t.Skipf("no directory outside every lane record: the test's temporary directory %s is inside the record at %s; set GOTMPDIR and TMPDIR outside it", abs, d)
+		}
+		if filepath.Dir(d) == d {
+			break
+		}
+	}
 	if got := laneCheckout(ctx, outside); got != outside {
 		t.Errorf("a directory outside any record was redirected to %s", got)
 	}
