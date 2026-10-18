@@ -552,3 +552,23 @@ func lineFor(t *testing.T, out, id string) string {
 	t.Fatalf("%s does not appear in the render at all", id)
 	return ""
 }
+
+// The brief render is what a shift chooses from, so a head that moved past its
+// latest review has to reach that line, not only the attributes.
+func TestABriefLineSaysWhenTheHeadMovedPastTheLatestReview(t *testing.T) {
+	now := time.Date(2026, 10, 18, 7, 0, 0, 0, time.UTC)
+	cs := signal.Signal{
+		Kind: signal.KindChangeSet, Source: "github", Repo: "r", ID: "PR #172", Title: "release",
+		Created: now.Add(-time.Hour), Updated: now.Add(-time.Hour),
+		Attrs: map[string]string{"type": "pull_request", "draft": "true", "reviews": "4",
+			"reviewed_at": "37c89fa", "head": "ad048b6"},
+	}
+	if got := renderBrief(cs, now); !strings.Contains(got, "last review at 37c89fa, head now ad048b6") {
+		t.Errorf("the brief line does not say the head moved past the latest review: %s", got)
+	}
+	delete(cs.Attrs, "reviewed_at")
+	delete(cs.Attrs, "head")
+	if got := renderBrief(cs, now); strings.Contains(got, "last review at") {
+		t.Errorf("a change set read at its head is said to have moved: %s", got)
+	}
+}
