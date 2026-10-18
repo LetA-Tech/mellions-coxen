@@ -1,6 +1,6 @@
 # GitHub issue taxonomy
 
-**Status:** v4.0
+**Status:** v4.1
 
 The required structure for every issue Mellions creates — bug, remediation, feature, audit, coding,
 design or incident follow-up.
@@ -32,51 +32,38 @@ repository are carried by the `type:` and `repo:` labels and are never restated 
 
 ## 3. Body
 
-Eleven sections in fixed order, plus a `Base: <branch> @ <sha>` header. `github-issue-template.md`
-defines them and is the authority on their order and wording.
+The repository's mandated schema governs; otherwise use the concise contract in
+`github-issue-template.md`: outcome/acceptance, cause/evidence, scope/constraints,
+verification, and delivery/decisions, with `Base: <branch> @ <sha>`. Add detail only
+where material to implementation or acceptance; omit empty ceremony.
 
-Hard requirements:
+Hard requirements remain:
 
-- **Evidence is tiered** — confirmed-from-source (`file:line` plus quoted code, verified at the
-  stated commit) / evidence-supported / requires-live-evidence. Never present an inference as an
-  observation.
-- **Evidence from a retention-windowed source states its expiry** — source, window, and expiry
-  computed from the **event date the evidence attests to**, never the filing date. Already expired at
-  filing time: say so in §1 and treat any dependent criterion as **presumptively unsatisfiable**.
-  Non-exhaustive seeds: Plaid Logs 14d, VictoriaLogs 30d, MongoDB audit log ~7d.
-- **The call graph is plain ASCII**, never Mermaid. It crosses boundaries — into vendored SDKs and
-  dependencies when the decisive behaviour is deeper than the adapter — and shows the failing branch
-  and what a crash between two writes leaves.
-- **Code locations are an inventory**, not a hint list — files, functions, types, config keys, each
-  with path and line range.
-- **Runtime conditions** name the flags, env values and binaries that make the path live, and whether
-  the defect is live under the shipped configuration.
-- **Acceptance criteria are checkable** by reading code or running a command. No "reviewed",
-  "documented", "considered".
-- **One root cause per issue.** Consolidate symptoms of one defect; never merge independently
-  remediable problems.
+- **Evidence is tiered** — confirmed-from-source (`file:line` plus quoted source,
+  verified at the pin) / evidence-supported / requires-live-evidence. A link to
+  established analysis may carry the detail; an inference is never an observation.
+- **Retention-windowed evidence states its expiry**, computed from the event date,
+  not filing. Already expired: state that in the outcome and mark the dependent
+  acceptance criterion **presumptively unsatisfiable** until unexpired evidence exists.
+- **Cover the root-cause class.** The inventory includes affected files, functions,
+  types and configuration. For code-path defects, establish the decisive call/data
+  flow across boundaries, including dependency internals, failing branches, store
+  write order and crash consequences. A graph, when useful, is plain ASCII.
+- **Runtime conditions and material failure behavior** establish whether the shipped
+  path is live and constrain the remedy. Never remove architectural, persistence,
+  recovery or concurrency detail needed to choose or validate the fix for brevity.
+- **Acceptance is checkable**, with its actual closure event. Required verification,
+  independent review and repository approval conditions remain in force.
+- **One root cause per issue.** Consolidate symptoms, never independently remediable
+  problems. Reuse accepted evidence only while its relevant inputs remain unchanged;
+  missing or stale evidence cannot satisfy the contract.
 
-**N/A profiles.** Sections 4–7 presuppose an implementation. Two shapes have none; both are decided
-by the work item's actual nature, and an implementation issue may not invoke either to skip the call
-graph or test plan.
-
-**Site content profile** — `type:design` and content/copy items in public web/marketing repos mark
-sections 4–7 `N/A (site content profile)`. Sections 1–3 and 8–11 stay mandatory.
-
-**Discovery/decision profile** — `type:design` issues in any repo whose deliverable is a decision,
-not an implementation. Sections 4–7 mark `N/A (discovery profile)`, each with a named replacement:
-
-- §4 → **Decision question** — what must be decided, and what depends on the answer.
-- §5 → **Options and evaluation criteria** — the candidates and what distinguishes them.
-- §6 → **Decision owner** — who the judgment belongs to.
-- §7 → **Completion gate** — a written decision record posted to the issue. No decision closes
-  silently.
-
-Sections 1–3 and 8–11 are reframed, not waived: §1 the decision needed and the cost of not making it;
-§2 why none exists yet; §8 the decision or the invariant it must establish; §10 verifies it was
-recorded; §11 restates the gate as checkable items. It closes on `promotion` when it produces a
-durable artifact (ADR, design or contract doc), never on `merge`. `deployment`, `migration`,
-`recompute` and `runtime-proof` do not fit; a decision has no runtime.
+**Work without an implementation.** Site content omits inapplicable call/data-flow
+and runtime detail. A discovery/decision issue instead states the question, options,
+evaluation criteria, decision owner and completion gate. Record the decision on the
+issue; a durable ADR, design or contract artifact closes on `promotion`, not `merge`.
+No runtime acceptance event fits a decision without a runtime. Neither kind of work
+licenses omitting evidence or tests material to its own outcome.
 
 ## 4. Label taxonomy
 
@@ -260,7 +247,7 @@ vocabulary that does not exist, and no labels at all is how an issue becomes unr
 Two Skill-family carve-outs, not to be conflated — the first concerns the *kind of work*, the second
 the *repo*. Both require attempting resolution and finding none, never skipping the check.
 
-- **Discovery/decision exemption** — the issue uses the discovery/decision profile (§3) and no
+- **Discovery/decision exemption** — the issue is discovery/decision work (§3) and no
   `skill:*` value governs decision work. State it in the body: `Skill: exempted — no skill governs
   discovery work`. Nine families plus a stated exemption is conformant; nine silently is not.
 - **`skill:placeholder`** — **no** `skill:*` value in the target repo resolves at HEAD. It is not a
@@ -270,10 +257,9 @@ the *repo*. Both require attempting resolution and finding none, never skipping 
 
 ## 6. Acceptance review
 
-Accept when the code inventory was verified against the current base branch, all call sites were
-identified, the call graph was confirmed or updated, the required commands were run, raw output was
-captured, evidence is bound to a commit SHA, and the stated constraints were respected.
+Accept when the affected inventory and decisive call/data flow are established at the current base,
+required commands were run, raw output was captured, evidence is bound to its commit and relevant
+inputs, and stated constraints were respected. Valid linked evidence need not be copied or rerun.
 
-Reject when call sites are incomplete, the call graph is missing for a code-path bug, the inventory
-is stale, required tests or raw evidence are missing, claims stand in for proof, or the PR head does
-not match the verified commit.
+Reject when the class or decisive flow is incomplete, the inventory is stale, required tests or raw
+evidence are missing, claims stand in for proof, or the PR head does not match the verified commit.

@@ -10,8 +10,7 @@ Turns a work item into verified code and then into a closed one: a worktree,
 the change, its proof, the resolution attacked, the pull request, the merge,
 the close.
 
-The repository's own manual defines what production-grade means there; this
-skill enforces only that the bar is **applied and demonstrated**.
+The repository defines production quality; **apply and demonstrate its bar**.
 
 ## A remediation, not a narrow patch
 
@@ -23,7 +22,7 @@ as is an assertion moved to match the behaviour.
 
 ## Workflow
 
-**1 — Read everything, and establish the ground.** From the work item in full,
+**1 — Establish the contract and ground.** From the work item,
 its plan, and the repository's `CLAUDE.md`, establish: the branch to work from
 and target; the release branch, which is never a base for implementation; the
 verification commands; and any path that must not enter the diff without
@@ -31,28 +30,27 @@ authorization. Where none declares the base, `git symbolic-ref
 refs/remotes/origin/HEAD` gives the remote's default — a candidate, not a
 declaration, and where a release branch is kept it names the one this step
 forbids. What merged pull requests mostly target settles it (`gh pr list -s
-merged --json baseRefName`). Say in the body that the base was inferred. No plan on the item → write one there
-(`mellions-issue-resolution-proposal`) before the first commit; no item at all
+merged --json baseRefName`). Say in the body that the base was inferred. A current
+issue contract or recorded plan is enough; record missing decisions through
+`mellions-issue-resolution-proposal` before implementation. No item at all
 → file one (`mellions-issue-creation`) and plan it there. The pull request is
 an artifact on the item, never a substitute for it.
 
-**2 — Re-verify the premise and state the pin.** A work item is a claim
-written at a commit. Re-open every file it cites, confirm every `file:line`
-resolves at the base branch HEAD now, and state in the body the commit the
-item was written at, the commit verified against, and whether they resolve.
-Drifted → report the drift and correct the claim; the code wins over the item's
-text. Premise gone → say so on the item and re-plan there, never silently
-redefine the work.
+**2 — Reconcile the premise with the current target.** Reuse established source
+understanding and evidence under `mellions-deep-research`'s input-validity rule.
+Inspect relevant changes since its pin and reopen changed or unresolved claims;
+resolving a citation alone does not establish its meaning. Record the current
+pin, evidence reused and material drift. The code wins over the item's text;
+a premise that no longer holds is corrected and re-planned on the item, never
+silently redefined.
 
-Resolving citations is the cheap half: an item can cite perfectly and be
-wrong about what they mean. `mellions-issue-resolution-proposal` carries the
-six questions that settle it — load it even where a plan exists.
-
-**3 — Isolate, then gate.** One item per worktree, cut from the base branch at
+**3 — Isolate and preserve a useful baseline.** One item per worktree, cut from the base branch at
 its current remote tip; `mellions assign open` does this. Then run every
-verification command and record the result **before** touching code: a gate
-captured afterwards cannot tell a failure you introduced from one already
-there. A defect found mid-implementation is decided, never quiet:
+baseline check the repository requires. Otherwise retain accepted baseline
+evidence whose relevant inputs are unchanged, and run the focused checks or
+reproduction needed to attribute plausible failures before editing. A result
+captured only afterwards cannot establish what already failed. Missing or
+invalid evidence is obtained, not assumed. A defect found mid-implementation is decided, never quiet:
 inside the causal lane — the same root cause, contract, execution path, data
 flow, persistence consequence or defect family — it is yours through verified
 resolution, fixed here with its own test; only a genuinely independent lane
@@ -62,11 +60,10 @@ becomes its own item, on the causal relation and never on cost.
 Unreachable re-scopes the work or is priced in as a startup cost — decided
 now, not mid-implementation.
 
-**4 — Enumerate the class before editing.** The item names sites; the defect
-has a class. List **every** site sharing the root cause with `file:line`
-before the first edit — "I will find them during implementation" reliably
-fixes the reported path and leaves its siblings broken. Scope materially
-larger than the plan → widen the plan on the item first.
+**4 — Cover the class.** Establish the affected paths and siblings sharing the
+root cause before editing them; reuse a verified inventory where its inputs
+still hold. Do not fix only the reported instance. Scope materially larger
+than the contract → update it on the item first.
 
 **5 — Implement.** Every file is opened before it is changed. Fix the cause at
 the point every caller routes through, not each call site in turn. Machinery the change makes unreachable is deleted with its
@@ -74,7 +71,7 @@ tests, not deprecated and not left behind a flag. A defect found in a file being
 a deferral marker is not an outcome. Comments follow
 `mellions-comment-hygiene`.
 
-**6 — Prove it.** Where the defect can be executed the proof has two ends:
+**6 — Prove it.** Use focused checks while editing. Where the defect can be executed the proof has two ends:
 reproduced **before** the fix at a named commit, attacked **after** it, in
 `mellions-sandbox` where the host should not carry it. The gate runs in full,
 raw output captured; then, for every falsifiable behavioural claim, the arms
@@ -87,17 +84,15 @@ PASS — and **PARTIAL is not a place to rest**: before it is written the unmet
 criterion is diagnosed to root cause and classified as `mellions-reasoning`
 classifies an obstacle, and what it leaves to you done.
 
-**7 — Open the pull request.** Target the base branch. The **body is the durable
-proof document**, the one artifact where length is the point: the work item as
-`Refs #NN`, never a closing keyword (`mellions-issue-closure` says why); the
-premise re-verification and its pin; what was wrong, with `file:line`; raw
-reproduction output at a named commit;
-the change item by item, naming what was deleted; the falsification runs;
-each acceptance criterion mapped to met or unmet; every command run and its
-result, each gate cited from a run of it and never from the file declaring
-it, because a workflow that is disabled, filtered or never triggered executes
-nothing; and anything out of scope or contradictory, surfaced not resolved
-silently.
+**7 — Open the pull request.** Target the base branch. Keep the body a concise
+index of the outcome and proof: the work item as `Refs #NN`, never a closing
+keyword (`mellions-issue-closure` says why); the verified base and head; the
+actual change and material premise deltas; each acceptance criterion met or
+unmet with its evidence; gate and falsification results; residual risks and
+scope decisions. Keep complete raw evidence once in durable artifacts the
+reviewer can open, linked at the claim it supports, including reused evidence
+and its validity. A local temporary log alone is not a durable record. Cite a
+gate from its run, never a declaration or a file saying CI is off. A disabled, filtered or untriggered workflow executes nothing.
 
 **8 — Finish, or hand over.** Report the branch, the pull request, the commit
 and the verdict, on both the pull request and the assignment.
@@ -127,8 +122,8 @@ problem.
 
 - The base branch cannot be established, or the baseline gate is red for a
   cause outside this lane.
-- No plan on the work item and nowhere to record one; or its premise no longer
-  holds at HEAD.
+- No current contract or required plan and nowhere to record it; or its premise
+  no longer holds at HEAD.
 - The scope exceeds the plan and widening it is the owner's call, or a protected
   path would enter the diff without authorization.
 - A contract the work depends on is undefined or self-contradictory — surface

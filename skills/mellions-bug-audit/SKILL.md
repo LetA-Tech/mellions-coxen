@@ -41,13 +41,13 @@ collapsing the three is how an inference acquires the authority of a citation.
 
 ## Workflow
 
-**1 — Fix the ground.** This bundle names no repository, branch or finding-ID
-scheme. Take the base branch every `file:line` is verified against from the
-repository itself — its `CLAUDE.md`, failing that `git symbolic-ref
+**1 — Fix the ground.** Take the base branch every `file:line` is verified
+against from the repository — its `CLAUDE.md`, failing that `git symbolic-ref
 refs/remotes/origin/HEAD`, said to be inferred rather than declared — record the
-commit, confirm the tree is clean, and run the repository's verification
-commands **before** investigating: a baseline captured afterwards cannot
-distinguish a pre-existing failure from one the investigation caused.
+commit and confirm a clean tree. Run required baseline checks; otherwise reuse
+valid evidence under `mellions-deep-research`, obtaining missing focused checks
+before investigation could change their inputs. A later baseline cannot
+attribute a pre-existing failure.
 
 **2 — Read the implementation end to end.** The complete files on the path, not
 the neighbourhood of the suspected line, and the tests covering them: a test
