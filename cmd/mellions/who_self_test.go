@@ -7,6 +7,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -230,5 +231,56 @@ func TestTheResumeLineSaysWhoTheReaderIs(t *testing.T) {
 	}
 	if !strings.Contains(theirs, "not you: you are claude session bbbb2222-000") {
 		t.Errorf("another session is offered the resume with nothing naming it; got:\n%s", theirs)
+	}
+}
+
+// TestTheBriefSaysWhenTheLastWorkerIsTheReader: the session-start brief drops
+// the reader from the live holders, so its own lane falls through to "last
+// worked in <its own id> — claude --resume <its own id>".
+func TestTheBriefSaysWhenTheLastWorkerIsTheReader(t *testing.T) {
+	const worker = "cccc3333-0000-4000-8000-000000000000"
+	t.Setenv("CODEX_SESSION_ID", "")
+	t.Setenv("CLAUDE_CODE_SESSION_ID", worker)
+	store, err := assignment.NewStore(filepath.Join(t.TempDir(), "assignments"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Open(assignment.OpenOptions{
+		ID: "own-9", Repo: "mellions-coxen", Objective: "o", Because: "b", Source: claimRepo(t),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	run := func(me string) string {
+		r, w, err := os.Pipe()
+		if err != nil {
+			t.Fatal(err)
+		}
+		stdout := os.Stdout
+		os.Stdout = w
+		err = continueBrief(store, "", nil, me, "You are claude session "+me[:8]+".")
+		os.Stdout = stdout
+		_ = w.Close()
+		out, _ := io.ReadAll(r)
+		_ = r.Close()
+		if err != nil {
+			t.Fatalf("continueBrief: %v", err)
+		}
+		return string(out)
+	}
+
+	own := run(worker)
+	if !strings.Contains(own, "own-9") {
+		t.Fatalf("positive control: the lane is not in the brief; got:\n%s", own)
+	}
+	if strings.Contains(own, "claude --resume "+worker) || !strings.Contains(own, "your own session id — nothing to resume") {
+		t.Errorf("the brief tells the session that worked the lane to resume itself; got:\n%s", own)
+	}
+
+	other := run("dddd4444-0000-4000-8000-000000000000")
+	if !strings.Contains(other, "claude --resume "+worker) {
+		t.Fatalf("positive control: another reader is not offered the resume; got:\n%s", other)
+	}
+	if !strings.Contains(other, "if it still opens. You are claude session dddd4444.") {
+		t.Errorf("another reader is offered the resume with nothing naming it; got:\n%s", other)
 	}
 }
