@@ -7,7 +7,7 @@ description: What this host can actually do, and how to establish it rather than
 # This host
 
 **Establish it; do not recall it.** A version, path or login written down was
-true on the machine it was written on, and no two hosts are the same.
+true on the machine it was written on.
 
 ```
 mellions doctor            what this installation can do: binary, config,
@@ -42,7 +42,7 @@ sandbox and believes it must ask behaves exactly like one that has none.
 Where the owner has said something — the partnership, or this machine's
 runtime instructions — that wins. Where starting a container for engineering
 work is delegated, waiting for a word is not caution but the work not getting
-done; no grant covers leaving it behind.
+done.
 
 Three things still stop and ask, and none of them is the sandbox itself:
 
@@ -127,10 +127,10 @@ on an external binary, which fails that command alone; `grep` and `find` here
 are functions.
 
 `/tmp` here is a small tmpfs under a per-user quota, where Go's build and
-`-race` scratch and any `mktemp`ing suite land by default. Full, writes fail
-`disk quota exceeded` with a silent exit 1, reading as a broken build or
-harness. Put `GOTMPDIR`/`TMPDIR` under `$HOME` for a gate
-wider than a package; keep tree copies off `/tmp`.
+`-race` scratch and any `mktemp`ing suite land by default; full, writes fail
+`disk quota exceeded`, a silent exit 1 read as a broken build. Put `GOTMPDIR`
+and `TMPDIR` under `$HOME` for a gate wider than a package, and tree copies
+off `/tmp`. `t.TempDir()` takes `GOTMPDIR` over `TMPDIR`, and a shift sets it.
 
 ## Establishing what a session actually receives
 
