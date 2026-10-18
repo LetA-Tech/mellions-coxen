@@ -96,16 +96,16 @@ Nothing is closed on a local state. Verify at the remote: the commit SHA on
 the base branch at origin, the pull request's merge state and merge commit,
 CI on the merge, and the acceptance rule's own evidence — the running image
 for `deployment`, the query result for `migration`, the observed series for
-`runtime-proof`. Quote raw output; never write a SHA, a PR number or a test
-result you have not seen at the remote.
+`runtime-proof`. Link the observed remote evidence; never write a SHA, a PR
+number or a test result you have not seen at the remote.
 
-The proof comment carries, only where it applies: the issue, the branch,
-the commit SHA and the pull request; what changed — files and diff stat; raw
-build and test output with the falsification runs; each acceptance criterion
-mapped to met or unmet with its evidence; the acceptance rule and the event
-that satisfied it; residual risks and follow-ups, named, and filed where they
-are their own work, since one never survives as a sentence here; and, where
-closure was the owner's, who authorized it.
+The concise proof comment names the issue, merged commit and pull
+request; each acceptance criterion and the closure event with durable evidence
+links; residual risks and filed work; and any required authorization.
+Reuse the PR's complete build, test and falsification evidence where still
+valid; do not paste it again. Add the remote, deployment or other acceptance
+evidence the PR could not yet carry. Missing, stale or inaccessible proof is
+obtained before closure, never assumed.
 Post it, then close — never the other order. By default the session that wrote
 the plan and code does not accept its own proof: a fresh session or subagent is
 cheap, and where none read it the comment says so. Where the change

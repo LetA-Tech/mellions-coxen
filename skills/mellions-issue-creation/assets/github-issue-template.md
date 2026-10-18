@@ -1,6 +1,6 @@
 # GitHub issue template
 
-Repo-agnostic. Every `<...>` is a parameter. Section order is fixed; do not add sections.
+Repo-agnostic default; a repository-mandated schema governs. Every `<...>` is a parameter.
 
 ## Title
 
@@ -36,102 +36,74 @@ line, invent nothing.
 
 ## Body
 
-Verify every `file:line` against the base branch before emitting it. A wrong line number costs the
-implementer an hour.
+Keep the contract concise; link existing analysis rather than narrating it again.
+Include the detail needed to implement and judge the work, not empty headings.
+Verify emitted citations at the stated base; retain quoted source where it supports
+an established finding. This default does not reduce repository requirements.
 
 ```markdown
 Base: <base-branch> @ <commit-sha>
 
-## 1. Defect
+## 1. Outcome and acceptance
 
-What the code does, and the member-facing / operational consequence. Concrete: inputs and state ->
-wrong outcome. Do not restate the title.
+Concrete inputs and state -> current wrong outcome and its consequence -> required
+outcome. Checkable acceptance criteria, including the event that closes the issue:
+merge, promotion, deployment, migration, recompute or runtime proof. No “reviewed”,
+“documented” or “considered” as a substitute for correct behavior. An issue naming no
+closure event needs a posted proof comment and explicit authorization to close.
 
-## 2. Root cause
+## 2. Cause and evidence
 
-The mechanism, not the symptom. If two individually-reasonable decisions are jointly wrong, name both.
+The mechanism and affected class, not only the reported symptom. Link established
+analysis with its pin; quote the decisive source at `file:line`.
 
-## 3. Evidence
+Distinguish **Confirmed from source**, **Evidence-supported** (inferred, not executed),
+and **Requires live evidence** (name the query, metric or response needed). Include
+existing test/runtime observations; say what is unknown and what would settle it.
+A filed hypothesis is not an established defect.
 
-**Confirmed from source** — reconstructed from code at `<commit-sha>`, with `file:line` and quoted code.
-**Evidence-supported** — follows from the code but was not executed.
-**Requires live evidence** — cannot be settled from the repo; name the query, metric series or captured
-response that would settle it. Omit this tier only if genuinely empty.
+For retention-windowed evidence, state source, window and expiry from the event date.
+Already expired at filing: say so in §1 and mark any dependent acceptance criterion
+**presumptively unsatisfiable** until an unexpired source establishes it.
 
-Include any test, probe, log or runtime observation that exists. Say so when a cited comment is wrong.
+## 3. Scope and constraints
 
-State what is **not** established, and what would settle it. Where that is the reason this is an
-issue rather than a merged change, say so — the limit of the evidence is what decides the
-disposition, and burying it costs the reader the judgement.
+Affected files, functions, types and config keys, with current path/line references;
+cover the root-cause class. Link an existing complete inventory rather than copy it.
+Include architectural, runtime and failure detail wherever it changes the remedy:
 
-**Evidence from a retention-windowed source** (e.g. Plaid Logs — 14 days, VictoriaLogs — 30 days,
-MongoDB audit log — ~7 days; non-exhaustive) states the source, the window, and the expiry date
-computed from the **event date**, not the filing date. If the expiry has already passed as of this
-issue's filing date, say so in §1 (not buried here) and mark the criterion it would settle as
-presumptively unsatisfiable in §11 — do not present it as pending or checkable.
+- Call/data flow through the decisive implementation, including dependencies and
+  other repositories. Use plain ASCII if a graph helps; Mermaid does not render
+  reliably in issue views. Show the failing branch, stores and write order, and what
+  a crash between writes leaves.
+- Flags, environment, deploy settings and binaries that make the path live, with
+  source evidence; say whether the shipped configuration reaches the defect.
+- Material persistence/migration consequences, retry/recovery, concurrency,
+  round trips and deadlines, including races a proposed fix could introduce.
+- Required architecture/contracts, protected paths, affected components, dependencies
+  and what a careless fix breaks. Resolution states the invariant to establish;
+  a partial remedy says what it leaves unresolved.
 
-## 4. Call and data flow
+Omit inapplicable detail; do not write sections merely to deny that they apply.
 
-Plain ASCII in a fenced `text` block — never Mermaid (it fails to render in the issue view). Entry
-point -> ... -> store or provider write, `file:line` on each hop. Do not stop at an interface,
-adapter, repository, client, worker or service boundary when the decisive behavior is deeper —
-follow into vendored SDKs and dependencies and cite those paths. Show the failing branch, not only
-the happy path. Follow the graph with: which store is written in which order, and what a crash
-between two writes leaves behind.
+## 4. Verification
 
-## 5. Code locations
+Tests to add/change and commands to run, with paths, required services or devices,
+meaningful regression/falsification, baseline evidence for failure attribution and
+required final gates. State the raw evidence to retain and link accepted proof that
+remains valid. Missing proof is work, never an assumed pass.
 
-Files, functions/methods, types/interfaces, config keys — each with path and line range. Group by
-repo/module when the path crosses into a dependency. This is the implementer's inventory; make it
-complete.
+## 5. Delivery and decisions
 
-## 6. Runtime conditions
-
-Feature flags, env values, deploy settings and binaries that make this path live. Quote the config
-lines. State plainly whether the defect is live under the shipped configuration.
-
-## 7. Failure, recovery, concurrency and latency behavior
-
-Only what applies. The interleaving that breaks it; what a crash or restart leaves; what is
-restart-dependent; retry/backoff/breaker behavior; round-trip counts and deadlines.
-
-Most defects have no concurrency dimension, and this heading has historically been answered with a
-sentence saying so. One line, or absent — a section that exists to deny that it applies is the
-padding the banned list forbids. Where it does apply, the race the *fix* would introduce belongs
-here as much as the one the defect has.
-
-## 8. Resolution
-
-Outcome-level and production-grade: what must become true. Name the invariant, not the diff. Where a
-cheaper partial fix exists, say what it does and does not close.
-
-## 9. Affected components, risks and dependencies
-
-Components touched. What a careless fix breaks. Ordering against other issues, by number.
-
-## 10. Test and verification plan
-
-Exact tests to add or change, with package paths. The command sequence that proves the fix. What raw
-output must be captured. If an integration test needs a service, name it.
-
-## 11. Acceptance criteria
-
-- [ ] Objectively verifiable by reading code or running a command. No "reviewed", "documented",
-      "considered".
-- [ ] A criterion that depends on evidence from a retention-windowed source whose expiry had
-      already passed at filing time (§3, §1) is marked **presumptively unsatisfiable**, not phrased
-      as a normal checkable item, until proven otherwise by a source that has not expired.
-- [ ] States the event the issue closes on — merge, promotion, deployment, migration, recompute or
-      runtime proof. An issue that names none closes on a posted proof comment plus the owner's word.
+Material risks, dependencies/ordering and reserved decisions or approval conditions.
+A current contract need not be restated as a separate plan unless the repository
+requires one; record material decisions before implementation. Keep implementation
+proof in the PR and durable linked artifacts, then add the actual closure evidence.
 ```
 
-## Banned in the body
+## Banned padding
 
-Work-item-type and source checkbox blocks. Target-repo and base-branch sections (the `Base:` header
-covers both). Intent. Required-skills boilerplate. Non-goals. Rollout/alerting boilerplate. An
-executor section. External-system notes. Disclaimers. Any sentence instructing the reader to "verify
-against dev" or "the implementer must inventory" — procedure is not content. Generic summaries,
-preambles, closing paragraphs.
-
-Compress ritual only. Never drop evidence, architectural context, failure behavior, or
-implementation-critical detail to be shorter.
+Routing metadata already carried by labels, required-skills boilerplate, empty N/A
+sections, generic preambles, closing narratives and instructions to “verify against
+dev” or “inventory later” in place of actual evidence. Compress ritual only; retain
+implementation-critical evidence, architecture, failure behavior and constraints.
