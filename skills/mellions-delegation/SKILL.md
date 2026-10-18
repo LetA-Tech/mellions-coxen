@@ -26,9 +26,9 @@ evidence         which claims will need what proof
 completion       the condition, not the steps to reach it
 ```
 
-**High specificity about the problem and the boundary. Near-zero prescription of
-how to think.** A dispatch that scripts the reasoning gets you a worse engineer
-than the one you have.
+Specify the problem and boundary, not the reasoning. Honor owner concurrency
+limits; coordinate shared files, devices, heavy jobs and merges. The lead stays
+accountable alongside independent review and Git support.
 
 ## The boundary is a path, not a paragraph
 
@@ -45,9 +45,13 @@ A boundary written as a prohibition — *never touch `<path>`* — is not a
 boundary: it breaks when a failed `cd` leaves the rest of a compound command
 running in the tree it was told to stay out of.
 
-Keep it around two kilobytes; its own `CLAUDE.md` and the skills it names
-supply the rest. Tier is the runtime's, from the operator's standing
-configuration; never re-derived per dispatch.
+Keep dispatches near two kilobytes; `CLAUDE.md` and named skills supply context.
+Owner-configured roles: Opus 5.5 (or Sol 6.1) XHigh reviews risky contracts and
+implementation early; later review covers corrections and remaining gaps.
+Sonnet 5.5 or Sol 6.1 High handles Git and landing. Honor owner overrides and
+actual native model/effort settings; names assert no availability. Capable
+implementers carry grounded fixes; reassign if cause or design reopens.
+Restricted tiers need approval.
 
 ## Judging what comes back
 
@@ -87,26 +91,21 @@ for a day is stale: swept, not obeyed. Draft state separates none of these.
 `mellions assign claim <lane> -pr <n>` — before sending the review. A
 comment is not what another host sees; the claim is.
 
-**Read the requirement at the base commit before the diff.** The body is the
-author's account, and a reviewer who starts there can no longer produce a first
-judgment — `mellions-reasoning`. Take that reading from a subagent that has not
-seen the diff where being wrong is expensive, and give it the claim as written:
-a count it may take on trust, a claimed zero included, or a citation tidied on
-the way, comes back verified about your version. Give it paths you never
-write to — an extraction, not the lane tree nor review scratch — and the issue
-body without comments, where the lane states its fix's shape. The base
-commit is the merge base — `git merge-base <target> <head>` — not the tip the
-metadata reports: a branch behind its target diffs as though it *removes*
-everything landed since it was cut, and the phantom deletion reads exactly like
-the change dropping production behaviour.
+**First review: read the requirement before the diff**, at
+`git merge-base <target> <head>`; the target tip makes a behind branch appear
+to remove newer changes. The author's body biases judgment. Where being wrong
+is expensive, use an independent subagent: original claim, counts including
+zeros and citations unchanged; issue body without comments revealing the fix;
+an extraction you never write to, separate from lane and review scratch.
 
-**Then argue on the record.** Say what you established and what you could not.
-Re-run their gate and falsification locally, on the head merged into the
-target's tip: a stale branch can pass alone and break merged with no file in
-common. The tip is the one at publishing: fetch target and head again, and a
-new commit that could reach what you ran is a merge you have not verified —
-re-run it, or name the commits the verdict holds for. A cited test the tree
-lacks is an account, not evidence.
+**Record the verdict.** Inspect diff and raw proof. Reuse accepted validation
+under `mellions-deep-research`'s input-validity rule; independently settle gaps
+and risky claims. Required gates and falsification apply to the head reconciled
+with the current target. Follow-up review covers the delta and affected paths;
+reopen conclusions whose inputs changed. At publishing, read target tip and PR
+state/head (`gh pr view --json state,headRefOid`; a ref can miss a deleted head).
+Changed inputs need affected checks or a verdict scoped to verified pins.
+Say if the PR closed. A cited test absent from the tree is not evidence.
 
 Then one of two, never a third:
 

@@ -4,13 +4,15 @@ description: Load this after the issue exists and before the first commit — to
 ---
 <!-- Mellions Engineer | LetA Tech Ltd. | leta@letatech.ca -->
 
-# The plan goes on the issue
+# The contract goes on the issue
 
 A plan that lived only in a session is lost with the session, and the issue
 then has no trace of what was intended, what was approved, or what "done" was
-supposed to mean. The proposal is one comment on the issue, written before any
-code, that a reviewer can approve, whoever implements it can follow, and the
-closure method can read the acceptance rule from without re-deriving it.
+supposed to mean. Before implementation, the issue must carry a current contract
+that a reviewer can judge, an implementer can follow and closure can read the
+acceptance rule from. A sufficient issue body or existing plan needs no duplicate
+proposal; add a concise comment for missing decisions or material changes. Use a
+separate proposal and its prescribed schema wherever the repository requires one.
 
 ## The repository's approval model decides what the comment is
 
@@ -25,27 +27,26 @@ declares which:
 - **The gate is at merge.** The comment is the implementer's plan, posted without
   claiming approval and saying so — "awaiting ratification at merge" in the
   comment itself — and the human decision moves to the pull request.
-- **Delegated.** Where the partnership delegates the work, the comment is the
-  record and you proceed; the standard of the plan does not drop with the
-  ceremony.
+- **Delegated.** Where the partnership delegates the work, record the contract
+  and proceed; existing authorization does not need another approval request.
 
 Never claim an approval that was not given, never soften a conditional one,
-and never backfill a proposal after the code exists — that asserts a gate was
-satisfied when it was not; say instead that the plan was written late and why.
+and never backfill a required pre-code proposal after the code exists — say
+instead that the plan was written late and why.
 Where the repository's process carries markers, templates or approval
 records, use them as it specifies; this method is what goes inside them.
 
 ## Read before writing
 
 The issue number is the identifier; a finding id resolves to exactly one
-issue first (`mellions-issue-closure`, Identity). Then: the issue body as the contract; every
-earlier comment (a proposal already there, a claim, a reviewer's remedy); and
-the code at HEAD now, because the item is a claim written at a commit. A premise
-that moved is said on the issue, and the plan is made against the world rather
-than the item.
+issue first (`mellions-issue-closure`, Identity). Read the issue's contract,
+existing decisions, approval conditions and unresolved reviews. Reuse established
+source understanding and evidence under `mellions-deep-research`'s input-validity
+rule; inspect relevant changes at the current target and settle unresolved gaps.
+A premise that moved is corrected on the issue before work depends on it.
 
-Re-verifying the premise is these questions, and `mellions-issue-remediation`
-answers them again in the pull request body against what was actually built:
+Use these questions to settle gaps or changes, rather than repeat completed
+analysis. The pull request links that analysis and records what actually changed:
 
 - **Do the citations resolve, and is what the item says about them still true?**
   Resolving is the cheap half — an item can cite perfectly and be wrong about
@@ -74,26 +75,17 @@ answers them again in the pull request body against what was actually built:
 Titled for the issue — `Resolution proposal — Issue #NN` — and containing, only
 where it applies:
 
-- the target repository, the base branch and the pin the plan was verified at;
-- the premise re-verification: what still holds, what drifted, what was
-  corrected;
-- the root cause at `file:line`, and every site sharing it — the class, not
-  the reported instance;
-- the scope: files to touch, and files explicitly out of scope;
-- hard rules the change must respect — banned patterns, what a careless fix
-  breaks, contracts and paths that must not move;
-- schema, migrations, persisted data and historical records in scope, or the
-  reason none need remediation;
-- observability: what will show the defect's return;
-- the tests: which, where, and how each will be falsified — the fix
-  neutralised and the test watched failing;
-- explicit non-goals and stop conditions; risks;
+- the base branch and pin, root cause and affected class, with links to the
+  established source evidence and any premise deltas;
+- the outcome, scope and constraints, including material schema, persisted-data,
+  migration, recovery or cross-repository consequences;
+- focused verification, the required final gate, meaningful falsification and
+  any runtime proof surface that must be reached;
 - **the acceptance rule** the issue will close under, in the vocabulary
   `mellions-issue-closure` defines, so closure reads it rather than guesses it;
-- the proof that will be returned: what the pull request body will carry;
-- provenance: who authored the plan, and whether it is approved, awaiting
-  ratification at merge, or delegated; and the plain statement that
-  implementation has not started.
+- material risks, stop conditions and authorization provenance: approved,
+  awaiting ratification at merge, or delegated; state whether implementation has
+  started. Never manufacture detail to fill an inapplicable field.
 
 The comment reflects what was decided, not the first draft: refinements from
 the authority or the reviewer are in it, quoted as written.
@@ -112,8 +104,9 @@ the authority or the reviewer are in it, quoted as written.
 
 ## Filing
 
-Draft to scratch; `gh issue comment NN --repo <owner/repo> --body-file`.
-Report the comment URL. Then, in the posture the repository declares: wait for
+Where a comment is needed, draft to scratch;
+`gh issue comment NN --repo <owner/repo> --body-file <file>`.
+Report its URL. Then, in the posture the repository declares: wait for
 the word, or proceed to `mellions-issue-remediation`. The proposal is what the
 pull request body will be checked against, and what `mellions-issue-closure`
 reads the acceptance rule from.
@@ -123,8 +116,8 @@ reads the acceptance rule from.
 - The premise no longer holds at HEAD and the item has not been corrected.
 - The repository requires approval before code and none was given.
 - A finding id resolves to zero issues or to several.
-- The issue already carries a proposal that was approved: re-plan on top of
-  it, saying what changed, rather than replacing it silently.
+- A material change conflicts with an approved proposal: record the delta and
+  satisfy the applicable approval rule, never silently replace it.
 - The base branch in the plan is not the repository's declared base.
 - The repository's process requires something you cannot supply — a marker, a
   template, an approval record. Say what is missing rather than approximating
