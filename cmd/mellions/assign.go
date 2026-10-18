@@ -203,9 +203,10 @@ func claimExisting(store *assignment.Store, id string, held map[string]presence.
 // another running session: it was not taken up, so its notes from outside the
 // lane's tree leave the claim to the holder.
 func heldElsewhere(id string, holder presence.Session) string {
+	runtime, me := presence.Here()
 	return fmt.Sprintf("mellions: %s is held right now by %s session %s, so this session was not taken up as one of its sessions;\n"+
-		"its notes from outside the lane's tree leave the claim to that session. Reach it before working beside it.\n",
-		id, holder.Runtime, holder.ID)
+		"its notes from outside the lane's tree leave the claim to that session. Reach it before working beside it. %s\n",
+		id, holder.Runtime, holder.ID, presence.YouAre(runtime, me, presence.SelfPID()))
 }
 
 // parseOpen reads what `assign open` was asked for. Separate from opening it so

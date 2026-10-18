@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -282,5 +283,43 @@ func TestTheBriefSaysWhenTheLastWorkerIsTheReader(t *testing.T) {
 	}
 	if !strings.Contains(other, "if it still opens. You are claude session dddd4444.") {
 		t.Errorf("another reader is offered the resume with nothing naming it; got:\n%s", other)
+	}
+}
+
+// TestTheHeldElsewhereNoteNamesTheReader: the collision note names the lane's
+// holder; with nothing beside it, the holder's id reads as the reader's own.
+func TestTheHeldElsewhereNoteNamesTheReader(t *testing.T) {
+	t.Setenv("CODEX_SESSION_ID", "")
+	t.Setenv("CLAUDE_CODE_SESSION_ID", readerID)
+	t.Setenv("CLAUDE_PID", fmt.Sprint(os.Getpid()))
+	note := heldElsewhere("lane-1", presence.Session{Runtime: "claude", ID: peerID})
+	if !strings.Contains(note, peerID) || !strings.Contains(note, "not taken up") {
+		t.Fatalf("positive control: the note does not name the holder; got %q", note)
+	}
+	want := fmt.Sprintf("You are claude session ff16449a (pid %d).", os.Getpid())
+	if !strings.Contains(note, want) {
+		t.Errorf("the collision note names the holder and not the reader (%q); got %q", want, note)
+	}
+}
+
+// TestBehindOfDoesNotListTheReader: install lists the sessions launched before
+// it as needing a new process. A reader whose runtime exports no pid was
+// matched by pid only, so it was listed as one of them.
+func TestBehindOfDoesNotListTheReader(t *testing.T) {
+	launched := time.Date(2026, 10, 18, 5, 0, 0, 0, time.UTC)
+	live := []presence.Session{
+		{ID: readerID, Runtime: "claude", PID: 4242, Started: launched},
+		{ID: peerID, Runtime: "claude", PID: 4343, Started: launched},
+	}
+	got := behindOf(live, launched.Add(time.Hour), readerID, 0)
+	var ids []string
+	for _, s := range got {
+		ids = append(ids, s.ID)
+	}
+	if !slices.Contains(ids, peerID) {
+		t.Fatalf("positive control: the peer launched before the install is not listed; got %v", ids)
+	}
+	if slices.Contains(ids, readerID) {
+		t.Errorf("the reader, known by session id with no pid, is listed as a session behind the install; got %v", ids)
 	}
 }
