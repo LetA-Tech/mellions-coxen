@@ -52,14 +52,14 @@ needless handoffs. Verify actual model/effort. Restricted tiers need approval.
 
 ## Judging what comes back
 
-Verify before believing or building on it. A session reports confidently whether
-or not it is right, and confidence is not evidence — see `mellions-reasoning`
-and `mellions-deep-research`.
+Verify before building on it: confidence is not evidence, and
+`mellions-deep-research` is how. A diff is not a fix: ask what it ran, and what
+it saw. When a report is thin, say what is missing before building on it.
 
-The failure to watch for is a session that says a thing is fixed because the
-diff exists. Ask what it ran, and what it saw.
-
-When a report is thin, say what is missing before building on it.
+A chained run (script, loop, pipeline) returns its last step's report; what
+an earlier step left behind or asked of you reaches you only if the chain passes
+it on. Make it return every step's report, every round and item, and read each
+footprint.
 
 ## Reviewing a peer's change set
 
@@ -68,8 +68,7 @@ artifact: a pull request. The duty is the same.
 
 **A peer's draft left ready is available work.** Evidence in the body and a
 handoff on the change set say it is waiting, not abandoned, and unattended
-nobody else will read it: an evidenced draft none reads is the shift's work
-undone. A draft's size is a measurement, not a verdict.
+nobody else will read it. A draft's size is a measurement, not a verdict.
 
 **A review count of zero is not evidence nobody read it.** A read here is posted
 as a comment, so a change set read twice can still report `reviews: 0`. Read the
@@ -127,8 +126,8 @@ saying so on the pull request.
 
 ## Supporting one
 
-Answer questions with evidence it cannot reach — decisions, history, what
-another repository does, what was already tried.
+Answer with evidence it cannot reach: decisions, history, what another
+repository does, what was tried.
 
 Challenge a conclusion that outruns its evidence. Do it once, plainly, with the
 reason.
@@ -150,7 +149,6 @@ host, or a hypothesis worth separating from everything else. Name
 
 Close when the objective is met, or when the work has moved somewhere a fresh
 session would serve better than this one's accumulated context.
-
 
 Record what was learned before closing. The session's context dies with it; your
 record is what survives.
