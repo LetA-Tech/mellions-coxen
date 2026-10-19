@@ -561,7 +561,8 @@ func lineFor(t *testing.T, out, id string) string {
 func TestALiveLanesUnlabelledDraftIsHeldInTheSurvey(t *testing.T) {
 	lane := signal.Signal{
 		Kind: signal.KindAssignment, Source: "assignments", ID: "fd1494-1018", Repo: "findata", Title: "lane",
-		Attrs: map[string]string{"state": "active", "branch": "mellions/fd1494-1018", "holds_branch": "mellions/fd1494-1018"},
+		Updated: time.Now().Add(-26 * time.Hour),
+		Attrs:   map[string]string{"state": "active", "branch": "mellions/fd1494-1018", "holds_branch": "mellions/fd1494-1018"},
 	}
 	handed := signal.Signal{
 		Kind: signal.KindAssignment, Source: "assignments", ID: "fd1400-1017", Repo: "findata", Title: "handed",
@@ -595,10 +596,10 @@ func TestALiveLanesUnlabelledDraftIsHeldInTheSurvey(t *testing.T) {
 	res := r.Run(context.Background(), signal.Scope{})
 	brief := res.Render(Default())
 
-	if got := lineFor(t, brief, "PR #1497"); !strings.Contains(got, "HELD by lane fd1494-1018 (active on this host)") {
+	if got := lineFor(t, brief, "PR #1497"); !strings.Contains(got, "HELD by lane fd1494-1018 (active on this host, last recorded 26h ago)") {
 		t.Errorf("a live lane's unlabelled draft does not read as held, naming the lane, in the brief line a shift chooses from:\n%s", got)
 	}
-	if got := lineFor(t, res.Render(Everything()), "PR #1497"); !strings.Contains(got, "held_by=fd1494-1018 (active on this host)") {
+	if got := lineFor(t, res.Render(Everything()), "PR #1497"); !strings.Contains(got, "held_by=fd1494-1018 (active on this host, last recorded 26h ago)") {
 		t.Errorf("the full render drops which lane holds the change set:\n%s", got)
 	}
 	if got := lineFor(t, brief, "PR #1400"); strings.Contains(got, "HELD") || strings.Contains(got, "CLAIMED") {

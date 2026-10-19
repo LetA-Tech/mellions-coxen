@@ -142,7 +142,7 @@ func (r *Runner) Run(ctx context.Context, scope signal.Scope) Result {
 		all = append(all, batch...)
 	}
 
-	res.Signals = markHeld(signal.Dedupe(all))
+	res.Signals = markHeld(signal.Dedupe(all), started)
 	res.Failures = failures
 	res.Elapsed = time.Since(started)
 	return res
@@ -152,8 +152,10 @@ func (r *Runner) Run(ctx context.Context, scope signal.Scope) Result {
 // branch: an assignment signal's holds_branch matched to a change set's branch
 // in the same repository. The claim label is the cross-host signal and a lane
 // can fail to apply it; the branch is what this host knows without it. The
-// source's attribute map is copied, never written.
-func markHeld(sigs []signal.Signal) []signal.Signal {
+// lane's last record is printed with it because a lane left active by a dead
+// session holds nothing, and only its age shows that. The source's attribute
+// map is copied, never written.
+func markHeld(sigs []signal.Signal, now time.Time) []signal.Signal {
 	type key struct{ repo, branch string }
 	holders := map[key][]string{}
 	for _, s := range sigs {
@@ -161,7 +163,11 @@ func markHeld(sigs []signal.Signal) []signal.Signal {
 			continue
 		}
 		k := key{s.Repo, s.Attrs["holds_branch"]}
-		holders[k] = append(holders[k], s.ID+" ("+s.Attrs["state"]+" on this host)")
+		where := s.Attrs["state"] + " on this host"
+		if age := s.Age(now); age > 0 {
+			where += ", last recorded " + humanAge(age) + " ago"
+		}
+		holders[k] = append(holders[k], s.ID+" ("+where+")")
 	}
 	if len(holders) == 0 {
 		return sigs
