@@ -266,3 +266,51 @@ func TestBranchCommitsCountsWhatALaneProduced(t *testing.T) {
 		})
 	}
 }
+
+// A lane holds its branch while it is active or blocked: a pull request from
+// that branch is work another session must not take up. Handed-off and
+// suspended lanes do not, because a handed-off draft is exactly the work a peer
+// is meant to pick up, and a suspended lane was set down by choice.
+func TestOnlyALiveLaneDeclaresItHoldsItsBranch(t *testing.T) {
+	repo, st := repoAndStore(t)
+	for _, id := range []string{"live", "stuck", "done", "parked"} {
+		if _, err := st.Open(assignment.OpenOptions{ID: id, Repo: "r", Source: repo, Objective: "o", Because: "r"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := st.SetState("stuck", assignment.StateBlocked); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Handoff("done", "finished; the draft waits for a reader"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Suspend("parked", "something more urgent", "nothing committed"); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := New(st).Collect(context.Background(), signal.Scope{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	holds := map[string]string{}
+	states := map[string]string{}
+	for _, g := range got {
+		if g.Kind == signal.KindAssignment {
+			holds[g.ID] = g.Attrs["holds_branch"]
+			states[g.ID] = g.Attrs["state"]
+		}
+	}
+	want := map[string]string{
+		"live": "mellions/live", "stuck": "mellions/stuck",
+		"done": "", "parked": "",
+	}
+	for id, w := range want {
+		if _, ok := states[id]; !ok {
+			t.Errorf("lane %s is missing from the collected assignments", id)
+			continue
+		}
+		if holds[id] != w {
+			t.Errorf("lane %s (state %q) declares holds_branch=%q, want %q", id, states[id], holds[id], w)
+		}
+	}
+}
