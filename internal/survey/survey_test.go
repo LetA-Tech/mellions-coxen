@@ -622,7 +622,7 @@ func TestALiveLanesUnlabelledDraftIsHeldInTheSurvey(t *testing.T) {
 		t.Errorf("a labelled change set a live lane also holds loses one of the two markers:\n%s", got)
 	}
 	for _, s := range []signal.Signal{unlabelled, handedDraft, otherRepo, labelled, both} {
-		if _, ok := s.Attrs["held_by"]; ok {
+		if _, ok := s.Attrs[signal.AttrHeldBy]; ok {
 			t.Errorf("%s: the survey wrote into the map its source returned", s.ID)
 		}
 	}

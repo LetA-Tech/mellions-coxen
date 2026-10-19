@@ -93,7 +93,7 @@ type Signal struct {
 	Labels []string
 	// Attrs is everything else the source knows, read mostly by the model so
 	// provider richness is not flattened into a lowest common denominator.
-	// The survey reads the few keys named by the Attr constants below.
+	// The survey reads a few keys, among them the Attr constants below.
 	Attrs map[string]string
 	// Detail is optional supporting text — an excerpt, an error, a measurement.
 	Detail string
