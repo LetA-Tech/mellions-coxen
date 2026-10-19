@@ -114,6 +114,12 @@ func (s *Source) Collect(ctx context.Context, scope signal.Scope) ([]signal.Sign
 			"branch":   a.Branch,
 			"worktree": a.Worktree,
 		}
+		// A change set from this branch is held while the lane is active or
+		// blocked, whether or not its claim label was applied. A handed-off
+		// draft is work a peer may take up; a suspended lane was set down.
+		if a.Branch != "" && (a.State == assignment.StateActive || a.State == assignment.StateBlocked) {
+			attrs["holds_branch"] = a.Branch
+		}
 		// An elapsed budget is a fact about the work, not a judgement about it:
 		// the engineer decides whether to finish, hand off or stop.
 		if a.Overdue(now) {
