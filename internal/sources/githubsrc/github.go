@@ -191,8 +191,16 @@ type ghIssue struct {
 	// Every Mellions session pushes as one account, so a peer's review of a
 	// peer's change set is author-authored and latestReviews omits it — which
 	// would report "nobody has read this" about the review that just happened.
-	Reviews []struct{} `json:"reviews"`
-	Author  struct {
+	// Each review carries the head commit it was submitted against, so a read
+	// the head has since moved past is told apart from one of the current head.
+	Reviews []struct {
+		SubmittedAt time.Time `json:"submittedAt"`
+		Commit      struct {
+			Oid string `json:"oid"`
+		} `json:"commit"`
+	} `json:"reviews"`
+	HeadRefOid string `json:"headRefOid"`
+	Author     struct {
 		Login string `json:"login"`
 	} `json:"author"`
 	Body      string `json:"body"`
@@ -218,6 +226,26 @@ func humanBytes(n int) string {
 		return strconv.Itoa(n) + "B"
 	}
 	return fmt.Sprintf("%.1fkB", float64(n)/1000)
+}
+
+// lastReviewedCommit is the head commit the most recently submitted review was
+// made against, or "" where no review records one.
+func lastReviewedCommit(it ghIssue) string {
+	var at string
+	var when time.Time
+	for _, r := range it.Reviews {
+		if r.Commit.Oid != "" && !r.SubmittedAt.Before(when) {
+			at, when = r.Commit.Oid, r.SubmittedAt
+		}
+	}
+	return at
+}
+
+func shortOid(oid string) string {
+	if len(oid) > 7 {
+		return oid[:7]
+	}
+	return oid
 }
 
 func (s *Source) issues(ctx context.Context, full string, limit int) ([]signal.Signal, error) {
@@ -276,7 +304,7 @@ func (s *Source) issues(ctx context.Context, full string, limit int) ([]signal.S
 func (s *Source) pulls(ctx context.Context, full string, limit int) ([]signal.Signal, error) {
 	raw, err := s.opts.Run(ctx, "pr", "list", "-R", full, "--state", "open",
 		"--limit", strconv.Itoa(limit),
-		"--json", "number,title,url,createdAt,updatedAt,labels,isDraft,mergeable,headRefName,author,body,reviews,comments")
+		"--json", "number,title,url,createdAt,updatedAt,labels,isDraft,mergeable,headRefName,headRefOid,author,body,reviews,comments")
 	if err != nil {
 		return nil, err
 	}
@@ -306,6 +334,10 @@ func (s *Source) pulls(ctx context.Context, full string, limit int) ([]signal.Si
 		// a change set belongs to is its branch, not its author.
 		attrs["body"] = humanBytes(len(it.Body))
 		attrs["reviews"] = strconv.Itoa(len(it.Reviews))
+		if at := lastReviewedCommit(it); at != "" && it.HeadRefOid != "" && at != it.HeadRefOid {
+			attrs["reviewed_at"] = shortOid(at)
+			attrs["head"] = shortOid(it.HeadRefOid)
+		}
 		// A posted comment can carry a review record without incrementing
 		// GitHub's submitted-review count. Print both counts because neither is
 		// evidence of the other.

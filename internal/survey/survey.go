@@ -427,6 +427,11 @@ func briefReadiness(s signal.Signal) string {
 		}
 		parts = append(parts, r+noun)
 	}
+	// A review count holds for the commit each review was made against; once
+	// the head moves past the latest one, the count describes an earlier change.
+	if at, head := s.Attrs["reviewed_at"], s.Attrs["head"]; at != "" && head != "" {
+		parts = append(parts, "last review at "+at+", head now "+head)
+	}
 	// Printed beside the review count, and only when there is something to
 	// print, because "0 reviews" alone is read as "nobody has looked at this"
 	// and in this estate that inference is wrong: repositories whose merge

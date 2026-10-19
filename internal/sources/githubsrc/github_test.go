@@ -702,3 +702,40 @@ func TestAClaimedPullRequestSaysAPeerHoldsIt(t *testing.T) {
 		t.Errorf("an unclaimed pull request carries claimed=%q; the marker would mean nothing", free)
 	}
 }
+
+// A review is made against one head commit. A release that tracks its working
+// branch, or a stacked change set, keeps moving after it is read, and a review
+// count alone reads as "read" long after the read stopped covering the head.
+func TestAChangeSetSaysWhenItsHeadMovedPastItsLatestReview(t *testing.T) {
+	prs := `[
+	 {"number":1,"title":"moved","url":"u1","createdAt":"2026-10-18T00:00:00Z","updatedAt":"2026-10-18T00:00:00Z","labels":[],"isDraft":true,"mergeable":"MERGEABLE","headRefName":"dev","headRefOid":"ad048b6679041c62a14fe8feda3269d3919d9599","author":{"login":"sample-user"},"body":"x","reviews":[{"submittedAt":"2026-10-18T01:01:31Z","commit":{"oid":"37c89fa1aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}},{"submittedAt":"2026-10-18T00:47:04Z","commit":{"oid":"61390779bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}}]},
+	 {"number":2,"title":"current","url":"u2","createdAt":"2026-10-18T00:00:00Z","updatedAt":"2026-10-18T00:00:00Z","labels":[],"isDraft":true,"mergeable":"MERGEABLE","headRefName":"b2","headRefOid":"ad048b6679041c62a14fe8feda3269d3919d9599","author":{"login":"sample-user"},"body":"x","reviews":[{"submittedAt":"2026-10-18T00:47:04Z","commit":{"oid":"61390779bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}},{"submittedAt":"2026-10-18T07:01:14Z","commit":{"oid":"ad048b6679041c62a14fe8feda3269d3919d9599"}}]},
+	 {"number":3,"title":"unread","url":"u3","createdAt":"2026-10-18T00:00:00Z","updatedAt":"2026-10-18T00:00:00Z","labels":[],"isDraft":true,"mergeable":"MERGEABLE","headRefName":"b3","headRefOid":"ad048b6679041c62a14fe8feda3269d3919d9599","author":{"login":"sample-user"},"body":"x","reviews":[]}
+	]`
+	run, calls := fakeGH(t, map[string]string{"pr": prs})
+	s := New(Options{Owner: "o", Repos: []string{"r"}, Run: run})
+	by := map[string]map[string]string{}
+	for _, cs := range collect(t, s, signal.Scope{}) {
+		by[cs.ID] = cs.Attrs
+	}
+	if got := by["PR #2"]["reviews"]; got != "2" {
+		t.Fatalf("positive control: PR #2 reviews = %q, want 2", got)
+	}
+	if at, head := by["PR #1"]["reviewed_at"], by["PR #1"]["head"]; at != "37c89fa" || head != "ad048b6" {
+		t.Errorf("a head two commits past its latest review is not said: reviewed_at=%q head=%q, want 37c89fa and ad048b6", at, head)
+	}
+	for _, id := range []string{"PR #2", "PR #3"} {
+		if at, head := by[id]["reviewed_at"], by[id]["head"]; at != "" || head != "" {
+			t.Errorf("%s: reviewed_at=%q head=%q, want neither: its latest review is at its head, or it has none", id, at, head)
+		}
+	}
+	var prCall string
+	for _, c := range *calls {
+		if strings.HasPrefix(c, "pr ") {
+			prCall = c
+		}
+	}
+	if !strings.Contains(prCall, "headRefOid") {
+		t.Errorf("gh pr list does not request headRefOid, so no head can be compared. call: %s", prCall)
+	}
+}
