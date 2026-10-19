@@ -6,6 +6,7 @@ package continuity
 
 import (
 	"context"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -96,8 +97,12 @@ func TestGenuinelyUnpublishedCommitsAreCountedAgainstEveryRemoteTrackingRef(t *t
 // count returns the whole history. With the recorded base gone too there is no
 // honest reading available, and silence is the answer — an unknown is not a
 // zero and is not a repository-sized number either.
+//
+// The worktree path carries the sentinel on purpose. The path is this test's
+// own input, echoed in the worktree fact, and t.TempDir's random digits can
+// spell 914 on any run; only what the path does not account for is a leak.
 func TestNoRemoteTrackingRefAnswersNothingRatherThanEverything(t *testing.T) {
-	dir := worktree(t)
+	dir := worktreeAt(t, filepath.Join(t.TempDir(), "lane-914"))
 	a := work(dir)
 	git := gitSaying(map[string]string{
 		"rev-parse --abbrev-ref HEAD":           a.Branch,
@@ -109,11 +114,14 @@ func TestNoRemoteTrackingRefAnswersNothingRatherThanEverything(t *testing.T) {
 
 	o := Look(context.Background(), a, git, Tracker{})
 
+	if w, ok := fact(o, "worktree"); !ok || !strings.Contains(w.Value, dir) {
+		t.Fatalf("the worktree path is not among the facts, so its sentinel tests nothing: %+v", o.Facts)
+	}
 	if f, ok := fact(o, "unpublished"); ok {
 		t.Errorf("an unanswerable question was answered anyway: %q", f.Value)
 	}
 	for _, g := range o.Facts {
-		if strings.Contains(g.Value, "914") {
+		if strings.Contains(strings.ReplaceAll(g.Value, dir, ""), "914") {
 			t.Errorf("%q reports the repository's whole history as lane state: %q", g.Name, g.Value)
 		}
 	}
