@@ -6,9 +6,8 @@ description: How to run a repository work session, and how to review the work of
 
 # Running a session
 
-A session is a competent engineer who arrived this morning, has no memory of the
-programme, and cannot see your record. It has the repository, its own judgment,
-and whatever you tell it. That is the whole gap a dispatch has to close.
+A new session has its own judgment and repository, but not your record.
+A dispatch supplies that gap.
 
 ## What a dispatch carries
 
@@ -41,29 +40,28 @@ mellions assign open -id <id> -repo <repo> -objective "..."
 It prints a worktree on a branch of its own. That path is what the dispatch
 says, and it is the whole of what the session may write.
 
-A boundary written as a prohibition — *never touch `<path>`* — is not a
-boundary: it breaks when a failed `cd` leaves the rest of a compound command
-running in the tree it was told to stay out of.
+A prohibition such as *never touch `<path>`* is not a boundary: a failed
+`cd` can leave a compound command writing in the wrong tree.
 
-Keep dispatches near two kilobytes; `CLAUDE.md` and named skills supply context.
-Owner-configured roles: Opus 5.5 (or Sol 6.1) XHigh reviews risky contracts and
-implementation early; later review covers corrections and remaining gaps.
-Sonnet 5.5 or Sol 6.1 High handles Git and landing. Honor owner overrides and
-actual native model/effort settings; names assert no availability. Capable
-implementers carry grounded fixes; reassign if cause or design reopens.
+Keep the dispatch near two kilobytes; its `CLAUDE.md` and named skills
+supply the rest. Owner-configured role mapping: Opus 5.5 (or Sol 6.1) XHigh
+reviews risky contracts and implementation early; subsequent review covers
+corrections and remaining gaps. Sonnet 5.5 or Sol 6.1 High handles Git and landing.
+Honor owner overrides and actual native model/effort names and settings;
+this mapping asserts no availability. Capable implementers carry
+grounded fixes; reassign if cause or design reopens, and skip needless handoffs.
 Restricted tiers need approval.
 
 ## Judging what comes back
 
-Verify before believing or building on it. A session reports confidently whether
-or not it is right, and confidence is not evidence — see `mellions-reasoning`
-and `mellions-deep-research`.
+Verify before building on it: confidence is not evidence, and
+`mellions-deep-research` is how. A diff is not a fix: ask what it ran, and what
+it saw. When a report is thin, say what is missing before building on it.
 
-The failure to watch for is a session that says a thing is fixed because the
-diff exists. Ask what it ran, and what it saw.
-
-When a report is thin, say what is missing rather than accepting it and
-discovering the gap later.
+A chained run (script, loop, pipeline) returns its last step's report; what
+an earlier step left behind or asked of you reaches you only if the chain passes
+it on. Make it return every step's report, every round and item, and read each
+footprint.
 
 ## Reviewing a peer's change set
 
@@ -72,14 +70,13 @@ artifact: a pull request. The duty is the same.
 
 **A peer's draft left ready is available work.** Evidence in the body and a
 handoff on the change set say it is waiting, not abandoned, and unattended
-nobody else will read it: an evidenced draft none reads is the shift's work
-undone. A draft's size is a measurement, not a verdict.
+nobody else will read it. A draft's size is a measurement, not a verdict.
 
 **A review count of zero is not evidence nobody read it.** A read here is posted
-as a comment, so a change set read twice still reports `reviews: 0` — 18 of 31
-open ones across eight repositories did. Read the disposition of any read already
-there: where one returned changes requested and the head has not moved since, the
-work waiting is the remedy it named, not a second opinion.
+as a comment, so a change set read twice can still report `reviews: 0`. Read the
+disposition of any read already there: where one returned changes requested and
+the head has not moved since, the work waiting is the remedy it named, not a
+second opinion.
 
 **A change set carrying `mellions:claimed` is held.** A survey prints
 `CLAIMED`; read the claim before deciding anything. An active lane is still on
@@ -91,21 +88,24 @@ for a day is stale: swept, not obeyed. Draft state separates none of these.
 `mellions assign claim <lane> -pr <n>` — before sending the review. A
 comment is not what another host sees; the claim is.
 
-**First review: read the requirement before the diff**, at
-`git merge-base <target> <head>`; the target tip makes a behind branch appear
-to remove newer changes. The author's body biases judgment. Where being wrong
-is expensive, use an independent subagent: original claim, counts including
-zeros and citations unchanged; issue body without comments revealing the fix;
-an extraction you never write to, separate from lane and review scratch.
+**First review: read the requirement at the base commit before the diff.** The
+body is the author's account, which biases a first judgment — `mellions-reasoning`.
+Where being wrong is expensive, take that reading from a subagent that has not
+seen the diff. Give it the original claim, including counts, zeros and citations,
+not a tidied version. Use an extraction you never write to, separate from lane
+and review scratch, and the issue body without comments revealing the fix.
+The base is `git merge-base <target> <head>`, not the metadata's target tip:
+a branch behind its target appears to remove newer production changes at that tip.
 
-**Record the verdict.** Inspect diff and raw proof. Reuse accepted validation
-under `mellions-deep-research`'s input-validity rule; independently settle gaps
-and risky claims. Required gates and falsification apply to the head reconciled
-with the current target. Follow-up review covers the delta and affected paths;
-reopen conclusions whose inputs changed. At publishing, read target tip and PR
-state/head (`gh pr view --json state,headRefOid`; a ref can miss a deleted head).
-Changed inputs need affected checks or a verdict scoped to verified pins.
-Say if the PR closed. A cited test absent from the tree is not evidence.
+**Then argue on the record.** Inspect the diff and raw proof. Reuse accepted
+validation under `mellions-deep-research`'s input-validity rule; independently
+settle gaps and risky claims. Required gates and falsification apply to the head
+reconciled with the current target; a stale branch can pass alone and fail merged.
+Follow-up review covers the delta and affected paths; reopen completed conclusions
+where their inputs changed. At publishing, read the target's tip and PR state/head
+(`gh pr view --json state,headRefOid`; a ref read can miss a deleted head): a
+changed input requires affected checks or a verdict scoped to verified pins.
+Say if the PR is no longer open. A cited test the tree lacks is an account.
 
 Then one of two, never a third:
 
@@ -125,8 +125,8 @@ saying so on the pull request.
 
 ## Supporting one
 
-Answer questions with evidence it cannot reach — decisions, history, what
-another repository does, what was already tried.
+Answer with evidence it cannot reach: decisions, history, what another
+repository does, what was tried.
 
 Challenge a conclusion that outruns its evidence. Do it once, plainly, with the
 reason.
@@ -148,8 +148,6 @@ host, or a hypothesis worth separating from everything else. Name
 
 Close when the objective is met, or when the work has moved somewhere a fresh
 session would serve better than this one's accumulated context.
-
-An idle session holds a model context and memory; the reaper is a backstop.
 
 Record what was learned before closing. The session's context dies with it; your
 record is what survives.

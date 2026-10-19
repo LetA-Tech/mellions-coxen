@@ -6,6 +6,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"os"
@@ -76,11 +77,12 @@ func cmdContinue(ctx context.Context, args []string) error {
 		if cwd == "" {
 			cwd, _ = os.Getwd()
 		}
-		_, me := presence.Here()
+		runtime, me := presence.Here()
 		if me == "" {
 			me = sess
 		}
-		return continueBrief(as, repoOf(cwd), heldNow(cfg.presences().Live(), me, presence.SelfPID()))
+		mine := presence.SelfPID()
+		return continueBrief(as, repoOf(cwd), heldNow(cfg.presences().Live(), me, mine), me, presence.YouAre(runtime, me, mine))
 	}
 	tr := continuity.Tracker{}
 	if !*offline {
@@ -106,7 +108,7 @@ func cmdContinue(ctx context.Context, args []string) error {
 // Lanes on the repository the session is standing in come first: a session on
 // one repository that reads three lanes on another before its own is reading
 // somebody else's desk.
-func continueBrief(as *assignment.Store, repo string, held map[string]presence.Session) error {
+func continueBrief(as *assignment.Store, repo string, held map[string]presence.Session, me, self string) error {
 	open, damaged, err := as.ListWithDamage(false)
 	if err != nil {
 		return err
@@ -155,12 +157,15 @@ func continueBrief(as *assignment.Store, repo string, held map[string]presence.S
 		// launched seconds apart were both handed one lane this way, and the
 		// second was invited to `claude --resume` a session that was alive.
 		if p, ok := liveHolder(a, held); ok {
-			fmt.Printf("    HELD RIGHT NOW by a live %s session %s (pid %d) in %s — not yours to take.\n",
-				p.Runtime, shortSHA(p.ID), p.PID, p.Cwd)
+			fmt.Printf("    HELD RIGHT NOW by a live %s session %s (pid %d) in %s — not yours to take. %s\n",
+				p.Runtime, shortSHA(p.ID), p.PID, p.Cwd, self)
 			fmt.Printf("    Choose other work. If two lanes on this really are wanted, `mellions assign open ... -alongside` says so deliberately; `mellions who` shows the peer.\n")
-		} else if s, ok := a.Latest(); ok && s.Resume() != "" {
-			fmt.Printf("    last worked in %s session %s — `%s` if it still opens\n",
-				s.Runtime, shortSHA(s.ID), s.Resume())
+		} else if s, ok := a.Latest(); ok && s.Resume() != "" && me != "" && s.ID == me {
+			fmt.Printf("    last worked in %s session %s, which is your own session id — nothing to resume\n",
+				s.Runtime, shortSHA(s.ID))
+		} else if ok && s.Resume() != "" {
+			fmt.Printf("    last worked in %s session %s — `%s` if it still opens. %s\n",
+				s.Runtime, shortSHA(s.ID), s.Resume(), self)
 		}
 		if a.Handoff != "" {
 			fmt.Printf("    handoff: %s\n", clip(firstLineOf(a.Handoff), 240))
@@ -196,6 +201,21 @@ func ghTracker(ctx context.Context, cfg *Config) continuity.Tracker {
 	if cfg.Owner == "" {
 		return continuity.Tracker{}
 	}
+	return newGHTracker(ctx, cfg.Owner, trackerListLimit, func(c context.Context, args ...string) ([]byte, error) {
+		return exec.CommandContext(c, "gh", args...).Output()
+	})
+}
+
+// trackerListLimit bounds the one pull-request list and the one issue list read
+// per repository. A list that comes back this long may have left items out, so
+// an item absent from it is asked about on its own.
+const trackerListLimit = 1000
+
+// newGHTracker answers from one pull-request list and one issue list per
+// repository, so the cost follows the repositories with open lanes, not the
+// lanes. An item a full list does not hold, or any list that fails, falls back
+// to the per-item question.
+func newGHTracker(ctx context.Context, owner string, limit int, run func(context.Context, ...string) ([]byte, error)) continuity.Tracker {
 	type answer struct {
 		state string
 		known bool
@@ -207,7 +227,7 @@ func ghTracker(ctx context.Context, cfg *Config) continuity.Tracker {
 		}
 		c, cancel := context.WithTimeout(ctx, 15*time.Second)
 		defer cancel()
-		out, err := exec.CommandContext(c, "gh", args...).Output()
+		out, err := run(c, args...)
 		v := answer{state: strings.TrimSpace(string(out)), known: err == nil}
 		cache[key] = v
 		return v.state, v.known
@@ -216,15 +236,88 @@ func ghTracker(ctx context.Context, cfg *Config) continuity.Tracker {
 		if strings.Contains(repo, "/") {
 			return repo
 		}
-		return cfg.Owner + "/" + repo
+		return owner + "/" + repo
+	}
+	type pr struct {
+		Number      int    `json:"number"`
+		State       string `json:"state"`
+		IsDraft     bool   `json:"isDraft"`
+		HeadRefName string `json:"headRefName"`
+	}
+	type issue struct {
+		Number int    `json:"number"`
+		State  string `json:"state"`
+	}
+	type listing struct {
+		ok, full bool
+		prs      map[string][]pr
+		issues   map[string]string
+	}
+	list := func(args ...string) ([]byte, bool) {
+		c, cancel := context.WithTimeout(ctx, 60*time.Second)
+		defer cancel()
+		out, err := run(c, args...)
+		return out, err == nil
+	}
+	prLists := map[string]*listing{}
+	prsOf := func(repo string) *listing {
+		if l, ok := prLists[repo]; ok {
+			return l
+		}
+		l := &listing{prs: map[string][]pr{}}
+		prLists[repo] = l
+		out, ok := list("pr", "list", "--repo", repoOf(repo), "--state", "all",
+			"--limit", fmt.Sprint(limit), "--json", "number,state,isDraft,headRefName")
+		var rows []pr
+		if !ok || json.Unmarshal(out, &rows) != nil {
+			return l
+		}
+		l.ok, l.full = true, len(rows) >= limit
+		for _, r := range rows {
+			l.prs[r.HeadRefName] = append(l.prs[r.HeadRefName], r)
+		}
+		return l
+	}
+	issueLists := map[string]*listing{}
+	issuesOf := func(repo string) *listing {
+		if l, ok := issueLists[repo]; ok {
+			return l
+		}
+		l := &listing{issues: map[string]string{}}
+		issueLists[repo] = l
+		out, ok := list("issue", "list", "--repo", repoOf(repo), "--state", "all",
+			"--limit", fmt.Sprint(limit), "--json", "number,state")
+		var rows []issue
+		if !ok || json.Unmarshal(out, &rows) != nil {
+			return l
+		}
+		l.ok, l.full = true, len(rows) >= limit
+		for _, r := range rows {
+			l.issues[fmt.Sprint(r.Number)] = r.State
+		}
+		return l
 	}
 	return continuity.Tracker{
 		PullRequest: func(_ context.Context, repo, branch string) (string, bool) {
-			state, known := ask("pr:"+repo+":"+branch, "pr", "list", "--repo", repoOf(repo),
-				"--head", branch, "--state", "all", "--json", "number,state,isDraft",
-				"--template", `{{range .}}#{{.number}} {{.state}}{{if .isDraft}} (draft){{end}}{{end}}`)
-			if !known {
-				return "", false
+			var state string
+			l := prsOf(repo)
+			if rows, held := l.prs[branch]; l.ok && (held || !l.full) {
+				var b strings.Builder
+				for _, r := range rows {
+					fmt.Fprintf(&b, "#%d %s", r.Number, r.State)
+					if r.IsDraft {
+						b.WriteString(" (draft)")
+					}
+				}
+				state = b.String()
+			} else {
+				var known bool
+				state, known = ask("pr:"+repo+":"+branch, "pr", "list", "--repo", repoOf(repo),
+					"--head", branch, "--state", "all", "--json", "number,state,isDraft",
+					"--template", `{{range .}}#{{.number}} {{.state}}{{if .isDraft}} (draft){{end}}{{end}}`)
+				if !known {
+					return "", false
+				}
 			}
 			if state == "" {
 				return "none for this branch", true
@@ -233,6 +326,11 @@ func ghTracker(ctx context.Context, cfg *Config) continuity.Tracker {
 		},
 		Issue: func(_ context.Context, repo, ref string) (string, bool) {
 			n := strings.TrimPrefix(ref, "#")
+			if l := issuesOf(repo); l.ok {
+				if state, held := l.issues[n]; held {
+					return state, true
+				}
+			}
 			return ask("issue:"+repo+":"+n, "issue", "view", n,
 				"--repo", repoOf(repo), "--json", "state", "--jq", ".state")
 		},

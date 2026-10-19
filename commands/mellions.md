@@ -9,7 +9,7 @@ are one Skill load away at the moments the reasoning method names. What supports
 
 ```
 mellions survey                 what needs attention across the estate — collected, never ranked
-mellions assign open ...        claim one piece of work: a worktree, a branch, a record
+mellions assign open ...        claim one piece of work: a worktree, a branch, a scratch nobody else can write, a record
 mellions assign record|handoff|reopen|close|abandon|sweep
 mellions continue               what an earlier session recorded, next to what the world says now
 mellions who                    who else is working on this repository

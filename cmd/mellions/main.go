@@ -43,7 +43,7 @@ const usage = `mellions — the second engineer's deterministic surface
         What needs attention across the estate: open work, changes under
         review, failing checks, work waiting on the owner, recent change, and
         stale premises — issues whose own account of the code no longer matches
-        the tree. Collected, never ranked: deciding what matters is yours.
+        the remote's working branch. Collected, never ranked: deciding what matters is yours.
 
   mellions assign open <id> -repo R [-issue "#N"] -objective "..." -because "..."
                       [-not-chosen "..."] [-branch b] [-base ref] [-worktree dir]
@@ -145,7 +145,9 @@ const usage = `mellions — the second engineer's deterministic surface
         state cannot support the decision: mergeability GitHub still reports as
         UNKNOWN, or a branch behind its base where the base has since changed a
         file the pull request also changes. Being behind alone is not refused.
-        Silence otherwise, including where the tracker cannot answer.
+        Also refused: behind in changed files while one side of the comparison
+        could not be read whole. Silence otherwise, including where the tracker
+        cannot say what the pull request is or how far behind.
         hooks/pr-merge-check.sh is what calls it, and MELLIONS_MERGE_CHECK=off
         silences it.
 
@@ -160,9 +162,11 @@ const usage = `mellions — the second engineer's deterministic surface
         not back — a line the file does not have, and a line that exists and
         says something the document quotes nowhere. Existence is not the
         predicate: every citation this was built for resolved and named the
-        wrong line. Ranges, paths the checkout does not hold, and path:line
-        inside a fenced block or blockquote are quotation or another
-        repository's, and are silent. Exit 1 where there are findings.
+        wrong line. A range is held to existence alone; path:line inside a
+        fenced block or blockquote is quotation and skipped. Paths the
+        checkout does not hold, and bare :N continuations left ungraded
+        because a file is named since the citation before them, are listed
+        and never refused. Exit 1 where there are findings.
 
   mellions cite-check
         The same check as a PreToolUse decision: reads a payload on stdin and

@@ -552,3 +552,78 @@ func lineFor(t *testing.T, out, id string) string {
 	t.Fatalf("%s does not appear in the render at all", id)
 	return ""
 }
+
+// A change set whose branch a live lane on this host holds reads as held in the
+// brief render, label or not; a handed-off lane's draft, another repository's
+// branch of the same name, and a labelled change set no lane holds do not change.
+func TestALiveLanesUnlabelledDraftIsHeldInTheSurvey(t *testing.T) {
+	lane := signal.Signal{
+		Kind: signal.KindAssignment, Source: "assignments", ID: "fd1494-1018", Repo: "findata", Title: "lane",
+		Updated: time.Now().Add(-26 * time.Hour),
+		Attrs:   map[string]string{"state": "active", "branch": "mellions/fd1494-1018", "holds_branch": "mellions/fd1494-1018"},
+	}
+	handed := signal.Signal{
+		Kind: signal.KindAssignment, Source: "assignments", ID: "fd1400-1017", Repo: "findata", Title: "handed",
+		Attrs: map[string]string{"state": "handed_off", "branch": "mellions/fd1400-1017"},
+	}
+	unlabelled := signal.Signal{
+		Kind: signal.KindChangeSet, Source: "github", ID: "PR #1497", Repo: "findata", Title: "dedup",
+		Attrs: map[string]string{"type": "pull_request", "draft": "true", "reviews": "0", "branch": "mellions/fd1494-1018"},
+	}
+	handedDraft := signal.Signal{
+		Kind: signal.KindChangeSet, Source: "github", ID: "PR #1400", Repo: "findata", Title: "handed draft",
+		Attrs: map[string]string{"type": "pull_request", "draft": "true", "reviews": "0", "branch": "mellions/fd1400-1017"},
+	}
+	otherRepo := signal.Signal{
+		Kind: signal.KindChangeSet, Source: "github", ID: "PR #9", Repo: "finledger", Title: "same branch name elsewhere",
+		Attrs: map[string]string{"type": "pull_request", "draft": "true", "reviews": "0", "branch": "mellions/fd1494-1018"},
+	}
+	labelled := signal.Signal{
+		Kind: signal.KindChangeSet, Source: "github", ID: "PR #1482", Repo: "findata", Title: "labelled",
+		Attrs: map[string]string{"type": "pull_request", "draft": "true", "reviews": "0", "branch": "fix/lint",
+			"claimed": "a Mellions lane holds this — read the claim on the pull request before merging it"},
+	}
+	both := signal.Signal{
+		Kind: signal.KindChangeSet, Source: "github", ID: "PR #1501", Repo: "findata", Title: "labelled and held",
+		Attrs: map[string]string{"type": "pull_request", "draft": "true", "reviews": "0", "branch": "mellions/fi-1019",
+			"claimed": "a Mellions lane holds this — read the claim on the pull request before merging it"},
+	}
+	bothLane := signal.Signal{
+		Kind: signal.KindAssignment, Source: "assignments", ID: "fi-1019", Repo: "findata", Title: "lane",
+		Attrs: map[string]string{"state": "blocked", "branch": "mellions/fi-1019", "holds_branch": "mellions/fi-1019"},
+	}
+	reg := regWith(t,
+		stub{name: "assignments", out: []signal.Signal{lane, handed, bothLane}},
+		stub{name: "github", out: []signal.Signal{unlabelled, handedDraft, otherRepo, labelled, both}},
+	)
+	r, err := NewRunner(reg, []string{"assignments", "github"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	res := r.Run(context.Background(), signal.Scope{})
+	brief := res.Render(Default())
+
+	if got := lineFor(t, brief, "PR #1497"); !strings.Contains(got, "HELD by lane fd1494-1018 (active on this host, last recorded 26h ago)") {
+		t.Errorf("a live lane's unlabelled draft does not read as held, naming the lane, in the brief line a shift chooses from:\n%s", got)
+	}
+	if got := lineFor(t, res.Render(Everything()), "PR #1497"); !strings.Contains(got, "held_by=fd1494-1018 (active on this host, last recorded 26h ago)") {
+		t.Errorf("the full render drops which lane holds the change set:\n%s", got)
+	}
+	if got := lineFor(t, brief, "PR #1400"); strings.Contains(got, "HELD") || strings.Contains(got, "CLAIMED") {
+		t.Errorf("a handed-off lane's draft is available work and reads as held:\n%s", got)
+	}
+	if got := lineFor(t, brief, "PR #9"); strings.Contains(got, "HELD") {
+		t.Errorf("a lane holds a branch in its own repository; another repository's change set reads as held:\n%s", got)
+	}
+	if got, want := strings.TrimSuffix(lineFor(t, brief, "PR #1482"), "\n"), "`findata` **PR #1482** labelled · draft · 0 reviews · CLAIMED"; got != want {
+		t.Errorf("a labelled change set's line changed:\ngot  %q\nwant %q", got, want)
+	}
+	if got := lineFor(t, brief, "PR #1501"); !strings.Contains(got, "CLAIMED · HELD by lane fi-1019 (blocked on this host)") {
+		t.Errorf("a labelled change set a live lane also holds loses one of the two markers:\n%s", got)
+	}
+	for _, s := range []signal.Signal{unlabelled, handedDraft, otherRepo, labelled, both} {
+		if _, ok := s.Attrs[signal.AttrHeldBy]; ok {
+			t.Errorf("%s: the survey wrote into the map its source returned", s.ID)
+		}
+	}
+}

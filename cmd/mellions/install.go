@@ -308,21 +308,9 @@ func reportBehindSessions(registered time.Time) {
 		fmt.Println("\nWhich live sessions are behind this registration is unestablished: no\nconfig to find the presence records — " + err.Error())
 		return
 	}
-	live := cfg.presences().Live()
+	runtime, me := presence.Here()
 	self := presence.SelfPID()
-	var behind []presence.Session
-	for _, s := range live {
-		if s.PID == self && self > 0 {
-			continue
-		}
-		began := s.ProcStarted
-		if began.IsZero() {
-			began = s.Started
-		}
-		if began.Before(registered) {
-			behind = append(behind, s)
-		}
-	}
+	behind := behindOf(cfg.presences().Live(), registered, me, self)
 	fmt.Println()
 	if len(behind) == 0 {
 		fmt.Println("No live session registered here started before this registration, so none")
@@ -340,7 +328,11 @@ func reportBehindSessions(registered time.Time) {
 	fmt.Println("install did not reach it and cannot. A session whose installed copy was")
 	fmt.Println("replaced underneath it can also stop firing the hooks it did have, at its")
 	fmt.Println("next /compact. Each needs a new process:")
-	fmt.Println()
+	you := presence.YouAre(runtime, me, self)
+	if me != "" || self > 0 {
+		you += " You are not listed below."
+	}
+	fmt.Printf("%s\n\n", you)
 	for _, s := range behind {
 		began := s.ProcStarted
 		if began.IsZero() {
@@ -566,4 +558,24 @@ func plural(n int, one, many string) string {
 		return "One " + one
 	}
 	return fmt.Sprintf("%d %s", n, many)
+}
+
+// behindOf is every live session other than the reader that launched before
+// registered. The reader is matched by session id as well as pid, so a reader
+// whose runtime exports no pid is not listed as a session behind itself.
+func behindOf(live []presence.Session, registered time.Time, me string, self int) []presence.Session {
+	var behind []presence.Session
+	for _, s := range live {
+		if isSelf(s, me, self) {
+			continue
+		}
+		began := s.ProcStarted
+		if began.IsZero() {
+			began = s.Started
+		}
+		if began.Before(registered) {
+			behind = append(behind, s)
+		}
+	}
+	return behind
 }

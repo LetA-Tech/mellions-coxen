@@ -6,6 +6,7 @@ package cite
 
 import (
 	"errors"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -92,16 +93,37 @@ The assertion at hooks/test-session-digest.sh:73 passes vacuously.`
 func TestQuotedCitationPasses(t *testing.T) {
 	files := tree{"goals.go": strings.Repeat("x\n", 63) + "\tcache.Set(key, out)\n"}
 	docs := map[string]string{
-		"fenced":        "The write at goals.go:64:\n\n```go\n\tcache.Set(key, out)\n```\n",
-		"blockquote":    "The write at goals.go:64:\n\n> cache.Set(key, out)\n",
-		"inline span":   "The write at `goals.go:64` — `cache.Set(key, out)` — caches it.\n",
-		"indented":      "The write at goals.go:64:\n\n    cache.Set(key, out)\n",
-		"grep -n paste": "goals.go:64\n\n```\n64:\tcache.Set(key, out)\n```\n",
-		"re-indented":   "goals.go:64\n\n```\ncache.Set(key, out)\n```\n",
+		"fenced":               "The write at goals.go:64:\n\n```go\n\tcache.Set(key, out)\n```\n",
+		"blockquote":           "The write at goals.go:64:\n\n> cache.Set(key, out)\n",
+		"blockquote of a span": "- The write at goals.go:64:\n  > `cache.Set(key, out)`\n",
+		"inline span":          "The write at `goals.go:64` — `cache.Set(key, out)` — caches it.\n",
+		"indented":             "The write at goals.go:64:\n\n    cache.Set(key, out)\n",
+		"grep -n paste":        "goals.go:64\n\n```\n64:\tcache.Set(key, out)\n```\n",
+		"re-indented":          "goals.go:64\n\n```\ncache.Set(key, out)\n```\n",
 	}
 	for name, doc := range docs {
 		if f := firstOnly(Check(doc, files.read)); len(f) != 0 {
 			t.Errorf("%s: %v, want clean", name, f[0].Reason())
+		}
+	}
+}
+
+// A block quoting one code span is read as the span's text, and only that: a
+// span holding another line, a span that is not the whole line, and a span
+// below the block's first line back nothing. The last is in the body, so it
+// is reported as misplaced.
+func TestABlockquotedSpanBacksOnlyTheLineItHolds(t *testing.T) {
+	files := tree{"goals.go": strings.Repeat("x\n", 63) + "\tcache.Set(key, out)\n"}
+	for name, c := range map[string]struct {
+		doc  string
+		kind Kind
+	}{
+		"another line":       {"The write at goals.go:64:\n\n> `return out, nil`\n", Unbacked},
+		"not the whole line": {"The write at goals.go:64:\n\n> `cache.Set(key, out)` caches it\n", Unbacked},
+		"below the head":     {"The write at goals.go:64:\n\n> it caches\n> `cache.Set(key, out)`\n", Unanchored},
+	} {
+		if f := firstOnly(Check(c.doc, files.read)); len(f) != 1 || f[0].Kind != c.kind {
+			t.Errorf("%s: findings = %v, want one of kind %v", name, f, c.kind)
 		}
 	}
 }
@@ -260,8 +282,8 @@ func TestARangePasteDoesNotBackALineInsideIt(t *testing.T) {
 		"type Finding struct {\n" +
 		"```\n"
 	f := firstOnly(Check(doc, files.read))
-	if len(f) != 1 || f[0].Kind != Unbacked {
-		t.Fatalf("got %v, want the citation reported unbacked", f)
+	if len(f) != 1 || f[0].Kind != Unanchored {
+		t.Fatalf("got %v, want the citation reported as quoted where it cannot reach", f)
 	}
 	if !strings.Contains(f[0].Reason(), "type Finding struct {") {
 		t.Errorf("Reason() = %q, want it to report what line 9 says", f[0].Reason())
@@ -414,6 +436,35 @@ func TestSpentQuotationReadsAsMisplacedNotAsAbsent(t *testing.T) {
 // findings and says so more clearly without a discarded second value on every
 // line.
 func firstOnly(f []Finding, _ []Citation) []Finding { return f }
+
+// A line quoted further down a block than its first is in the body, so the
+// refusal says the quotation is misplaced, and the block still backs one
+// citation by its first line.
+func TestALaterLineOfABlockIsQuotedButBacksNothing(t *testing.T) {
+	files := tree{"pkg/run.go": "first()\nsecond()\nthird()\n"}
+	doc := "`pkg/run.go:1`, `pkg/run.go:2` and `pkg/run.go:3`:\n\n```go\nfirst()\nsecond()\n```\n"
+
+	fs := firstOnly(Check(doc, files.read))
+	if len(fs) != 2 {
+		t.Fatalf("got %d findings, want 2: the block backs line 1 and nothing else (%#v)", len(fs), fs)
+	}
+	if fs[0].Raw != "pkg/run.go:2" || fs[0].Kind != Unanchored {
+		t.Fatalf("line 2 is the block's second line: got %s kind %v, want pkg/run.go:2 Unanchored", fs[0].Raw, fs[0].Kind)
+	}
+	if r := fs[0].Reason(); !strings.Contains(r, "does quote it") || strings.Contains(r, "quotes no line equal to it") ||
+		!strings.Contains(r, "first line of the block") {
+		t.Errorf("reason for a line quoted further down a block: %q", r)
+	}
+	if fs[1].Raw != "pkg/run.go:3" || fs[1].Kind != Unbacked {
+		t.Fatalf("line 3 is quoted nowhere: got %s kind %v, want pkg/run.go:3 Unbacked", fs[1].Raw, fs[1].Kind)
+	}
+
+	spans := "`pkg/run.go:1` and `pkg/run.go:2`:\n\n> `first()`\n> `second()`\n"
+	fs = firstOnly(Check(spans, files.read))
+	if len(fs) != 1 || fs[0].Raw != "pkg/run.go:2" || fs[0].Kind != Unanchored {
+		t.Fatalf("a later line of a > block written as one code span: got %#v, want pkg/run.go:2 Unanchored alone", fs)
+	}
+}
 
 // TestCheck_APathClaimingThisTreeIsAFinding is the defect this pair closes. A
 // wrong same-repo path — a typo, a file that moved, a directory renamed — read
@@ -577,4 +628,371 @@ func TestCheck_ContinuationShapesThatAreCitations(t *testing.T) {
 	}
 }
 
+// A file named between a citation and a quote-introducing continuation is the
+// file the continuation means. Charging it to the citation's file refused a
+// correct body for a line only the named file has. The controls must still be
+// graded against the citation: no file between, and the citation's own
+// dotted inline quotation.
+func TestCheck_AContinuationPastANamedFileIsNotChargedToTheCitation(t *testing.T) {
+	read := func(path string) ([]string, error) {
+		switch path {
+		case ".claude/repo-binding.yaml":
+			return []string{"a", "x", "c"}, nil
+		case "secret-posture.sh":
+			return []string{"#!/bin/sh", "", "", "", `[[ -e "$path" ]] || return 0`}, nil
+		case "a.go":
+			return []string{"package a", "", "cfg.Port", "", "cfg.Host", "", "w"}, nil
+		}
+		return nil, errors.New("not a file in this checkout")
+	}
+	named := "Gate read at `.claude/repo-binding.yaml:2`:\n\n```\nx\n```\n\n" +
+		"- `secret-posture.sh`: existence-guarded (`:5` `[[ -e \"$path\" ]] || return 0`).\n"
+	twice := "Gate read at `.claude/repo-binding.yaml:2` `x`.\n\n" +
+		"- `secret-posture.sh`: guarded (`:5` `[[ -e \"$path\" ]] || return 0`, `:4` `-d` guard).\n"
+	for _, body := range []string{named, twice} {
+		if findings, _ := Check(body, read); len(findings) != 0 {
+			t.Errorf("a continuation past a named file was charged to the citation: %v", findings)
+		}
+	}
+	for body, want := range map[string]string{
+		"See `a.go:3` `cfg.Port`. Then `:5` `z`.\n":                    "a.go:5",
+		"See `a.go:3`:\n\n```\ncfg.Port\n```\n\nAnd later `:5` `z`.\n": "a.go:5",
+		"See `a.go:3`: `cfg.Port` and `:5` `z`.\n":                     "a.go:5",
+		"See `a.go:3` `cfg.Port`, `:5`: `cfg.Host`, `:7`: `z`.\n":      "a.go:7",
+	} {
+		findings, _ := Check(body, read)
+		if len(findings) != 1 || findings[0].Raw != want {
+			t.Errorf("control %q: findings %v, want %s reported", body, findings, want)
+		}
+	}
+}
+
+// A continuation left ungraded because a file was named since the citation is
+// returned by Ungraded, so a clean check can say what it did not cover, and it
+// is still no finding. The controls are continuations Check grades and a port
+// that is no continuation at all: none of them is ungraded.
+func TestUngraded_AContinuationPastANamedFileIsReportedNotRefused(t *testing.T) {
+	read := func(path string) ([]string, error) {
+		switch path {
+		case ".claude/repo-binding.yaml":
+			return []string{"a", "x", "c"}, nil
+		case "a.go":
+			return []string{"package a", "", "cfg.Port", "", "cfg.Host", "", "w"}, nil
+		}
+		return nil, errors.New("not a file in this checkout")
+	}
+	named := "Gate read at `.claude/repo-binding.yaml:2`:\n\n```\nx\n```\n\n" +
+		"- `secret-posture.sh`: existence-guarded (`:5` `[[ -e \"$path\" ]] || return 0`).\n"
+	twice := "Gate read at `.claude/repo-binding.yaml:2` `x`.\n\n" +
+		"- `secret-posture.sh`: guarded (`:5` `[[ -e \"$path\" ]] || return 0`, `:4` `-d` guard).\n"
+	for body, want := range map[string][]string{
+		named: {":5@7"},
+		twice: {":5@3", ":4@3"},
+	} {
+		if findings, _ := Check(body, read); len(findings) != 0 {
+			t.Errorf("an ungraded continuation became a finding: %v", findings)
+		}
+		var got []string
+		for _, c := range Ungraded(body) {
+			if c.Path != "" {
+				t.Errorf("ungraded %s carries a file, %q; which file it means is not known", c.Raw, c.Path)
+			}
+			got = append(got, c.Raw+"@"+strconv.Itoa(c.At+1))
+		}
+		if strings.Join(got, " ") != strings.Join(want, " ") {
+			t.Errorf("Ungraded(%q) = %v, want %v", body, got, want)
+		}
+	}
+	for _, body := range []string{
+		"See `a.go:3` `cfg.Port`. Then `:5` `z`.\n",
+		"See `a.go:3` `cfg.Port`, `:5`: `cfg.Host`, `:7`: `w`.\n",
+		"See `a.go:3` `cfg.Port`. The service in `b.go` listens on `:8080` in production.\n",
+		"No citation before `:5` `cfg.Host`.\n",
+	} {
+		if u := Ungraded(body); len(u) != 0 {
+			t.Errorf("control %q reported ungraded %v", body, u)
+		}
+	}
+}
+
+// A `:N` written inside a span delimited by two or more backticks is that
+// span's literal content, how a port or a backticked token is shown: it is no
+// continuation, and the enclosing span's closing delimiter is no quotation.
+// Charging it to the citation before it refused a correct body for a line the
+// file never had. The controls are real continuations beside such a span, and
+// a double-backtick span that is itself a continuation's quotation: each is
+// still graded against the citation, as is one after a citation whose own
+// double-backtick quotation holds a backticked file name.
+func TestCheck_AColonNumberInsideALongerBacktickSpanIsNotAContinuation(t *testing.T) {
+	read := func(path string) ([]string, error) {
+		switch path {
+		case "a.go":
+			return []string{"package a", "", "cfg.Port", "", "cfg.Host", "", "w"}, nil
+		case "c.go":
+			return []string{"package c", "", "use `b.go` here", "", "cfg.Host"}, nil
+		}
+		return nil, errors.New("not a file in this checkout")
+	}
+	for _, body := range []string{
+		"See `a.go:3` `cfg.Port`. The service listens on ``:8080`` in production.\n",
+		"See `a.go:3` `cfg.Port`. The service listens on `` `:8080` `` in production.\n",
+		"See `a.go:3` `cfg.Port`. The service in `b.go` listens on ``:8080`` in production.\n",
+		"See `a.go:3` `cfg.Port`. Ports ```:8080``` and ``:9090`` only.\n",
+		"See `a.go:3` `cfg.Port`. The tunnel listens on `:8428` ``:9428``.\n",
+		"See `a.go:3` `cfg.Port`. It binds ``:8080`` `0.0.0.0` only.\n",
+	} {
+		if findings, _ := Check(body, read); len(findings) != 0 {
+			t.Errorf("a port inside a longer backtick span was graded in %q: %v", body, findings)
+		}
+		if u := Ungraded(body); len(u) != 0 {
+			t.Errorf("a port inside a longer backtick span was reported ungraded in %q: %v", body, u)
+		}
+	}
+	for body, want := range map[string]string{
+		"See `a.go:3` `cfg.Port`. Port ``:8080``; then `:5` `z`.\n": "a.go:5",
+		"See `a.go:3` `cfg.Port`. Then `:5` ``z`` and ``:8080``.\n": "a.go:5",
+		"See `a.go:3` `cfg.Port`, `:5`: `cfg.Host`, `:7`: ``z``.\n": "a.go:7",
+		"See `a.go:3` `cfg.Port`. ``x`` then `:9`:\n```\nw\n```\n":  "a.go:9",
+		"See `c.go:3` `` use `b.go` here `` then `:5` `z`.\n":       "c.go:5",
+	} {
+		findings, _ := Check(body, read)
+		if len(findings) != 1 || findings[0].Raw != want {
+			t.Errorf("control %q: findings %v, want %s reported", body, findings, want)
+		}
+	}
+}
+
+// Excluding a port in a longer span must not drop a real continuation the
+// one-line span scan misreads: after a code span that wraps onto the next line
+// (a published body had one before `:612`), or after an escaped backtick. Each
+// is still graded against the citation.
+func TestCheck_AContinuationAfterAWrappedSpanOrAnEscapedBacktickIsStillGraded(t *testing.T) {
+	read := func(path string) ([]string, error) {
+		if path == "a.go" {
+			return []string{"package a", "", "cfg.Port", "", "cfg.Host", "", "w"}, nil
+		}
+		return nil, errors.New("not a file in this checkout")
+	}
+	for body, want := range map[string]string{
+		"See `a.go:3` `cfg.Port` and `some\nwrapped` text; then `:5` `w`.\n": "a.go:5",
+		"See `a.go:3` `cfg.Port`, then \\``:5` `w`.\n":                       "a.go:5",
+	} {
+		findings, _ := Check(body, read)
+		if len(findings) != 1 || findings[0].Raw != want {
+			t.Errorf("%q: findings %v, want %s reported", body, findings, want)
+		}
+	}
+	for _, body := range []string{
+		"The `long\nspan` holds `a.go:3`, `:5` and `:7`.\n",
+		"Escape it as \\` here: `a.go:3`, `:5` and `:7`.\n",
+	} {
+		got := map[string]bool{}
+		for _, c := range Extract(body) {
+			got[c.Raw] = true
+		}
+		if !got["a.go:5"] || !got["a.go:7"] {
+			t.Errorf("a run after a misread span in %q extracted %v, want a.go:5 and a.go:7", body, got)
+		}
+	}
+}
+
+// A code span is what CommonMark delimits: a run of n backticks closed by the
+// next run of exactly n, and a run nothing closes is literal text the scan
+// continues past. The continuation reading and the quotation reading share this
+// scanner, so they cannot disagree about where a span is.
+func TestSpans_AsCommonMarkDelimitsThem(t *testing.T) {
+	for line, want := range map[string]string{
+		"`foo``bar`":                "foo``bar",
+		"`` x `y`":                  "y",
+		"``:8080`` and `:5`":        ":8080|:5",
+		"`` `:8080` `` then `a.go`": " `:8080` |a.go",
+		"no span ` here":            "",
+	} {
+		if got := strings.Join(spans(line), "|"); got != want {
+			t.Errorf("spans(%q) = %q, want %q", line, got, want)
+		}
+	}
+}
+
 func mustFindings(f []Finding, _ []Citation) []Finding { return f }
+
+// An image reference is not a citation in either half of Check: no finding, and
+// not named among the unresolved, where it read as a citation nobody opened and
+// pushed an author to rewrite a correct body. Every form here is from published
+// bodies. The controls beside them must still be named: a citation this tree
+// cannot open, an extensionless file under a leading-dot directory, another
+// repository's file under a host-named prefix, and a bare org/name:N, which
+// nothing lexical separates from a file's line.
+func TestCheck_AnImageReferenceIsNotACitation(t *testing.T) {
+	read := func(string) ([]string, error) { return nil, errors.New("not a file in this checkout") }
+	images := []string{
+		"docker.io/library/postgres:18",
+		"`docker.io/library/postgres:18`",
+		"docker.io/library/postgres:18@sha256:5f1d0b8c2a",
+		"ghcr.io/org/img:2",
+		"public.ecr.aws/x/y:3",
+		"localhost/img:4",
+		"docker.io/library/golang:1.27.1-alpine",
+		"timescale/timescaledb:2.21.3-pg17",
+		"docker/dockerfile:1.7",
+		"alpine/socat:1.8.1.3",
+		"timescale/timescaledb:2.21.3@sha256:0a1b",
+		"library/postgres:18@sha256:5f1d0b8c2a",
+	}
+	for _, ref := range images {
+		findings, unresolved := Check("The base is "+ref+" now.", read)
+		if len(findings) != 0 || len(unresolved) != 0 {
+			t.Errorf("%s: findings %v, unresolved %v — want neither", ref, findings, unresolved)
+		}
+	}
+	controls := map[string]string{
+		"see dir/file.go:12":               "dir/file.go:12",
+		"see .github/CODEOWNERS:3":         ".github/CODEOWNERS:3",
+		"see .githooks/pre-commit:5":       ".githooks/pre-commit:5",
+		"see github.com/x/y/z.go:12":       "github.com/x/y/z.go:12",
+		"see bitnami/redis:7 then":         "bitnami/redis:7",
+		"see dir/file.go:12. Next":         "dir/file.go:12",
+		"see `cmd/tool:9`, the entrypoint": "cmd/tool:9",
+	}
+	for doc, want := range controls {
+		_, unresolved := Check(doc, read)
+		if len(unresolved) != 1 || unresolved[0].Raw != want {
+			t.Errorf("%q: unresolved %v, want exactly %s named", doc, unresolved, want)
+		}
+	}
+}
+
+// A host-named directory this checkout has is still read: image() is asked only
+// of a path no file answers to.
+func TestCheck_AHostNamedDirectoryInTheTreeIsStillChecked(t *testing.T) {
+	files := tree{"conf.d/default": "server {\n  listen 80;\n}"}
+	findings, _ := Check("the listener is conf.d/default:2", files.read)
+	if len(findings) != 1 || findings[0].Kind != Unbacked {
+		t.Fatalf("findings %v, want conf.d/default:2 Unbacked", findings)
+	}
+}
+
+// A version or digest after the number marks an image tag only for a token the
+// checkout cannot open. A file this tree has, or a path claiming it, is checked
+// however it is written: one suffix must not switch the gate off.
+func TestCheck_ATagSuffixDoesNotExemptThisTree(t *testing.T) {
+	read := func(path string) ([]string, error) {
+		switch path {
+		case "internal/cite/cite.go":
+			return []string{"package cite", "import (", ")"}, nil
+		case "internal/cite/citee.go", "conf.d/defualt":
+			return nil, ErrPathClaimsTree
+		}
+		return nil, errors.New("not a file in this checkout")
+	}
+	cases := map[string]Kind{
+		"see internal/cite/cite.go:99@dev: `x`":         Missing,
+		"see internal/cite/cite.go:2@dev: `wrong text`": Unbacked,
+		"see internal/cite/cite.go:2.5 for it":          Unbacked,
+		"see internal/cite/citee.go:2@dev: `x`":         Absent,
+		"the listener is conf.d/defualt:2":              Absent,
+	}
+	for doc, want := range cases {
+		findings, unresolved := Check(doc, read)
+		if len(findings) != 1 || findings[0].Kind != want || len(unresolved) != 0 {
+			t.Errorf("%q: findings %v unresolved %v, want one %v", doc, findings, unresolved, want)
+		}
+	}
+	_, unresolved := Check("see github.com/LetA-Tech/mcfo-finsys/Makefile:12", read)
+	if len(unresolved) != 1 {
+		t.Errorf("a cross-repo extensionless file under a host prefix: unresolved %v, want it named", unresolved)
+	}
+}
+
+// A range owes no quotation, and that exemption was implemented by dropping the
+// range before it was resolved — so a range into a region the file does not
+// have, or into a file that does not exist, passed as clean. It is still a
+// claim that the region exists.
+func TestCheck_ARangeIsHeldToExistence(t *testing.T) {
+	read := func(path string) ([]string, error) {
+		switch path {
+		case "a/one.go":
+			return []string{"package one", "func A() {}", "func B() {}"}, nil
+		case "a/gone.go":
+			return nil, ErrPathClaimsTree
+		}
+		return nil, errors.New("not a file in this checkout")
+	}
+	for _, tc := range []struct {
+		doc, raw string
+		want     Kind
+	}{
+		{"see `a/one.go:9-12` for it", "a/one.go:9-12", Missing},
+		{"see `a/one.go:2-4` for it", "a/one.go:2-4", Missing},
+		{"see a/one.go:2–40 for it", "a/one.go:2–40", Missing},
+		{"see `a/one.go:3-2` for it", "a/one.go:3-2", Inverted},
+		{"see `a/one.go:2-0` for it", "a/one.go:2-0", Inverted},
+		{"see `a/one.go:2-0` `func A() {}`", "a/one.go:2-0", Inverted},
+		{"see `a/gone.go:1-3` for it", "a/gone.go:1-3", Absent},
+	} {
+		findings, unresolved := Check(tc.doc, read)
+		if len(findings) != 1 || findings[0].Kind != tc.want || findings[0].Raw != tc.raw {
+			t.Errorf("%q: findings %+v, want one %v naming %q", tc.doc, findings, tc.want, tc.raw)
+			continue
+		}
+		if !strings.HasPrefix(findings[0].Reason(), tc.raw+": ") {
+			t.Errorf("%q: reason %q does not name the range", tc.doc, findings[0].Reason())
+		}
+		if len(unresolved) != 0 {
+			t.Errorf("%q: unresolved %v, want none", tc.doc, unresolved)
+		}
+	}
+}
+
+// The control the refusals need: a range inside the file, quoting nothing,
+// passes — reading a range as its first line would re-impose the quotation and
+// refuse every honest region citation.
+func TestCheck_AValidRangeOwesNoQuotation(t *testing.T) {
+	read := func(path string) ([]string, error) {
+		if path == "a/one.go" {
+			return []string{"package one", "func A() {}", "func B() {}"}, nil
+		}
+		return nil, errors.New("not a file in this checkout")
+	}
+	for _, doc := range []string{
+		"see `a/one.go:1-3` for the whole file",
+		"see a/one.go:2—2 for one line written as a range",
+		// The range takes no quotation the line citation beside it needs.
+		"`a/one.go:1-2` and `a/one.go:2`:\n\n```go\nfunc A() {}\n```\n",
+	} {
+		findings, unresolved := Check(doc, read)
+		if len(findings) != 0 || len(unresolved) != 0 {
+			t.Errorf("%q: findings %v, unresolved %v, want neither", doc, findings, unresolved)
+		}
+	}
+	// A continuation after a range is still a citation to a line, and checked.
+	findings, _ := Check("Lines `a/one.go:1-2` and `:3`:\n```go\nfunc A() {}\n```\n", read)
+	if len(findings) != 1 || findings[0].Raw != "a/one.go:3" || findings[0].Kind != Unbacked {
+		t.Errorf("continuation after a range: findings %+v, want a/one.go:3 Unbacked", findings)
+	}
+}
+
+// A range whose path this checkout cannot open, and does not claim, is not this
+// checkout's to deny; like a line citation there, it is named as unchecked. One
+// whose leading segment names a directory this checkout has is Absent, as a
+// line citation to it is.
+func TestCheck_ACrossRepoRangeIsReportedNotDenied(t *testing.T) {
+	read := func(string) ([]string, error) { return nil, errors.New("not a file in this checkout") }
+	findings, unresolved := Check("agentkit runtime/exec.go:1840-1850 abandons the tail", read)
+	if len(findings) != 0 {
+		t.Fatalf("findings %v, want none", findings)
+	}
+	if len(unresolved) != 1 || unresolved[0].Raw != "runtime/exec.go:1840-1850" {
+		t.Fatalf("unresolved %v, want runtime/exec.go:1840-1850 named", unresolved)
+	}
+}
+
+// A clean result reports what it covered. Ranges is how a caller counts the
+// ranges Check held to existence, which Extract, being line citations only,
+// never returns.
+func TestRangesReturnsOnlyRanges(t *testing.T) {
+	got := Ranges("read goals.go:1-125 and goals.go:1-125 again, cited goals.go:64, then a/b.go:3–9")
+	if len(got) != 2 || got[0].Raw != "goals.go:1-125" || got[1].Raw != "a/b.go:3–9" {
+		t.Fatalf("Ranges = %+v, want goals.go:1-125 and a/b.go:3–9", got)
+	}
+}

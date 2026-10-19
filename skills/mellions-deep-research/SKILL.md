@@ -13,9 +13,7 @@ far to go follows the stakes and the contradictions.
 ## Start from the question
 
 Name what has to be true for the intended action to be right. That question
-chooses the sources; a fixed list does not. "Is the defect still there at HEAD"
-wants the code and a reproduction; "why does production do this" wants runtime
-evidence.
+chooses the sources; a fixed list does not.
 
 ## What exists
 
@@ -67,7 +65,9 @@ evidence while relevant requirements, source, dependencies, build configuration,
 fixtures, toolchain, environment, device and target state remain unchanged.
 Bind evidence to its pin and inputs; inspect their delta. Changed inputs,
 missing provenance or unresolved gaps reopen affected claims, not the whole
-investigation. Reuse never waives a required fresh check.
+investigation. Reuse never waives a required fresh check. Read a release cut
+after an advisory's last modification in source to establish whether it has
+the fix; an older affected range alone cannot settle it.
 
 A checkout is a record too. Where content permits the act — configuration,
 doctrine, an installed gate — read and run it at the ref being acted against;
@@ -76,19 +76,19 @@ settle current authority even if its old gate passes. Where that tree is the
 subject, such as its failed build, staleness is evidence rather than a fault.
 
 An account is not the artifact. A summary, transcript or peer's description
-does not establish the bytes. Check artifact claims before publishing. What reached a session is settled by the request
+does not establish the bytes. What reached a session is settled by the request
 on the wire or file handed over, never its own account of what it sees;
 a transcript omits the system prompt, so finding nothing there is not absence.
 
 ## Exhaust what is reachable before asking
 
-Do not ask a question reachable evidence can answer: run the targeted test,
+Run the targeted test,
 inspect persisted state, instrument the path, sandbox what static reading
 cannot settle. Missing documentation is not grounds to ask.
 
 ## A check is evidence only if it can fail
 
-A check that cannot fail is not evidence. Before a grep, a query or a test is
+Before a grep, a query or a test is
 cited as proof, run it against a case it must find and a case it must not
 match: a detection that matches nothing reports every codebase clean. Draw both
 from the corpus before writing the pattern, not from memory after — a matcher
@@ -104,7 +104,10 @@ Where absence across an estate is the claim, no tree is its outer edge:
 enumerate the refs the remote reports, not the ones a checkout fetched, and
 the open pull requests no integration ref holds.
 A capped read is not a smaller answer but an unread one: `head -N`, or a tool's
-own limit, gives the first N in path order, so count the matches first.
+own limit, gives the first N in path order, so count the matches first. An
+empty answer prints nothing, so in a compound command other output passes for
+it: there, print each claim's verdict — `merge-base --is-ancestor`, a count,
+`test` — or label each output.
 
 An instrument that reports proves its reporting path, never that anything
 writes what it carries. Where a reading is an absence's whole support, find

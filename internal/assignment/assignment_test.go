@@ -300,6 +300,33 @@ func TestOpenRefusesIncompleteWork(t *testing.T) {
 	}
 }
 
+// An id is a directory under the store's root. "." is the root and ".." its
+// parent, so neither is opened, and a path is never read as a record.
+func TestAnIDIsOneNameInTheStore(t *testing.T) {
+	repo := realRepo(t)
+	s := newStore(t)
+	for _, id := range []string{".", "..", "a/b", `a\b`, "a b"} {
+		_, err := s.Open(OpenOptions{ID: id, Source: repo, Objective: "o", Because: "b"})
+		if err == nil || !strings.Contains(err.Error(), "must be one name") {
+			t.Errorf("Open(%q) was not refused by the id rule: %v", id, err)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(s.Root, "assignment.json")); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("an open wrote a record at the store's root: %v", err)
+	}
+
+	outside := filepath.Join(s.Root, "..", "outside")
+	if err := os.MkdirAll(outside, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(outside, "assignment.json"), []byte(`{"id":"outside"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if a, err := s.Get("../outside"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("Get read a record outside the store: %+v, %v", a, err)
+	}
+}
+
 func TestDuplicateIDIsRefused(t *testing.T) {
 	repo := realRepo(t)
 	s := newStore(t)
@@ -805,5 +832,42 @@ func TestAnActiveLaneNamesItsMethodAtTheMoment(t *testing.T) {
 	}
 	if strings.Contains(closed.Text(time.Now()), "before the first edit") {
 		t.Errorf("a closed lane still tells a reader to load the remediation method:\n%s", closed.Text(time.Now()))
+	}
+}
+
+// A repository whose binding names approval authorities may require a plan
+// approved on the issue before any change is written, and that holds for a one-line
+// change as much as a large one; a size-conditioned hint lets a small lane
+// commit first. The binding is read from the lane's own tree, so the record
+// states it as a fact and names the proposal method; a lane whose tree
+// declares no authorities says nothing about a gate.
+func TestALaneUnderApprovalAuthoritiesNamesTheProposalGate(t *testing.T) {
+	_, a := opened(t)
+	if got := a.Text(time.Now()); strings.Contains(got, "- gate:") {
+		t.Fatalf("a lane whose tree has no binding names a gate:\n%s", got)
+	}
+	binding := filepath.Join(a.Worktree, ".claude", "repo-binding.yaml")
+	if err := os.MkdirAll(filepath.Dir(binding), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct{ yaml, want string }{
+		{"repo: x\napproval_authorities: [Lucas, Antony]\n", "approval authorities [Lucas, Antony] and approval_model not declared"},
+		{"approval_authorities: [Lucas]\nworkflow:\n  approval_model: merge-gate\n", "approval authorities [Lucas] and approval_model merge-gate"},
+	} {
+		if err := os.WriteFile(binding, []byte(c.yaml), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		got := a.Text(time.Now())
+		if !strings.Contains(got, c.want) ||
+			!strings.Contains(got, `Skill(skill: "mellions:mellions-issue-resolution-proposal")`) ||
+			!strings.Contains(got, "before the first edit") {
+			t.Errorf("binding %q: the lane's record does not name the proposal gate (want %q):\n%s", c.yaml, c.want, got)
+		}
+	}
+	if err := os.WriteFile(binding, []byte("repo: x\ndevelopment_branch: dev\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := a.Text(time.Now()); strings.Contains(got, "- gate:") {
+		t.Errorf("a binding with no approval authorities names a gate:\n%s", got)
 	}
 }

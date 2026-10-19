@@ -57,7 +57,13 @@ match the tree. Grouped for reading; never ranked, scored or recommended.
   sources.
 - **read it right:** `INCOMPLETE` means a source did not answer — unknown,
   not empty. "… N more collected" means the list was printed short and names
-  the command that prints the rest.
+  the command that prints the rest. A change set marked `CLAIMED` carries
+  the `mellions:claimed` label, seen from every host; `HELD by lane <id>`
+  means its branch belongs to a lane active or blocked on this host, label or
+  not, and says when that lane's record last changed. Either way it is held:
+  read the claim or the lane before taking it up. A lane unchanged for a day is
+  as stale as an unrestated claim — `mellions who -all` says whether a session
+  is still on it.
 
 ## Assign — one piece of work
 
@@ -85,8 +91,10 @@ repository's working branch (the pin is recorded; a fallback to a local head
 says so), a branch `mellions/<id>`, and a record under
 `<report_root>/assignments/<id>/` holding the objective, the reason, and what
 was deliberately not chosen. With `-issue`, it first reads the issue's claims:
-a lane on this machine that already holds the issue is refused by name; a lane
-on another machine is refused too, because opening publishes a
+a lane on this machine that already holds the number, as its issue or as the
+pull request it claimed, is refused by name and pointed at `assign get` ("#12"
+and "PR #12" are one item); a lane on another machine is refused too, because
+opening publishes a
 `mellions:claimed` label and a comment naming the lane and its host, and a
 claim not restated within 24 hours is swept rather than obeyed. `-alongside`
 takes a held issue deliberately (reconciling two lanes); `-unpublished`
@@ -115,7 +123,13 @@ steps, handoff, the sessions that worked it and how to resume the last one.
 
 **`record`** — a finding (`-kind found`), a hypothesis, a next step or a note,
 appended to the record with a timestamp. The engineer writes these as it
-establishes things; they are what the next session reads.
+establishes things; they are what the next session reads. A note restates the
+lane's claim when written from the lane's worktree, by a session that already
+worked the lane, or from no lane's tree with no runtime session behind it (the
+shift runner, a terminal). Otherwise it is a reader's and leaves the claim as it
+stood. `open <id>` on an existing lane is how a session continuing it becomes
+one of its sessions; when another live session holds it, it says so and stamps
+nothing.
 
 **`claim`** — this lane holds that pull request. It publishes the same
 `mellions:claimed` label and machine-readable comment `open -issue` publishes
@@ -249,12 +263,19 @@ mellions secret-check
   keyword is supplied for a pull request base on which GitHub will not resolve
   it. Unknown default-branch state is silent.
 - `shared-tree-check` may deny a tree-mutating Git command aimed at a configured
-  shared checkout instead of an assignment lane. Unresolved paths are silent.
+  shared checkout instead of an assignment lane, and an `rm` (recursive or not)
+  that globs directly under `/tmp`, `/var/tmp`, `/dev/shm` or `$TMPDIR`.
+  Unresolved paths are silent.
 - `cite check` is the hand-run citation validator. It reports locally
   resolvable `path:line` claims whose lines do not exist or are not quoted in
-  the body and exits non-zero on findings. The document is `-file <path>` (or
+  the body, and `path:N-M` ranges the file does not reach or that end before
+  they start (a range owes no quotation), and exits non-zero on findings. The
+  document is `-file <path>` (or
   `-` for stdin); a positional argument or an empty document is refused, and a
-  clean result says how many citations it checked. `cite-check` applies it to GitHub
+  clean result says how many citations it checked. Citations it cannot open,
+  and bare `:N` continuations it leaves ungraded because a file is named
+  between them and the citation before them, are listed and never refused.
+  `cite-check` applies it to GitHub
   publication commands; `MELLIONS_CITE_CHECK=off` disables the hook when set
   in the session environment.
 - `secret check` is the hand-run credential-read classifier. `secret-check`
@@ -446,6 +467,7 @@ scripts/shift.sh
 | `MELLIONS_WORKDIR` | `$MELLIONS_HOME` | the session's working directory |
 | `MELLIONS_SETTINGS` | `deploy/unattended-settings.json` | the runtime settings: the tools an engineer needs allowed, a short list of never-ordinary actions denied |
 | `MELLIONS_SURVEY_ARGS` | *(none)* | extra words for `mellions survey -save`, such as `-repos mellions-coxen`; the runner sets it for a method shift |
+| `MELLIONS_LOGIN_SHELL` | the account's login shell | the bash or zsh handed to the session as `SHELL`, which is what its Bash tool runs under, when the scheduler's `SHELL` is not an executable bash or zsh (cron's is `/bin/sh`); one that is stands |
 | `MELLIONS_BIN`, `CLAUDE_BIN`, `MELLIONS_PYTHON` | from `PATH` | the binaries |
 
 It runs `claude -p` with those settings and `--permission-mode acceptEdits`,

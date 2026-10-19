@@ -100,11 +100,19 @@ func cmdWho(args []string) error {
 	if err != nil {
 		return err
 	}
-	_, me := presence.Here()
+	runtime, me := presence.Here()
+	if me == "" && os.Getenv("MELLIONS_HOOK") != "" {
+		me, _ = hookContext(os.Stdin)
+	}
 	mine := presence.SelfPID()
 	live := cfg.presences().Live()
 	here, repo := workingIn(live, me, mine, here)
 	fmt.Printf("# Who is working here — %s\n\n", time.Now().UTC().Format("15:04 UTC"))
+	you := presence.YouAre(runtime, me, mine)
+	if me != "" || mine > 0 {
+		you += " Every session listed below is another one."
+	}
+	fmt.Printf("%s\n\n", you)
 	if repo != "" {
 		fmt.Printf("This tree: %s on %s (%s)\n\n", here, repo, strings.TrimSpace(gitOut(here, "rev-parse", "--abbrev-ref", "HEAD")))
 	}

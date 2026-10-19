@@ -6,10 +6,6 @@ description: Load this whenever the instruction is to remediate, fix, build, shi
 
 # Remediating a work item
 
-Turns a work item into verified code and then into a closed one: a worktree,
-the change, its proof, the resolution attacked, the pull request, the merge,
-the close.
-
 The repository defines production quality; **apply and demonstrate its bar**.
 
 ## A remediation, not a narrow patch
@@ -92,7 +88,10 @@ unmet with its evidence; gate and falsification results; residual risks and
 scope decisions. Keep complete raw evidence once in durable artifacts the
 reviewer can open, linked at the claim it supports, including reused evidence
 and its validity. A local temporary log alone is not a durable record. Cite a
-gate from its run, never a declaration or a file saying CI is off. A disabled, filtered or untriggered workflow executes nothing.
+gate from its run, never a declaration or a file saying CI is off. Read the pull
+request's own checks once settled after the push (`gh pr checks`; none is a
+result to state): a red this change causes fixed, any other attributed to
+its cause or said to have none established.
 
 **8 — Finish, or hand over.** Report the branch, the pull request, the commit
 and the verdict, on both the pull request and the assignment.
@@ -110,10 +109,10 @@ describes. Hand over all of it or none.
 Merging and closing follow the partnership, read and never assumed, by
 `mellions-issue-closure`: where they are yours, merge, verify at the remote,
 close, take the next thing; where it reserves them, the pull request plus the
-decision package is the finished state and a successful one. Only once the merge
-is verified **at the remote** — the merge commit on the base branch at origin,
-not only locally — remove the worktree and delete the task branch. One deleted
-on the strength of a local-only merge destroys the only copy of the work.
+decision package is the finished state and a successful one. Only once the
+merge commit is on the base branch **at origin** remove the worktree and the
+task branch: one deleted on a local-only merge destroys the only copy of the
+work.
 
 ## Stop points
 

@@ -104,7 +104,7 @@ func brief(t *testing.T, as *assignment.Store, held map[string]presence.Session)
 	}
 	stdout := os.Stdout
 	os.Stdout = w
-	err = continueBrief(as, "", held)
+	err = continueBrief(as, "", held, "self0001-0000-4000-8000-000000000000", "You are claude session self0001 (pid 111).")
 	os.Stdout = stdout
 	_ = w.Close()
 	out, readErr := io.ReadAll(r)
