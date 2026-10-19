@@ -19,7 +19,15 @@ import (
 // worktree makes a directory that looks like a git worktree to a stat.
 func worktree(t *testing.T) string {
 	t.Helper()
-	dir := t.TempDir()
+	return worktreeAt(t, t.TempDir())
+}
+
+// worktreeAt is worktree at a path the test chooses.
+func worktreeAt(t *testing.T, dir string) string {
+	t.Helper()
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(filepath.Join(dir, ".git"), []byte("gitdir: elsewhere\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
