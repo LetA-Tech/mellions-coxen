@@ -159,10 +159,10 @@ func markHeld(sigs []signal.Signal, now time.Time) []signal.Signal {
 	type key struct{ repo, branch string }
 	holders := map[key][]string{}
 	for _, s := range sigs {
-		if s.Kind != signal.KindAssignment || s.Attrs["holds_branch"] == "" {
+		if s.Kind != signal.KindAssignment || s.Attrs[signal.AttrHoldsBranch] == "" {
 			continue
 		}
-		k := key{s.Repo, s.Attrs["holds_branch"]}
+		k := key{s.Repo, s.Attrs[signal.AttrHoldsBranch]}
 		where := s.Attrs["state"] + " on this host"
 		if age := s.Age(now); age > 0 {
 			where += ", last recorded " + humanAge(age) + " ago"
@@ -174,15 +174,15 @@ func markHeld(sigs []signal.Signal, now time.Time) []signal.Signal {
 	}
 	for i := range sigs {
 		s := &sigs[i]
-		if s.Kind != signal.KindChangeSet || s.Attrs["branch"] == "" {
+		if s.Kind != signal.KindChangeSet || s.Attrs[signal.AttrBranch] == "" {
 			continue
 		}
-		lanes := holders[key{s.Repo, s.Attrs["branch"]}]
+		lanes := holders[key{s.Repo, s.Attrs[signal.AttrBranch]}]
 		if len(lanes) == 0 {
 			continue
 		}
 		attrs := maps.Clone(s.Attrs)
-		attrs["held_by"] = strings.Join(slices.Sorted(slices.Values(lanes)), ", ")
+		attrs[signal.AttrHeldBy] = strings.Join(slices.Sorted(slices.Values(lanes)), ", ")
 		s.Attrs = attrs
 	}
 	return sigs
@@ -488,7 +488,7 @@ func briefReadiness(s signal.Signal) string {
 	if s.Attrs["claimed"] != "" {
 		parts = append(parts, "CLAIMED")
 	}
-	if h := s.Attrs["held_by"]; h != "" {
+	if h := s.Attrs[signal.AttrHeldBy]; h != "" {
 		parts = append(parts, "HELD by lane "+h)
 	}
 	if len(parts) == 0 {

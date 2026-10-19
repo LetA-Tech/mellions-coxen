@@ -553,11 +553,9 @@ func lineFor(t *testing.T, out, id string) string {
 	return ""
 }
 
-// A live lane's draft whose claim label was never applied is still held, and a
-// shift choosing from the brief render must see that. The lane's branch is the
-// fact this host can know without the label: mcfo-findata#1497 sat on
-// mellions/fd1494-1018, held by a live lane, unlabelled, and a shift read it as
-// a draft nobody had reviewed and duplicated a review already in flight.
+// A change set whose branch a live lane on this host holds reads as held in the
+// brief render, label or not; a handed-off lane's draft, another repository's
+// branch of the same name, and a labelled change set no lane holds do not change.
 func TestALiveLanesUnlabelledDraftIsHeldInTheSurvey(t *testing.T) {
 	lane := signal.Signal{
 		Kind: signal.KindAssignment, Source: "assignments", ID: "fd1494-1018", Repo: "findata", Title: "lane",
@@ -585,9 +583,18 @@ func TestALiveLanesUnlabelledDraftIsHeldInTheSurvey(t *testing.T) {
 		Attrs: map[string]string{"type": "pull_request", "draft": "true", "reviews": "0", "branch": "fix/lint",
 			"claimed": "a Mellions lane holds this — read the claim on the pull request before merging it"},
 	}
+	both := signal.Signal{
+		Kind: signal.KindChangeSet, Source: "github", ID: "PR #1501", Repo: "findata", Title: "labelled and held",
+		Attrs: map[string]string{"type": "pull_request", "draft": "true", "reviews": "0", "branch": "mellions/fi-1019",
+			"claimed": "a Mellions lane holds this — read the claim on the pull request before merging it"},
+	}
+	bothLane := signal.Signal{
+		Kind: signal.KindAssignment, Source: "assignments", ID: "fi-1019", Repo: "findata", Title: "lane",
+		Attrs: map[string]string{"state": "blocked", "branch": "mellions/fi-1019", "holds_branch": "mellions/fi-1019"},
+	}
 	reg := regWith(t,
-		stub{name: "assignments", out: []signal.Signal{lane, handed}},
-		stub{name: "github", out: []signal.Signal{unlabelled, handedDraft, otherRepo, labelled}},
+		stub{name: "assignments", out: []signal.Signal{lane, handed, bothLane}},
+		stub{name: "github", out: []signal.Signal{unlabelled, handedDraft, otherRepo, labelled, both}},
 	)
 	r, err := NewRunner(reg, []string{"assignments", "github"})
 	if err != nil {
@@ -608,10 +615,13 @@ func TestALiveLanesUnlabelledDraftIsHeldInTheSurvey(t *testing.T) {
 	if got := lineFor(t, brief, "PR #9"); strings.Contains(got, "HELD") {
 		t.Errorf("a lane holds a branch in its own repository; another repository's change set reads as held:\n%s", got)
 	}
-	if got, want := lineFor(t, brief, "PR #1482"), "`findata` **PR #1482** labelled · draft · 0 reviews · CLAIMED\n"; got != want {
+	if got, want := strings.TrimSuffix(lineFor(t, brief, "PR #1482"), "\n"), "`findata` **PR #1482** labelled · draft · 0 reviews · CLAIMED"; got != want {
 		t.Errorf("a labelled change set's line changed:\ngot  %q\nwant %q", got, want)
 	}
-	for _, s := range []signal.Signal{unlabelled, handedDraft, otherRepo, labelled} {
+	if got := lineFor(t, brief, "PR #1501"); !strings.Contains(got, "CLAIMED · HELD by lane fi-1019 (blocked on this host)") {
+		t.Errorf("a labelled change set a live lane also holds loses one of the two markers:\n%s", got)
+	}
+	for _, s := range []signal.Signal{unlabelled, handedDraft, otherRepo, labelled, both} {
 		if _, ok := s.Attrs["held_by"]; ok {
 			t.Errorf("%s: the survey wrote into the map its source returned", s.ID)
 		}

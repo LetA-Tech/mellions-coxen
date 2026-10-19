@@ -305,6 +305,10 @@ func TestOnlyALiveLaneDeclaresItHoldsItsBranch(t *testing.T) {
 		"done": "", "parked": "",
 	}
 	for id, w := range want {
+		if _, ok := states[id]; !ok {
+			t.Errorf("lane %s is missing from the collected assignments", id)
+			continue
+		}
 		if holds[id] != w {
 			t.Errorf("lane %s (state %q) declares holds_branch=%q, want %q", id, states[id], holds[id], w)
 		}

@@ -91,13 +91,24 @@ type Signal struct {
 	Updated time.Time
 	// Labels are provider labels, verbatim and uninterpreted.
 	Labels []string
-	// Attrs is everything else the source knows. The core never reads it; the
-	// model does. This is what keeps provider richness from being flattened
-	// into a lowest common denominator.
+	// Attrs is everything else the source knows, read mostly by the model so
+	// provider richness is not flattened into a lowest common denominator.
+	// The survey reads the few keys named by the Attr constants below.
 	Attrs map[string]string
 	// Detail is optional supporting text — an excerpt, an error, a measurement.
 	Detail string
 }
+
+// Attribute keys one source writes and another, or the survey, reads.
+const (
+	// AttrBranch is a change set's head branch.
+	AttrBranch = "branch"
+	// AttrHoldsBranch is the branch an assignment holds while its lane is live.
+	AttrHoldsBranch = "holds_branch"
+	// AttrHeldBy is written by the survey on a change set whose branch a live
+	// lane on this host holds; no source reports it.
+	AttrHeldBy = "held_by"
+)
 
 // Key identifies a signal across collections.
 //
