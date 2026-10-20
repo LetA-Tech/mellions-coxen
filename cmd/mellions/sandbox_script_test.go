@@ -103,6 +103,7 @@ func TestAScriptThatOnlyReadsOrRemovesSaysNothing(t *testing.T) {
 		"#!/usr/bin/env bash\ndocker rm -f -v rp-a rp-b\ndocker ps -a\ndocker volume ls -qf dangling=true\n")
 	writeScript(t, filepath.Join(dir, "Makefile"), "build:\n\tgo build ./...\n")
 	writeScript(t, filepath.Join(dir, "big.sh"), strings.Repeat("#\n", 1<<20)+"docker run alpine\n")
+	writeScript(t, filepath.Join(dir, "bin", "tool"), "\x7fELF\x02\x01\x01\x00usage: tool wraps docker run\n")
 	for _, command := range []string{
 		`./teardown.sh`,
 		`bash teardown.sh`,
@@ -110,6 +111,7 @@ func TestAScriptThatOnlyReadsOrRemovesSaysNothing(t *testing.T) {
 		`make`,
 		`./missing.sh`,
 		`./big.sh`,
+		`./bin/tool --help`,
 		`go test ./...`,
 		`cat rp-arms.sh`,
 	} {
