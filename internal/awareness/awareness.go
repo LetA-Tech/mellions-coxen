@@ -208,6 +208,9 @@ type Observation struct {
 	// about the command itself — the guards that deny a call are their own
 	// programs and live elsewhere.
 	Command string
+	// StartedThrough is the local script or makefile through which Command
+	// brings a container up, empty where it brings none up that way.
+	StartedThrough string
 	// Idle reports that nothing is in flight anywhere on this installation.
 	Idle bool
 	// Survey is the path of a fresh estate survey, empty when there is none.
@@ -234,7 +237,7 @@ func Notes(o Observation) []Note {
 		}
 	}
 
-	if n, ok := sandboxNote(o.Command); ok {
+	if n, ok := sandboxNote(o.Command, o.StartedThrough); ok {
 		out = append(out, n)
 	}
 
@@ -569,25 +572,36 @@ func ShellQuote(s string) string {
 }
 
 // startsContainer recognises a session bringing a container up. The forms are
-// the ones a session actually types; a `docker ps` or a `docker logs` is not
-// one of them, and neither is a `docker rm`, which is the act this note exists
-// to ask for rather than to interrupt.
+// the ones a session actually types or a harness script carries, compose with
+// its file and project flags before the verb included; a `docker ps`, a
+// `docker logs` or a compose `down` is not one of them, and neither is a
+// `docker rm`, which is the act this note exists to ask for rather than to
+// interrupt.
 var startsContainer = regexp.MustCompile(
-	`(?i)\bdocker\s+(run|create|start|compose\s+up)\b|\bdocker-compose\s+up\b|\bpodman\s+run\b`)
+	`(?i)\bdocker\s+(run|create|start)\b|\b(docker\s+compose|docker-compose|podman-compose)\b[^;&|\n]*?\s(up|run|start|create)([\s;&|)'"<>]|$)|\bpodman\s+run\b`)
 
-// sandboxNote is said once, the first time a session brings a container up.
+// sandboxNote is said once, the first time a session brings a container up,
+// typed or through a script or make target it runs.
 //
 // This host is shared, and resources a lane starts are borrowed. Teardown
 // belongs to the turn that created them rather than to a later cleanup guess.
 //
 // It names the capability rather than the rule, because the rule is the Skill's
 // and the judgement about whether the sandbox suits this work is the session's.
-func sandboxNote(command string) (Note, bool) {
-	if command == "" || !startsContainer.MatchString(command) {
+func sandboxNote(command, through string) (Note, bool) {
+	because := "This session is starting a container on a host it shares with other lanes."
+	switch {
+	case command == "":
+		return Note{}, false
+	case startsContainer.MatchString(command):
+	case through != "":
+		because = "This session is starting a container, through " + through +
+			", on a host it shares with other lanes."
+	default:
 		return Note{}, false
 	}
 	return Note{
-		Because: "This session is starting a container on a host it shares with other lanes.",
+		Because: because,
 		Do: "What you start is yours to give back in the same turn — containers, volumes, " +
 			"networks and the anonymous volumes an image declares. " +
 			"`Skill(skill: \"mellions:mellions-sandbox\")` carries the disposable-sandbox " +

@@ -114,6 +114,7 @@ func cmdState(args []string) error {
 // observe establishes the situation. Every failure is swallowed: this runs on
 // the way to the model's turn and a broken observation must cost silence.
 func observe(cfg *Config, here, me, runtime string) awareness.Observation {
+	cwd := here
 	mine := presence.SelfPID()
 	live := cfg.presences().Live()
 	here, _ = workingIn(live, me, mine, treeOf(here))
@@ -138,6 +139,9 @@ func observe(cfg *Config, here, me, runtime string) awareness.Observation {
 		}
 	}
 	o.Command = hookCommand
+	if hookCommand != "" {
+		o.StartedThrough = awareness.StartedThrough(hookCommand, cwd, home())
+	}
 	o.Documents = governingDocuments(cfg, runtime, me)
 
 	// A marker that will not parse is silence here, as every other failure in
