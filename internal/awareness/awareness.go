@@ -578,7 +578,7 @@ func ShellQuote(s string) string {
 // `docker rm`, which is the act this note exists to ask for rather than to
 // interrupt.
 var startsContainer = regexp.MustCompile(
-	`(?i)\bdocker\s+(run|create|start)\b|\b(docker\s+compose|docker-compose|podman-compose)\b[^;&|\n]*?\s(up|run|start|create)(\s|$)|\bpodman\s+run\b`)
+	`(?i)\bdocker\s+(run|create|start)\b|\b(docker\s+compose|docker-compose|podman-compose)\b[^;&|\n]*?\s(up|run|start|create)([\s;&|)'"<>]|$)|\bpodman\s+run\b`)
 
 // sandboxNote is said once, the first time a session brings a container up,
 // typed or through a script or make target it runs.

@@ -22,6 +22,12 @@ func TestBringingAContainerUpNamesTheCapability(t *testing.T) {
 		`docker compose -f "$COMPOSE_FILE" up -d`,
 		`docker-compose -f test/docker-compose.test.yml up -d`,
 		`docker compose -p fd1522 --profile db run --rm migrate`,
+		`docker compose up; go test ./...`,
+		`docker compose up&`,
+		`docker compose up|tee log`,
+		`(docker compose up)`,
+		`bash -c "docker compose up"`,
+		`sh -c 'docker-compose up'`,
 		`set -e; docker volume create x >/dev/null; docker run --rm alpine true`,
 		`podman run --rm alpine true`,
 	} {

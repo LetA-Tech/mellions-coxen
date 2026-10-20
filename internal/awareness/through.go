@@ -30,7 +30,8 @@ const (
 // recipe of a make target it names, and through one further script that file
 // runs. Files are read, never executed: no `make -n`, whose `$(shell ...)`
 // would run. A path built from an expansion, a file over the size bound, a
-// binary or one that is not there is not read.
+// binary or one that is not there is not read; a syntax check or a dry run
+// runs nothing, and a comment line is not a start.
 func StartedThrough(command, cwd, home string) string {
 	t := &through{home: home, budget: maxThroughFiles}
 	return t.line(command, cwd, maxThroughDepth)
@@ -113,7 +114,7 @@ func commandWords(words []string) []string {
 func scriptArg(args []string) string {
 	for _, a := range args {
 		switch {
-		case a == "-c":
+		case a == "-c" || a == "-n":
 			return ""
 		case strings.HasPrefix(a, "-"):
 			continue
@@ -131,6 +132,7 @@ func (t *through) script(path, dir string, depth int) string {
 	if !ok {
 		return ""
 	}
+	body = uncommented(body)
 	if startsContainer.MatchString(body) {
 		return path
 	}
@@ -163,6 +165,8 @@ func (t *through) make(args []string, dir string, depth int) string {
 			file = a[strings.IndexByte(a, '=')+1:]
 		case strings.HasPrefix(a, "-f") && len(a) > 2:
 			file = a[2:]
+		case a == "-n" || a == "-q" || a == "--dry-run" || a == "--just-print" || a == "--recon" || a == "--question":
+			return ""
 		case strings.HasPrefix(a, "-") || assignment.MatchString(a):
 		default:
 			targets = append(targets, a)
@@ -202,7 +206,7 @@ func (t *through) make(args []string, dir string, depth int) string {
 		if !ok {
 			continue
 		}
-		recipe := strings.Join(r.recipe, "\n")
+		recipe := uncommented(strings.Join(r.recipe, "\n"))
 		if startsContainer.MatchString(recipe) {
 			return path
 		}
@@ -212,6 +216,19 @@ func (t *through) make(args []string, dir string, depth int) string {
 		targets = append(targets, r.prereqs...)
 	}
 	return ""
+}
+
+// uncommented drops whole-line shell comments: a script that says what it never
+// runs is not running it.
+func uncommented(body string) string {
+	lines := strings.Split(body, "\n")
+	kept := lines[:0]
+	for _, l := range lines {
+		if !strings.HasPrefix(strings.TrimSpace(l), "#") {
+			kept = append(kept, l)
+		}
+	}
+	return strings.Join(kept, "\n")
 }
 
 type rule struct {

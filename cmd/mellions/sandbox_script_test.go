@@ -74,7 +74,7 @@ func TestAScriptThatStartsAContainerNamesTheSandbox(t *testing.T) {
 	writeScript(t, filepath.Join(dir, "scripts", "pg-harness.sh"),
 		"#!/usr/bin/env bash\ncase \"$1\" in\nup) docker compose -f harness.yml up -d ;;\ndown) docker compose down -v ;;\nesac\n")
 	writeScript(t, filepath.Join(dir, "Makefile"),
-		"## build\nbuild:\n\tgo build ./...\n\ntest-db-up:\n\t@bash scripts/pg-harness.sh up\n")
+		"## build\nbuild:\n\tgo build ./...\n\nharness-up:\n\t@bash scripts/pg-harness.sh up\n")
 	writeScript(t, filepath.Join(dir, "sub", "up.sh"), brokerScript)
 
 	if !sandboxNoted(t, dir, `docker run --rm alpine true`) {
@@ -85,8 +85,8 @@ func TestAScriptThatStartsAContainerNamesTheSandbox(t *testing.T) {
 		`bash rp-arms.sh`,
 		`set -e; GOFLAGS=-count=1 ./rp-arms.sh`,
 		filepath.Join(dir, "rp-arms.sh"),
-		`make test-db-up`,
-		`make -C ` + dir + ` test-db-up`,
+		`make harness-up`,
+		`make -C ` + dir + ` harness-up`,
 		`cd sub && ./up.sh`,
 	} {
 		if !sandboxNoted(t, dir, command) {
@@ -101,7 +101,11 @@ func TestAScriptThatOnlyReadsOrRemovesSaysNothing(t *testing.T) {
 	dir := t.TempDir()
 	writeScript(t, filepath.Join(dir, "teardown.sh"),
 		"#!/usr/bin/env bash\ndocker rm -f -v rp-a rp-b\ndocker ps -a\ndocker volume ls -qf dangling=true\n")
-	writeScript(t, filepath.Join(dir, "Makefile"), "build:\n\tgo build ./...\n")
+	writeScript(t, filepath.Join(dir, "rp-arms.sh"), brokerScript)
+	writeScript(t, filepath.Join(dir, "lint-deploy.sh"),
+		"#!/usr/bin/env bash\n# a deploy script must never call docker run or docker compose up directly\ngrep -n 'docker' deploy.sh\n")
+	writeScript(t, filepath.Join(dir, "Makefile"),
+		"build:\n\tgo build ./...\n\nshell-check:\n\tbash -n rp-arms.sh\n\nharness-up:\n\t# never docker run here\n\t./lint-deploy.sh\n\nup:\n\t./rp-arms.sh\n")
 	writeScript(t, filepath.Join(dir, "big.sh"), strings.Repeat("#\n", 1<<20)+"docker run alpine\n")
 	writeScript(t, filepath.Join(dir, "bin", "tool"), "\x7fELF\x02\x01\x01\x00usage: tool wraps docker run\n")
 	for _, command := range []string{
@@ -114,6 +118,12 @@ func TestAScriptThatOnlyReadsOrRemovesSaysNothing(t *testing.T) {
 		`./bin/tool --help`,
 		`go test ./...`,
 		`cat rp-arms.sh`,
+		`./lint-deploy.sh`,
+		`bash -n rp-arms.sh`,
+		`make shell-check`,
+		`make -n up`,
+		`make --dry-run up`,
+		`make harness-up`,
 	} {
 		if sandboxNoted(t, dir, command) {
 			t.Errorf("a command that starts no container was interrupted: %q", command)
