@@ -14,11 +14,14 @@ import (
 // TestBringingAContainerUpNamesTheCapability is the case: a session starting a
 // backend on a shared host is told the toolbox has something for it, once.
 func TestBringingAContainerUpNamesTheCapability(t *testing.T) {
-	// Every one of these is a line an actual session typed.
+	// Every one of these is a line a session typed or a harness on this host carries.
 	for _, command := range []string{
 		`docker run -d --name imp017-authority-pg -p 127.0.0.1:55433:5432 postgres:18.6-alpine`,
 		`docker compose up -d`,
 		`docker-compose up`,
+		`docker compose -f "$COMPOSE_FILE" up -d`,
+		`docker-compose -f test/docker-compose.test.yml up -d`,
+		`docker compose -p fd1522 --profile db run --rm migrate`,
 		`set -e; docker volume create x >/dev/null; docker run --rm alpine true`,
 		`podman run --rm alpine true`,
 	} {
@@ -39,6 +42,10 @@ func TestOrdinaryDockerReadsSayNothing(t *testing.T) {
 		`docker system df`,
 		`docker rm -f imp017-authority-pg`,
 		`docker volume rm imp017-observer-data`,
+		`docker compose -f up.yml down -v`,
+		`docker compose -f harness.yml logs -f`,
+		`docker-compose -f docker-compose.test.yml ps`,
+		`docker compose down; echo up`,
 		`docker logs imp017-qdrant`,
 		`docker exec imp017-authority-pg psql -U postgres -c 'select 1'`,
 		`go test ./... -run TestDockerRunner`,
