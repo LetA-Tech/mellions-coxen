@@ -6,7 +6,10 @@ package shellsplit
 
 import "strings"
 
-import "testing"
+import (
+	"reflect"
+	"testing"
+)
 
 // bodyThroughSubstitution is how a document reaches a command: written in a
 // quoted heredoc, captured by a substitution, handed over as one argument.
@@ -59,5 +62,34 @@ func TestArithmeticDoesNotSwallowTheRestOfTheLine(t *testing.T) {
 	}
 	if got := cmds[1].Words; len(got) != 6 || got[0] != "gh" || got[5] != "hi" {
 		t.Errorf("second command = %q, want the gh call whole", got)
+	}
+}
+
+// An input redirection's target stays a word, marked as not an argument, and
+// the marks are indexes into Words wherever the redirection sits.
+func TestInputRedirectionTargets(t *testing.T) {
+	for _, tt := range []struct {
+		cmd   string
+		words []string
+		in    []int
+	}{
+		{`mellions < .env report write -file -`, []string{"mellions", ".env", "report", "write", "-file", "-"}, []int{1}},
+		{`mellions <.env report`, []string{"mellions", ".env", "report"}, []int{1}},
+		{`< .env cat`, []string{".env", "cat"}, []int{0}},
+		{`cat x < a < b`, []string{"cat", "x", "a", "b"}, []int{2, 3}},
+		{`cat <<< .env`, []string{"cat", ".env"}, nil},
+		{`cat <&3 x; ls y`, []string{"cat", "x"}, nil},
+		{`mellions < <(cat .env) report`, []string{"mellions", "<(cat .env)", "report"}, []int{1}},
+		{`diff <(ls a) b`, []string{"diff", "<(ls a)", "b"}, nil},
+		{`mellions <>x report .env`, []string{"mellions", "x", "report", ".env"}, []int{1}},
+		{`cat <>.env`, []string{"cat", ".env"}, []int{1}},
+	} {
+		c := Split(tt.cmd)[0]
+		if !reflect.DeepEqual(c.Words, tt.words) || !reflect.DeepEqual(c.In, tt.in) {
+			t.Errorf("Split(%q) = words %q in %v, want %q in %v", tt.cmd, c.Words, c.In, tt.words, tt.in)
+		}
+	}
+	if cs := Split(`cat <&3 x; ls y`); len(cs) != 2 || cs[1].In != nil {
+		t.Errorf("a descriptor duplication leaked a mark into the next command: %+v", cs)
 	}
 }
