@@ -83,9 +83,13 @@ func TestToolOutputOpeningABlockIsStillNotACitation(t *testing.T) {
 // citation introducing it cannot spend its head.
 func TestABlockHeadedByACitationBacksOnlyThatCitation(t *testing.T) {
 	files := tree{"a.go": "same()\n", "b.go": "same()\n"}
-	doc := "The call at `a.go:1`:\n\n```\nb.go:1\nsame()\n```\n"
-	f := firstOnly(Check(doc, files.read))
-	if len(f) != 1 || f[0].Raw != "a.go:1" {
-		t.Errorf("findings = %v, want a.go:1 alone refused and b.go:1 backed by its own block", f)
+	for name, doc := range map[string]string{
+		"blank between": "The call at `a.go:1`:\n\n```\nb.go:1\nsame()\n```\n",
+		"fence under":   "The call at `a.go:1`:\n```\nb.go:1\nsame()\n```\n",
+	} {
+		f := firstOnly(Check(doc, files.read))
+		if len(f) != 1 || f[0].Raw != "a.go:1" {
+			t.Errorf("%s: findings = %v, want a.go:1 alone refused and b.go:1 backed by its own block", name, f)
+		}
 	}
 }
