@@ -211,9 +211,10 @@ func NotACitation(c Citation, err error) bool {
 // blockquote is quotation rather than claim — a `go test` failure or a
 // `go vet` line pasted as evidence carries a real file and a real number that
 // the author is reporting, not citing, and denying on those would deny the
-// bodies that quote their evidence most carefully. An inline code span is
-// scanned, because a backticked `path.go:64` is how most citations are
-// written.
+// bodies that quote their evidence most carefully. The one block line that is
+// a claim is a header (heads): a block opened by a citation token alone, with
+// the quotation under it. An inline code span is scanned, because a backticked
+// `path.go:64` is how most citations are written.
 func Extract(doc string) []Citation {
 	var out []Citation
 	seen := map[string]bool{}
@@ -484,16 +485,21 @@ func Check(doc string, read func(path string) ([]string, error)) ([]Finding, []C
 // path:line pasted as evidence is never read as a claim. The converse does not
 // hold: a prose line carries inline spans, which are quotation sitting on a
 // claim's line, and that is exactly where a citation's own backing usually is.
+// A block's header is the author's claim, so it is prose (heads).
 func prose(doc string) string {
 	var out strings.Builder
 	fence := ""
-	for i, line := range strings.Split(doc, "\n") {
+	lines := strings.Split(doc, "\n")
+	head := heads(lines)
+	for i, line := range lines {
 		if i > 0 {
 			out.WriteByte('\n')
 		}
 		trimmed := strings.TrimLeft(line, " ")
 		closer := strings.TrimRight(trimmed, " \t\r")
 		switch {
+		case head[i]:
+			out.WriteString(line)
 		case fence != "":
 			if len(closer) >= len(fence) && strings.TrimLeft(closer, fence[:1]) == "" {
 				fence = ""
@@ -529,7 +535,10 @@ type quoted struct {
 	// block is true where this is a quoted block rather than a span on a
 	// prose line, which decides how a citation reaches it.
 	block bool
-	used  bool
+	// headed: the block opens with a citation token alone (heads), and at is
+	// that token's line. It backs that citation and no other.
+	headed bool
+	used   bool
 }
 
 // quotedText is every quotation a document makes, in document order, each
@@ -542,6 +551,7 @@ type quotedText struct {
 
 func quotations(doc string) *quotedText {
 	q := &quotedText{lines: strings.Split(doc, "\n")}
+	headers := heads(q.lines)
 	fence := ""
 	open := -1
 	// head records a block's first non-blank line as what the block quotes,
@@ -561,6 +571,15 @@ func quotations(doc string) *quotedText {
 		q.all = append(q.all, quoted{at: i, block: true})
 		open = len(q.all) - 1
 	}
+	// header anchors the open block to the citation heading it: what follows
+	// the token is its quotation, and the token itself is not quoted text.
+	header := func(i int) bool {
+		if !headers[i] || open < 0 {
+			return false
+		}
+		q.all[open].at, q.all[open].headed = i, true
+		return true
+	}
 	for i, line := range q.lines {
 		trimmed := strings.TrimLeft(line, " ")
 		closer := strings.TrimRight(trimmed, " \t\r")
@@ -570,7 +589,9 @@ func quotations(doc string) *quotedText {
 				fence, open = "", -1
 				continue
 			}
-			head(line)
+			if !header(i) {
+				head(line)
+			}
 		case strings.HasPrefix(trimmed, "```"), strings.HasPrefix(trimmed, "~~~"):
 			fence = trimmed[:runLen(trimmed)]
 			start(i)
@@ -595,7 +616,9 @@ func quotations(doc string) *quotedText {
 			if open < 0 {
 				start(i)
 			}
-			head(line)
+			if !header(i) {
+				head(line)
+			}
 		default:
 			open = -1
 			// `grep -n` output pasted into prose without a fence carries the
@@ -616,6 +639,78 @@ func quotations(doc string) *quotedText {
 		}
 	}
 	return q
+}
+
+// header is a block line that is one citation token and nothing else. Tool
+// output never reads that way — a test failure or vet line carries a message
+// after the number, `grep -n` the line's text, a stack frame its offset — so a
+// header is the author's, and pasted evidence stays quotation.
+var header = regexp.MustCompile(`^\s*(?:(?:[\w.+-]*/)*[\w+-]+\.[\w+-]+|(?:[\w.+-]+/)+[\w.+-]+):\d+\s*$`)
+
+// heads returns the document lines that head a fenced or indented block as its
+// citation: the block's first non-blank line is a header, and its next
+// non-blank line is the quotation. A block whose next line is another header
+// or a `grep -n` line is a listing — `grep -c` output reads as lone path:N
+// lines — and heads nothing.
+func heads(lines []string) map[int]bool {
+	out := map[int]bool{}
+	mark := func(block []int) {
+		var body []int
+		for _, i := range block {
+			if strings.TrimSpace(lines[i]) != "" {
+				body = append(body, i)
+			}
+		}
+		if len(body) < 2 || !header.MatchString(lines[body[0]]) {
+			return
+		}
+		if next := lines[body[1]]; header.MatchString(next) {
+			return
+		} else if _, _, ok := grepLine(next); ok {
+			return
+		}
+		out[body[0]] = true
+	}
+	// The block boundaries are quotations': a fence runs to its closer, and
+	// indented lines run until a line that is neither indented nor a
+	// blockquote. Indented lines under a blockquote continue it, so they head
+	// nothing.
+	fence := ""
+	var block []int
+	quote := false
+	end := func() {
+		mark(block)
+		block, quote = nil, false
+	}
+	for i, line := range lines {
+		trimmed := strings.TrimLeft(line, " ")
+		closer := strings.TrimRight(trimmed, " \t\r")
+		switch {
+		case fence != "":
+			if len(closer) >= len(fence) && strings.TrimLeft(closer, fence[:1]) == "" {
+				fence = ""
+				end()
+				continue
+			}
+			block = append(block, i)
+		case strings.HasPrefix(trimmed, "```"), strings.HasPrefix(trimmed, "~~~"):
+			end()
+			fence = trimmed[:runLen(trimmed)]
+		case strings.HasPrefix(trimmed, ">"):
+			if !quote {
+				end()
+			}
+			quote = true
+		case strings.HasPrefix(line, "    "), strings.HasPrefix(line, "\t"):
+			if !quote {
+				block = append(block, i)
+			}
+		default:
+			end()
+		}
+	}
+	end()
+	return out
 }
 
 // readings is the normalized forms a quoted line may be read in.
@@ -697,6 +792,14 @@ func (q *quotedText) backs(c Citation, want string) bool {
 func (q *quotedText) introduced(n int) *quoted {
 	for i := range q.all {
 		b := &q.all[i]
+		if b.block && b.headed && b.at >= n {
+			// a headed block is its own citation's, and the next block down
+			// belongs to no citation above it
+			if b.at == n {
+				return b
+			}
+			return nil
+		}
 		if !b.block || b.at <= n {
 			continue
 		}
