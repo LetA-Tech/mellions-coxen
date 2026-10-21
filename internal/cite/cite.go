@@ -641,17 +641,23 @@ func quotations(doc string) *quotedText {
 	return q
 }
 
-// header is a block line that is one citation token and nothing else. Tool
-// output never reads that way — a test failure or vet line carries a message
-// after the number, `grep -n` the line's text, a stack frame its offset — so a
-// header is the author's, and pasted evidence stays quotation.
+// header is a block line that is one citation token and nothing else. A test
+// failure or vet line carries a message after the number, `grep -n` the line's
+// text, a stack frame its offset, so none of those is a header.
 var header = regexp.MustCompile(`^\s*(?:(?:[\w.+-]*/)*[\w+-]+\.[\w+-]+|(?:[\w.+-]+/)+[\w.+-]+):\d+\s*$`)
+
+// counted is a lone name:N of any shape, `Makefile:3` included: the line a
+// `grep -c` or `rg -c` listing is made of.
+var counted = regexp.MustCompile(`^\s*\S+:\d+\s*$`)
+
+// searchDiagnostic is a search tool's complaint inside its own output.
+var searchDiagnostic = regexp.MustCompile(`^\s*(?:grep|egrep|fgrep|rg|ag|ack): `)
 
 // heads returns the document lines that head a fenced or indented block as its
 // citation: the block's first non-blank line is a header, and its next
-// non-blank line is the quotation. A block whose next line is another header
-// or a `grep -n` line is a listing — `grep -c` output reads as lone path:N
-// lines — and heads nothing.
+// non-blank line is the quotation. A block that is search output heads
+// nothing: its second line is a `grep -n` line, two lone name:N lines stand
+// together (a `-c` listing), or a search tool's diagnostic is among them.
 func heads(lines []string) map[int]bool {
 	out := map[int]bool{}
 	mark := func(block []int) {
@@ -664,10 +670,14 @@ func heads(lines []string) map[int]bool {
 		if len(body) < 2 || !header.MatchString(lines[body[0]]) {
 			return
 		}
-		if next := lines[body[1]]; header.MatchString(next) {
+		if _, _, ok := grepLine(lines[body[1]]); ok {
 			return
-		} else if _, _, ok := grepLine(next); ok {
-			return
+		}
+		for k, i := range body {
+			if searchDiagnostic.MatchString(lines[i]) ||
+				k > 0 && counted.MatchString(lines[i]) && counted.MatchString(lines[body[k-1]]) {
+				return
+			}
 		}
 		out[body[0]] = true
 	}

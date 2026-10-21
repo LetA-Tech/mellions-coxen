@@ -31,6 +31,7 @@ func TestABlockHeadedByALoneCitationIsGraded(t *testing.T) {
 		"indented, wrong number":  {"Before:\n\n    internal/guard/findata_schema_pin_guard_test.go:740\n    " + line + "\n", true},
 		"indented, right number":  {"Before:\n\n    internal/guard/findata_schema_pin_guard_test.go:739\n    " + line + "\n", false},
 		"after prose, wrong":      {"The guard:\n\n```go\ninternal/guard/findata_schema_pin_guard_test.go:740\n" + line + "\n```\n", true},
+		"first of several pairs":  {"```\ninternal/guard/findata_schema_pin_guard_test.go:740\n    " + line + "\ninternal/guard/findata_schema_pin_guard_test.go:739\n    " + line + "\n```\n", true},
 		"repo-prefixed, accepted": {"```\nmcfo-finledger/internal/guard/findata_schema_pin_guard_test.go:739\n" + line + "\n```\n", false},
 	} {
 		if got := len(Extract(c.doc)); got != 1 {
@@ -63,12 +64,15 @@ func TestToolOutputOpeningABlockIsStillNotACitation(t *testing.T) {
 		"cmd/mellions/report.go":  strings.Repeat("x\n", 200),
 	}
 	for name, doc := range map[string]string{
-		"go test":  "```\ninternal/cite/a_test.go:117: 3 reports written, want 3\n--- FAIL: TestX\n```\n",
-		"go vet":   "```\ncmd/mellions/report.go:159:2: unreachable code\nexit status 1\n```\n",
-		"grep -n":  "```\ninternal/cite/cite.go:210:// path:line inside a fenced block or a\ninternal/cite/cite.go:501:\t\tcase x:\n```\n",
-		"frame":    "```\n\t/go/src/x/internal/cite/cite.go:42 +0x1d\nmain.main()\n```\n",
-		"grep -c":  "```\ninternal/cite/cite.go:12\ninternal/cite/a_test.go:40\ncmd/mellions/report.go:3\n```\n",
-		"indented": "Output:\n\n    internal/cite/cite.go:12\n    internal/cite/a_test.go:40\n",
+		"go test":                       "```\ninternal/cite/a_test.go:117: 3 reports written, want 3\n--- FAIL: TestX\n```\n",
+		"go vet":                        "```\ncmd/mellions/report.go:159:2: unreachable code\nexit status 1\n```\n",
+		"grep -n":                       "```\ninternal/cite/cite.go:210:// path:line inside a fenced block or a\ninternal/cite/cite.go:501:\t\tcase x:\n```\n",
+		"frame":                         "```\n\t/go/src/x/internal/cite/cite.go:42 +0x1d\nmain.main()\n```\n",
+		"grep -c":                       "```\ninternal/cite/cite.go:12\ninternal/cite/a_test.go:40\ncmd/mellions/report.go:3\n```\n",
+		"indented":                      "Output:\n\n    internal/cite/cite.go:12\n    internal/cite/a_test.go:40\n",
+		"grep -c, extensionless second": "```\ninternal/cite/cite.go:1\nMakefile:1\nREADME.md:6\n```\n",
+		"grep -c, later pair":           "```\ninternal/cite/cite.go:3\nx\nMakefile:1\nREADME.md:6\n```\n",
+		"grep diagnostic":               "```\ninternal/cite/cite.go:3\ngrep: internal/cite: Is a directory\ncmd/mellions/report.go:5\n```\n",
 	} {
 		if got := Extract(doc); len(got) != 0 {
 			t.Errorf("%s: graded %v as a citation", name, got)
