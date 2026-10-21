@@ -13,7 +13,9 @@
 # What is denied is a citation this checkout can resolve and the body does not
 # quote, and a line range this checkout's file does not reach; a range owes no
 # quotation. A path:line inside a fenced block or a blockquote is not a claim
-# about this code and is skipped. A path the checkout does not hold, and a bare
+# about this code and is skipped, except a fenced or indented block opened by a
+# lone path:N: that is a citation, quoted by the block's next line. A path the
+# checkout does not hold, and a bare
 # `:N` left ungraded because a file is named since the citation before it, are
 # named as context and never denied. Without
 # the binary this hook is silent, which every session-start hook says out loud
