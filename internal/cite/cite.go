@@ -646,12 +646,13 @@ func quotations(doc string) *quotedText {
 // text, a stack frame its offset, so none of those is a header.
 var header = regexp.MustCompile(`^\s*(?:(?:[\w.+-]*/)*[\w+-]+\.[\w+-]+|(?:[\w.+-]+/)+[\w.+-]+):\d+\s*$`)
 
-// counted is a lone name:N of any shape, `Makefile:3` included: the line a
-// `grep -c` or `rg -c` listing is made of.
-var counted = regexp.MustCompile(`^\s*\S+:\d+\s*$`)
+// counted is a lone filename:N, `Makefile:3` included: the line a `grep -c`
+// or `rg -c` listing is made of. `KEY=host:port` is not one.
+var counted = regexp.MustCompile(`^\s*[\w./+-]+:\d+\s*$`)
 
-// searchDiagnostic is a search tool's complaint inside its own output.
-var searchDiagnostic = regexp.MustCompile(`^\s*(?:grep|egrep|fgrep|rg|ag|ack): `)
+// searchDiagnostic is a search tool's complaint inside its own output, shaped
+// `grep: operand: message`, which a YAML `ack: all` is not.
+var searchDiagnostic = regexp.MustCompile(`^\s*(?:grep|egrep|fgrep|ugrep|rg|ag|ack): [^:]+: \S`)
 
 // heads returns the document lines that head a fenced or indented block as its
 // citation: the block's first non-blank line is a header, and its next

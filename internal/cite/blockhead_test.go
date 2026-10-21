@@ -31,6 +31,8 @@ func TestABlockHeadedByALoneCitationIsGraded(t *testing.T) {
 		"indented, wrong number":  {"Before:\n\n    internal/guard/findata_schema_pin_guard_test.go:740\n    " + line + "\n", true},
 		"indented, right number":  {"Before:\n\n    internal/guard/findata_schema_pin_guard_test.go:739\n    " + line + "\n", false},
 		"after prose, wrong":      {"The guard:\n\n```go\ninternal/guard/findata_schema_pin_guard_test.go:740\n" + line + "\n```\n", true},
+		"quoting KEY=host:port":   {"```\ninternal/guard/findata_schema_pin_guard_test.go:740\nREDIS_ADDR=redis:6379\n```\n", true},
+		"quoting a YAML ack key":  {"```yaml\ninternal/guard/findata_schema_pin_guard_test.go:740\nacks:\n  ack: all\n```\n", true},
 		"first of several pairs":  {"```\ninternal/guard/findata_schema_pin_guard_test.go:740\n    " + line + "\ninternal/guard/findata_schema_pin_guard_test.go:739\n    " + line + "\n```\n", true},
 		"repo-prefixed, accepted": {"```\nmcfo-finledger/internal/guard/findata_schema_pin_guard_test.go:739\n" + line + "\n```\n", false},
 	} {
