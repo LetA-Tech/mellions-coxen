@@ -793,8 +793,7 @@ func (q *quotedText) introduced(n int) *quoted {
 	for i := range q.all {
 		b := &q.all[i]
 		if b.block && b.headed && b.at >= n {
-			// a headed block is its own citation's, and the next block down
-			// belongs to no citation above it
+			// a headed block backs the citation heading it, never one above
 			if b.at == n {
 				return b
 			}
