@@ -211,9 +211,10 @@ func NotACitation(c Citation, err error) bool {
 // blockquote is quotation rather than claim — a `go test` failure or a
 // `go vet` line pasted as evidence carries a real file and a real number that
 // the author is reporting, not citing, and denying on those would deny the
-// bodies that quote their evidence most carefully. An inline code span is
-// scanned, because a backticked `path.go:64` is how most citations are
-// written.
+// bodies that quote their evidence most carefully. The one block line that is
+// a claim is a header (heads): a block opened by a citation token alone, with
+// the quotation under it. An inline code span is scanned, because a backticked
+// `path.go:64` is how most citations are written.
 func Extract(doc string) []Citation {
 	var out []Citation
 	seen := map[string]bool{}
@@ -484,16 +485,21 @@ func Check(doc string, read func(path string) ([]string, error)) ([]Finding, []C
 // path:line pasted as evidence is never read as a claim. The converse does not
 // hold: a prose line carries inline spans, which are quotation sitting on a
 // claim's line, and that is exactly where a citation's own backing usually is.
+// A block's header is the author's claim, so it is prose (heads).
 func prose(doc string) string {
 	var out strings.Builder
 	fence := ""
-	for i, line := range strings.Split(doc, "\n") {
+	lines := strings.Split(doc, "\n")
+	head := heads(lines)
+	for i, line := range lines {
 		if i > 0 {
 			out.WriteByte('\n')
 		}
 		trimmed := strings.TrimLeft(line, " ")
 		closer := strings.TrimRight(trimmed, " \t\r")
 		switch {
+		case head[i]:
+			out.WriteString(line)
 		case fence != "":
 			if len(closer) >= len(fence) && strings.TrimLeft(closer, fence[:1]) == "" {
 				fence = ""
@@ -529,7 +535,10 @@ type quoted struct {
 	// block is true where this is a quoted block rather than a span on a
 	// prose line, which decides how a citation reaches it.
 	block bool
-	used  bool
+	// headed: the block opens with a citation token alone (heads), and at is
+	// that token's line. It backs that citation and no other.
+	headed bool
+	used   bool
 }
 
 // quotedText is every quotation a document makes, in document order, each
@@ -542,6 +551,7 @@ type quotedText struct {
 
 func quotations(doc string) *quotedText {
 	q := &quotedText{lines: strings.Split(doc, "\n")}
+	headers := heads(q.lines)
 	fence := ""
 	open := -1
 	// head records a block's first non-blank line as what the block quotes,
@@ -561,6 +571,15 @@ func quotations(doc string) *quotedText {
 		q.all = append(q.all, quoted{at: i, block: true})
 		open = len(q.all) - 1
 	}
+	// header anchors the open block to the citation heading it: what follows
+	// the token is its quotation, and the token itself is not quoted text.
+	header := func(i int) bool {
+		if !headers[i] || open < 0 {
+			return false
+		}
+		q.all[open].at, q.all[open].headed = i, true
+		return true
+	}
 	for i, line := range q.lines {
 		trimmed := strings.TrimLeft(line, " ")
 		closer := strings.TrimRight(trimmed, " \t\r")
@@ -570,7 +589,9 @@ func quotations(doc string) *quotedText {
 				fence, open = "", -1
 				continue
 			}
-			head(line)
+			if !header(i) {
+				head(line)
+			}
 		case strings.HasPrefix(trimmed, "```"), strings.HasPrefix(trimmed, "~~~"):
 			fence = trimmed[:runLen(trimmed)]
 			start(i)
@@ -595,7 +616,9 @@ func quotations(doc string) *quotedText {
 			if open < 0 {
 				start(i)
 			}
-			head(line)
+			if !header(i) {
+				head(line)
+			}
 		default:
 			open = -1
 			// `grep -n` output pasted into prose without a fence carries the
@@ -616,6 +639,89 @@ func quotations(doc string) *quotedText {
 		}
 	}
 	return q
+}
+
+// header is a block line that is one citation token and nothing else. A test
+// failure or vet line carries a message after the number, `grep -n` the line's
+// text, a stack frame its offset, so none of those is a header.
+var header = regexp.MustCompile(`^\s*(?:(?:[\w.+-]*/)*[\w+-]+\.[\w+-]+|(?:[\w.+-]+/)+[\w.+-]+):\d+\s*$`)
+
+// counted is a lone filename:N, `Makefile:3` included: the line a `grep -c`
+// or `rg -c` listing is made of. `KEY=host:port` is not one.
+var counted = regexp.MustCompile(`^\s*[\w./+-]+:\d+\s*$`)
+
+// searchDiagnostic is a search tool's complaint inside its own output, shaped
+// `grep: operand: message`, which a YAML `ack: all` is not.
+var searchDiagnostic = regexp.MustCompile(`^\s*(?:grep|egrep|fgrep|ugrep|rg|ag|ack): [^:]+: \S`)
+
+// heads returns the document lines that head a fenced or indented block as its
+// citation: the block's first non-blank line is a header, and its next
+// non-blank line is the quotation. A block that is search output heads
+// nothing: its second line is a `grep -n` line, two lone name:N lines stand
+// together (a `-c` listing), or a search tool's diagnostic is among them.
+func heads(lines []string) map[int]bool {
+	out := map[int]bool{}
+	mark := func(block []int) {
+		var body []int
+		for _, i := range block {
+			if strings.TrimSpace(lines[i]) != "" {
+				body = append(body, i)
+			}
+		}
+		if len(body) < 2 || !header.MatchString(lines[body[0]]) {
+			return
+		}
+		if _, _, ok := grepLine(lines[body[1]]); ok {
+			return
+		}
+		for k, i := range body {
+			if searchDiagnostic.MatchString(lines[i]) ||
+				k > 0 && counted.MatchString(lines[i]) && counted.MatchString(lines[body[k-1]]) {
+				return
+			}
+		}
+		out[body[0]] = true
+	}
+	// The block boundaries are quotations': a fence runs to its closer, and
+	// indented lines run until a line that is neither indented nor a
+	// blockquote. Indented lines under a blockquote continue it, so they head
+	// nothing.
+	fence := ""
+	var block []int
+	quote := false
+	end := func() {
+		mark(block)
+		block, quote = nil, false
+	}
+	for i, line := range lines {
+		trimmed := strings.TrimLeft(line, " ")
+		closer := strings.TrimRight(trimmed, " \t\r")
+		switch {
+		case fence != "":
+			if len(closer) >= len(fence) && strings.TrimLeft(closer, fence[:1]) == "" {
+				fence = ""
+				end()
+				continue
+			}
+			block = append(block, i)
+		case strings.HasPrefix(trimmed, "```"), strings.HasPrefix(trimmed, "~~~"):
+			end()
+			fence = trimmed[:runLen(trimmed)]
+		case strings.HasPrefix(trimmed, ">"):
+			if !quote {
+				end()
+			}
+			quote = true
+		case strings.HasPrefix(line, "    "), strings.HasPrefix(line, "\t"):
+			if !quote {
+				block = append(block, i)
+			}
+		default:
+			end()
+		}
+	}
+	end()
+	return out
 }
 
 // readings is the normalized forms a quoted line may be read in.
@@ -697,6 +803,13 @@ func (q *quotedText) backs(c Citation, want string) bool {
 func (q *quotedText) introduced(n int) *quoted {
 	for i := range q.all {
 		b := &q.all[i]
+		if b.block && b.headed && b.at >= n {
+			// a headed block backs the citation heading it, never one above
+			if b.at == n {
+				return b
+			}
+			return nil
+		}
 		if !b.block || b.at <= n {
 			continue
 		}
