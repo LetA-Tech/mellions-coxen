@@ -161,7 +161,6 @@ func calls(command, cwd string, accept func(noun, verb string) bool) []Call {
 
 	var out []Call
 	dir := cwd
-	vars := map[string]string{}
 	// redirected holds each path an earlier command in this line writes by
 	// redirection: what is on disk now is not what gh will read.
 	redirected := map[string]bool{}
@@ -172,12 +171,9 @@ func calls(command, cwd string, accept func(noun, verb string) bool) []Call {
 		}
 		prevOut = ""
 		if c.Out != "" && len(c.Heredocs) == 0 {
-			prevOut = expand(c.Out, vars)
+			prevOut = resolve(c.Out, dir)
 		}
-		if assign(c.Words, vars) {
-			continue
-		}
-		if moved, ok := chdir(expandWords(c.Words, vars), cwd, dir); ok {
+		if moved, ok := chdir(c.Words, cwd, dir); ok {
 			dir = moved
 			continue
 		}
@@ -204,7 +200,7 @@ func calls(command, cwd string, accept func(noun, verb string) bool) []Call {
 			case "--body", "-b":
 				call.Bodies = append(call.Bodies, v)
 			case "--body-file", "-F":
-				body, why := bodyFile(v, hasGlued, c, written, redirected, vars, dir)
+				body, why := bodyFile(v, hasGlued, c, written, redirected, dir)
 				call.Bodies = append(call.Bodies, body)
 				if why != "" {
 					call.Unread = append(call.Unread, Unreadable{Spec: v, Why: why})
@@ -279,13 +275,14 @@ func chdir(words []string, cwd, dir string) (string, bool) {
 // a PreToolUse hook and is not read.
 //
 // why is non-empty where the text gh will publish is not what this returns:
-// a spec still holding `$` or a backtick once this line's own assignments are
-// expanded names whatever the shell makes of it, which this parse never knows,
-// and a path with no regular file behind it has no text here to grade.
+// a spec holding `$` or a backtick names whatever the shell expands it to, and
+// even an assignment earlier in the line may not be the one that ran (`||`,
+// `if` and `&&` are invisible here); a path with no regular file behind it, or
+// one an earlier command in the line rewrites, has no text here to grade.
 //
 // bash expands a leading `~` or `~/` in a separate word, never in a glued
 // `--body-file=~/x`, so only the separate form is expanded here.
-func bodyFile(spec string, glued bool, c *shellsplit.Command, written map[string]string, redirected map[string]bool, vars map[string]string, cwd string) (body, why string) {
+func bodyFile(spec string, glued bool, c *shellsplit.Command, written map[string]string, redirected map[string]bool, cwd string) (body, why string) {
 	const unseen = "no regular file is at that path when this hook runs"
 	switch spec {
 	case "":
@@ -301,15 +298,9 @@ func bodyFile(spec string, glued bool, c *shellsplit.Command, written map[string
 	if b, ok := written[spec]; ok {
 		return b, ""
 	}
-	path := expand(spec, vars)
-	if b, ok := written[path]; ok {
-		return b, ""
-	}
+	path := spec
 	if strings.ContainsAny(path, "$`") {
 		return "", "a shell expansion this hook does not perform"
-	}
-	if redirected[spec] || redirected[path] {
-		return "", "written by an earlier command in this line, which runs after this hook reads it"
 	}
 	if !glued && (path == "~" || strings.HasPrefix(path, "~/")) {
 		home, err := os.UserHomeDir()
@@ -323,6 +314,9 @@ func bodyFile(spec string, glued bool, c *shellsplit.Command, written map[string
 			return "", "relative to a `cd` through a shell expansion this hook does not perform"
 		}
 		path = filepath.Join(cwd, path)
+	}
+	if redirected[filepath.Clean(path)] {
+		return "", "written by an earlier command in this line, which runs after this hook reads it"
 	}
 	// A regular file and nothing else: a path in the payload is not this
 	// hook's to trust, and opening a fifo would hang the tool call.
@@ -341,81 +335,17 @@ func bodyFile(spec string, glued bool, c *shellsplit.Command, written map[string
 	return string(b), ""
 }
 
-// assign records a command that only assigns shell variables — `NAME=value`
-// or `export NAME=value` — and reports whether it was one. A value holding an
-// expansion of its own is stored as written: expand substitutes once, so the
-// `$` or backtick survives and the spec is still refused. A `NAME=value`
-// prefixing a command is that command's environment and persists nowhere.
-func assign(words []string, vars map[string]string) bool {
-	ws := words
-	if len(ws) > 0 && ws[0] == "export" {
-		ws = ws[1:]
-	}
-	if len(ws) == 0 {
-		return false
-	}
-	for _, w := range ws {
-		name, _, ok := strings.Cut(w, "=")
-		if !ok || !isName(name) {
-			return false
+// resolve is the absolute path a redirection target names from dir, with a
+// separate-word `~/` expanded as bash does, so a body file spelled another
+// way is still recognised as the same file.
+func resolve(p, dir string) string {
+	if p == "~" || strings.HasPrefix(p, "~/") {
+		if home, err := os.UserHomeDir(); err == nil {
+			p = filepath.Join(home, strings.TrimPrefix(p[1:], "/"))
 		}
 	}
-	for _, w := range ws {
-		name, val, _ := strings.Cut(w, "=")
-		vars[name] = val
+	if !filepath.IsAbs(p) && dir != "" {
+		p = filepath.Join(dir, p)
 	}
-	return true
-}
-
-func isName(s string) bool {
-	for i, r := range s {
-		if r != '_' && (r < 'a' || r > 'z') && (r < 'A' || r > 'Z') && (i == 0 || r < '0' || r > '9') {
-			return false
-		}
-	}
-	return s != ""
-}
-
-// expand substitutes $NAME and ${NAME} for each variable this line assigned.
-// Any other expansion is left as written, so the caller still sees its `$`.
-func expand(s string, vars map[string]string) string {
-	if !strings.Contains(s, "$") || len(vars) == 0 {
-		return s
-	}
-	var b strings.Builder
-	for i := 0; i < len(s); i++ {
-		if s[i] != '$' {
-			b.WriteByte(s[i])
-			continue
-		}
-		name, end := "", i+1
-		if end < len(s) && s[end] == '{' {
-			if close := strings.IndexByte(s[end:], '}'); close > 0 {
-				name, end = s[end+1:end+close], end+close+1
-			}
-		} else {
-			for end < len(s) && isName(s[i+1:end+1]) {
-				end++
-			}
-			name = s[i+1 : end]
-		}
-		if v, ok := vars[name]; ok && isName(name) {
-			b.WriteString(v)
-			i = end - 1
-			continue
-		}
-		b.WriteByte('$')
-	}
-	return b.String()
-}
-
-func expandWords(words []string, vars map[string]string) []string {
-	if len(vars) == 0 {
-		return words
-	}
-	out := make([]string, len(words))
-	for i, w := range words {
-		out[i] = expand(w, vars)
-	}
-	return out
+	return filepath.Clean(p)
 }

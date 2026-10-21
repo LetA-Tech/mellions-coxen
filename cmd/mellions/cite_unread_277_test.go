@@ -45,17 +45,25 @@ func TestCiteHook_RefusesABodyFileNamedThroughAShellExpansion(t *testing.T) {
 	}
 }
 
-// With S assigned earlier in the same line, $S/b.md is the file gh reads, so
-// it is graded: refused for the citation it does not quote.
-func TestCiteHook_GradesABodyFileThroughAVariableTheLineAssigns(t *testing.T) {
+// An assignment earlier in the line may not be the one that ran, and the parse
+// cannot see `||`, so $S/b.md is refused even with S assigned: expanding it
+// graded a clean file while gh published the citing one.
+func TestCiteHook_RefusesABodyFileThroughAVariableTheLineAssigns(t *testing.T) {
 	session, lane := citeFixture(t)
-	s := t.TempDir()
-	unquotedBody(t, s)
+	citing := t.TempDir()
+	unquotedBody(t, citing)
+	clean := t.TempDir()
+	if err := os.WriteFile(filepath.Join(clean, "b.md"), []byte("No citations here.\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 
-	for _, spec := range []string{"$S/b.md", "${S}/b.md"} {
-		reason := runCiteHook(t, session, "S="+s+"; cd "+lane+" && gh pr create --base dev --body-file "+spec)
-		if !strings.Contains(reason, "neonlink.go:3") || strings.Contains(reason, "cannot be checked") {
-			t.Errorf("--body-file %s with S assigned: not graded for its citation: %q", spec, reason)
+	for _, cmd := range []string{
+		"S=" + citing + "; cd " + lane + " && gh pr create --base dev --body-file $S/b.md",
+		"S=" + citing + "; test -d " + citing + " || S=" + clean + "; cd " + lane + " && gh pr create --base dev --body-file $S/b.md",
+	} {
+		reason := runCiteHook(t, session, cmd)
+		if !strings.Contains(reason, "--body-file $S/b.md: a shell expansion") {
+			t.Errorf("%s: not refused as unread: %q", cmd, reason)
 		}
 	}
 }
@@ -146,10 +154,9 @@ func TestCiteHook_RefusesACdThroughAnExpansionWhenTheBodyCites(t *testing.T) {
 		t.Fatalf("a cd through a variable was not refused for a citing body: %q", reason)
 	}
 
-	// Assigned earlier in the line, the cd is followed into the lane, where
-	// the quoted line is right.
-	if reason := runCiteHook(t, session, "L="+lane+"; cd $L && gh issue create --body-file "+right); reason != "" {
-		t.Fatalf("a cd through a variable this line assigns was not followed: %s", reason)
+	// Assigned earlier in the line is no different: the parse cannot tell it ran.
+	if reason := runCiteHook(t, session, "L="+lane+"; cd $L && gh issue create --body-file "+right); !strings.Contains(reason, "cd to ") {
+		t.Fatalf("a cd through a variable this line assigns was not refused: %q", reason)
 	}
 
 	// A relative body file after that cd is refused for the cd, not as missing.
