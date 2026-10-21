@@ -24,6 +24,8 @@ func TestUnreadNamesEveryBodyFileSpecThisParseCouldNotRead(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	homeRel := "body.md"
+	other := t.TempDir()
+	writeTestFile(t, filepath.Join(other, "b.md"), "not the body bash reads\n")
 	writeTestFile(t, filepath.Join(home, homeRel), "body\n")
 
 	for _, tc := range []struct {
@@ -40,7 +42,7 @@ func TestUnreadNamesEveryBodyFileSpecThisParseCouldNotRead(t *testing.T) {
 		{"missing path", "gh issue comment 1 --body-file " + gone, []string{gone}},
 		{"empty spec", "gh pr edit 1 --body-file ''", []string{""}},
 		{"assigned earlier in the line", "S=" + dir + "; gh pr create --body-file $S/b.md", []string{"$S/b.md"}},
-		{"conditionally reassigned", "S=" + dir + "; test -d /nonexistent || S=/elsewhere; gh pr create --body-file $S/b.md", []string{"$S/b.md"}},
+		{"conditionally reassigned", "S=" + dir + "; test -d " + dir + " || S=" + other + "; gh pr create --body-file $S/b.md", []string{"$S/b.md"}},
 		{"cd through an assigned variable", "L=" + dir + "; cd $L && gh pr create --body-file b.md", []string{"b.md"}},
 		{"assigned from an expansion", "S=$(mktemp -d); gh pr create --body-file $S/b.md", []string{"$S/b.md"}},
 		{"reassigned to an expansion", "S=" + dir + "; S=$HOME; gh pr create --body-file $S/b.md", []string{"$S/b.md"}},
