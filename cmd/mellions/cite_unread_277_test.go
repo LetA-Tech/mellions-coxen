@@ -60,6 +60,33 @@ func TestCiteHook_GradesABodyFileThroughAVariableTheLineAssigns(t *testing.T) {
 	}
 }
 
+// bash expands ~/ in a separate word, so that file is the body and is graded.
+func TestCiteHook_GradesAHomeRelativeBodyFile(t *testing.T) {
+	session, lane := citeFixture(t)
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	unquotedBody(t, home)
+
+	reason := runCiteHook(t, session, "cd "+lane+" && gh pr review 1 --comment --body-file ~/b.md")
+	if !strings.Contains(reason, "neonlink.go:3") || strings.Contains(reason, "cannot be checked") {
+		t.Fatalf("a ~/ body file was not graded for its citation: %q", reason)
+	}
+}
+
+// A file this line overwrites before gh runs is not yet the body on disk.
+func TestCiteHook_RefusesABodyFileTheLineRewritesFirst(t *testing.T) {
+	session, lane := citeFixture(t)
+	clean := filepath.Join(t.TempDir(), "clean.md")
+	if err := os.WriteFile(clean, []byte("No citations here.\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	reason := runCiteHook(t, session, "cd "+lane+" && printf 'Root cause is `neonlink.go:3`.' > "+clean+" && gh issue comment 5 --body-file "+clean)
+	if !strings.Contains(reason, "--body-file "+clean+": written by an earlier command") {
+		t.Fatalf("a body file rewritten earlier in the line was graded from its stale contents: %q", reason)
+	}
+}
+
 // The same file named literally is graded exactly as before: refused for the
 // citation it does not quote, not for being unreadable.
 func TestCiteHook_GradesTheSameBodyNamedLiterally(t *testing.T) {

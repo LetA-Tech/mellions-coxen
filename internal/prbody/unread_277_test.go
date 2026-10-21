@@ -21,6 +21,10 @@ func TestUnreadNamesEveryBodyFileSpecThisParseCouldNotRead(t *testing.T) {
 		t.Fatal(err)
 	}
 	writeTestFile(t, filepath.Join(dir, "$S", "b.md"), "not the body gh reads\n")
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	homeRel := "body.md"
+	writeTestFile(t, filepath.Join(home, homeRel), "body\n")
 
 	for _, tc := range []struct {
 		name, command string
@@ -43,6 +47,10 @@ func TestUnreadNamesEveryBodyFileSpecThisParseCouldNotRead(t *testing.T) {
 		{"a prefix is the command's own environment", "S=" + dir + " gh pr create --body-file $S/b.md", []string{"$S/b.md"}},
 		{"assigned after the use", "gh pr create --body-file $S/b.md; S=" + dir, []string{"$S/b.md"}},
 		{"assigned, but no file there", "S=" + dir + "; gh pr create --body-file $S/gone.md", []string{"$S/gone.md"}},
+		{"redirected into earlier in the line", "printf 'new' > " + filepath.Join(dir, "b.md") + " && gh pr create --body-file " + filepath.Join(dir, "b.md"), []string{filepath.Join(dir, "b.md")}},
+		{"redirected after the use", "gh pr create --body-file " + filepath.Join(dir, "b.md") + " > " + filepath.Join(dir, "b.md") + "; echo done > " + filepath.Join(dir, "b.md"), nil},
+		{"home-relative", "gh pr create --body-file ~/" + homeRel, nil},
+		{"home-relative, glued", "gh pr create --body-file=~/" + homeRel, []string{"~/" + homeRel}},
 		{"stdin from a pipe", "printf 'body' | gh pr create --body-file -", []string{"-"}},
 		{"stdin from a here-string", "gh issue comment 1 -F - <<< 'body'", []string{"-"}},
 		{"stdin from a redirect", "gh pr comment 1 --body-file - < b.md", []string{"-"}},

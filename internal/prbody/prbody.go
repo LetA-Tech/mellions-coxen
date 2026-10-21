@@ -162,7 +162,18 @@ func calls(command, cwd string, accept func(noun, verb string) bool) []Call {
 	var out []Call
 	dir := cwd
 	vars := map[string]string{}
+	// redirected holds each path an earlier command in this line writes by
+	// redirection: what is on disk now is not what gh will read.
+	redirected := map[string]bool{}
+	prevOut := ""
 	for _, c := range cmds {
+		if prevOut != "" {
+			redirected[prevOut] = true
+		}
+		prevOut = ""
+		if c.Out != "" && len(c.Heredocs) == 0 {
+			prevOut = expand(c.Out, vars)
+		}
 		if assign(c.Words, vars) {
 			continue
 		}
@@ -193,7 +204,7 @@ func calls(command, cwd string, accept func(noun, verb string) bool) []Call {
 			case "--body", "-b":
 				call.Bodies = append(call.Bodies, v)
 			case "--body-file", "-F":
-				body, why := bodyFile(v, c, written, vars, dir)
+				body, why := bodyFile(v, hasGlued, c, written, redirected, vars, dir)
 				call.Bodies = append(call.Bodies, body)
 				if why != "" {
 					call.Unread = append(call.Unread, Unreadable{Spec: v, Why: why})
@@ -271,8 +282,11 @@ func chdir(words []string, cwd, dir string) (string, bool) {
 // a spec still holding `$` or a backtick once this line's own assignments are
 // expanded names whatever the shell makes of it, which this parse never knows,
 // and a path with no regular file behind it has no text here to grade.
-func bodyFile(spec string, c *shellsplit.Command, written, vars map[string]string, cwd string) (body, why string) {
-	const unseen = "no regular file is at that path when this command runs"
+//
+// bash expands a leading `~` or `~/` in a separate word, never in a glued
+// `--body-file=~/x`, so only the separate form is expanded here.
+func bodyFile(spec string, glued bool, c *shellsplit.Command, written map[string]string, redirected map[string]bool, vars map[string]string, cwd string) (body, why string) {
+	const unseen = "no regular file is at that path when this hook runs"
 	switch spec {
 	case "":
 		return "", "an empty path"
@@ -293,6 +307,16 @@ func bodyFile(spec string, c *shellsplit.Command, written, vars map[string]strin
 	}
 	if strings.ContainsAny(path, "$`") {
 		return "", "a shell expansion this hook does not perform"
+	}
+	if redirected[spec] || redirected[path] {
+		return "", "written by an earlier command in this line, which runs after this hook reads it"
+	}
+	if !glued && (path == "~" || strings.HasPrefix(path, "~/")) {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", "a home directory this hook cannot find"
+		}
+		path = filepath.Join(home, strings.TrimPrefix(path[1:], "/"))
 	}
 	if !filepath.IsAbs(path) && cwd != "" {
 		if strings.ContainsAny(cwd, "$`") {
