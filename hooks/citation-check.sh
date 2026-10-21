@@ -15,7 +15,10 @@
 # quotation. A path:line inside a fenced block or a blockquote is not a claim
 # about this code and is skipped. A path the checkout does not hold, and a bare
 # `:N` left ungraded because a file is named since the citation before it, are
-# named as context and never denied. Without
+# named as context and never denied. A body the hook cannot read — a
+# --body-file named through a shell expansion or naming no file yet, or a body
+# that cites after a `cd` through an expansion — is denied, since it would
+# otherwise grade as empty and pass every citation in it. Without
 # the binary this hook is silent, which every session-start hook says out loud
 # at the top of the session.
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
