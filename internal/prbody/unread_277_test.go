@@ -5,6 +5,7 @@
 package prbody
 
 import (
+	"os"
 	"path/filepath"
 	"reflect"
 	"testing"
@@ -14,6 +15,12 @@ func TestUnreadNamesEveryBodyFileSpecThisParseCouldNotRead(t *testing.T) {
 	dir := t.TempDir()
 	writeTestFile(t, filepath.Join(dir, "b.md"), "body\n")
 	gone := filepath.Join(dir, "gone.md")
+	// A file whose literal name is the unexpanded spec: bash reads what $S
+	// expands to, so reading this one would grade a body gh never publishes.
+	if err := os.MkdirAll(filepath.Join(dir, "$S"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeTestFile(t, filepath.Join(dir, "$S", "b.md"), "not the body gh reads\n")
 
 	for _, tc := range []struct {
 		name, command string
