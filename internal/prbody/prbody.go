@@ -46,6 +46,10 @@ type Call struct {
 	Base   string
 	Repo   string
 	Bodies []string
+	// Unread is each --body-file spec, as written, whose text this parse could
+	// not read: a shell expansion it does not perform, or no regular file at
+	// that path. Its entry in Bodies is "", which is not what gh will publish.
+	Unread []string
 	// Dir is the directory this call runs in: the session's, or wherever the
 	// command's own `cd` moved to before it. A citation is a claim about the
 	// tree the body is published FROM, and `cd <worktree> && gh pr create` is
@@ -180,7 +184,11 @@ func calls(command, cwd string, accept func(noun, verb string) bool) []Call {
 			case "--body", "-b":
 				call.Bodies = append(call.Bodies, v)
 			case "--body-file", "-F":
-				call.Bodies = append(call.Bodies, bodyFile(v, c, written, dir))
+				body, read := bodyFile(v, c, written, dir)
+				call.Bodies = append(call.Bodies, body)
+				if !read {
+					call.Unread = append(call.Unread, v)
+				}
 			case "--base", "-B":
 				if call.Base == "" {
 					call.Base = v
@@ -249,15 +257,23 @@ func chdir(words []string, cwd, dir string) (string, bool) {
 // the heredoc this command line is about to write to that path, else the file
 // as it stands. Text arriving on stdin from another process is not visible to
 // a PreToolUse hook and is not read.
-func bodyFile(spec string, c *shellsplit.Command, written map[string]string, cwd string) string {
+//
+// read is false where the text gh will publish is not what this returns: a
+// spec holding `$` or a backtick names whatever the shell expands it to, which
+// this parse never does, and a path with no regular file behind it has no text
+// here to grade.
+func bodyFile(spec string, c *shellsplit.Command, written map[string]string, cwd string) (body string, read bool) {
 	switch {
 	case spec == "":
-		return ""
+		return "", false
 	case spec == "-":
-		return strings.Join(c.Heredocs, "")
+		return strings.Join(c.Heredocs, ""), true
 	}
 	if b, ok := written[spec]; ok {
-		return b
+		return b, true
+	}
+	if strings.ContainsAny(spec, "$`") {
+		return "", false
 	}
 	path := spec
 	if !filepath.IsAbs(path) && cwd != "" {
@@ -266,16 +282,16 @@ func bodyFile(spec string, c *shellsplit.Command, written map[string]string, cwd
 	// A regular file and nothing else: a path in the payload is not this
 	// hook's to trust, and opening a fifo would hang the tool call.
 	if info, err := os.Stat(path); err != nil || !info.Mode().IsRegular() {
-		return ""
+		return "", false
 	}
 	f, err := os.Open(path)
 	if err != nil {
-		return ""
+		return "", false
 	}
 	defer f.Close()
 	b, err := io.ReadAll(io.LimitReader(f, bodyLimit))
 	if err != nil {
-		return ""
+		return "", false
 	}
-	return string(b)
+	return string(b), true
 }
