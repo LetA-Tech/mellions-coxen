@@ -15,7 +15,8 @@
 # quotation. A path:line inside a fenced block or a blockquote is not a claim
 # about this code and is skipped, except a fenced or indented block opened by a
 # lone path:N: that is a citation, quoted by the block's next non-blank line,
-# unless the block reads as search output (a -c listing, grep -n). A path the
+# unless the block reads as tool output (a -c listing, grep -n, a BuildKit
+# excerpt). A path the
 # checkout does not hold, and a bare
 # `:N` left ungraded because a file is named since the citation before it, are
 # named as context and never denied. Without

@@ -64,8 +64,12 @@ func TestToolOutputOpeningABlockIsStillNotACitation(t *testing.T) {
 		"internal/cite/cite.go":   strings.Repeat("x\n", 600),
 		"internal/cite/a_test.go": strings.Repeat("x\n", 300),
 		"cmd/mellions/report.go":  strings.Repeat("x\n", 200),
+		"Dockerfile.prod":         "FROM scratch\nCOPY a /a\nFOO bar\n",
+		"Dockerfile.ci":           "FROM scratch\nRUN true\n",
 	}
 	for name, doc := range map[string]string{
+		"docker build, parse error":     "```\nDockerfile.prod:3\n--------------------\n   1 |     FROM scratch\n   2 |     COPY a /a\n   3 | >>> FOO bar\n   4 |     \n--------------------\nERROR: failed to build: failed to solve: dockerfile parse error on line 3: unknown instruction: FOO (did you mean FROM?)\n```\n",
+		"docker build, RUN failed":      "```\nDockerfile.ci:2\n--------------------\n   1 |     FROM scratch\n   2 | >>> RUN true\n   3 |     \n--------------------\nERROR: failed to build: failed to solve: process \"/bin/sh -c true\" did not complete successfully: exit code: 1\n```\n",
 		"go test":                       "```\ninternal/cite/a_test.go:117: 3 reports written, want 3\n--- FAIL: TestX\n```\n",
 		"go vet":                        "```\ncmd/mellions/report.go:159:2: unreachable code\nexit status 1\n```\n",
 		"grep -n":                       "```\ninternal/cite/cite.go:210:// path:line inside a fenced block or a\ninternal/cite/cite.go:501:\t\tcase x:\n```\n",

@@ -654,11 +654,16 @@ var counted = regexp.MustCompile(`^\s*[\w./+-]+:\d+\s*$`)
 // `grep: operand: message`, which a YAML `ack: all` is not.
 var searchDiagnostic = regexp.MustCompile(`^\s*(?:grep|egrep|fgrep|ugrep|rg|ag|ack): [^:]+: \S`)
 
+// rule is a line of dashes alone: Docker BuildKit prints a failing
+// Dockerfile's basename:N alone, then frames the excerpt between two of them.
+var rule = regexp.MustCompile(`^\s*-{3,}\s*$`)
+
 // heads returns the document lines that head a fenced or indented block as its
 // citation: the block's first non-blank line is a header, and its next
-// non-blank line is the quotation. A block that is search output heads
-// nothing: its second line is a `grep -n` line, two lone name:N lines stand
-// together (a `-c` listing), or a search tool's diagnostic is among them.
+// non-blank line is the quotation. A block that is tool output heads nothing:
+// its second line is a `grep -n` line or a rule (a BuildKit excerpt), two lone
+// name:N lines stand together (a `-c` listing), or a search tool's diagnostic
+// is among them.
 func heads(lines []string) map[int]bool {
 	out := map[int]bool{}
 	mark := func(block []int) {
@@ -671,7 +676,7 @@ func heads(lines []string) map[int]bool {
 		if len(body) < 2 || !header.MatchString(lines[body[0]]) {
 			return
 		}
-		if _, _, ok := grepLine(lines[body[1]]); ok {
+		if _, _, ok := grepLine(lines[body[1]]); ok || rule.MatchString(lines[body[1]]) {
 			return
 		}
 		for k, i := range body {
