@@ -244,17 +244,8 @@ func cmdCiteCheck(ctx context.Context, args []string) error {
 func unreadable(calls []prbody.Call) []string {
 	var out []string
 	for _, call := range calls {
-		for _, spec := range call.Unread {
-			why := "no regular file is at that path when this command runs"
-			switch {
-			case spec == "-":
-				why = "stdin from outside a heredoc in this command, which this hook cannot see"
-			case strings.ContainsAny(spec, "$`"):
-				why = "a shell expansion this hook does not perform"
-			case !filepath.IsAbs(spec) && strings.ContainsAny(call.Dir, "$`"):
-				why = "relative to a `cd` through a shell expansion this hook does not perform"
-			}
-			out = append(out, "  --body-file "+spec+": "+why)
+		for _, u := range call.Unread {
+			out = append(out, "  --body-file "+u.Spec+": "+u.Why)
 		}
 		if !strings.ContainsAny(call.Dir, "$`") {
 			continue

@@ -22,15 +22,16 @@ func unquotedBody(t *testing.T, dir string) string {
 	return path
 }
 
-// A body file named through a variable was read as "" and graded clean, which
-// published an unquoted citation on mcfo-finledger#783.
+// A body file named through an expansion was read as "" and graded clean,
+// which published an unquoted citation. A variable this line never assigned,
+// and a substitution, are refused as unread.
 func TestCiteHook_RefusesABodyFileNamedThroughAShellExpansion(t *testing.T) {
 	session, lane := citeFixture(t)
 	s := t.TempDir()
 	unquotedBody(t, s)
 
 	for _, spec := range []string{"$S/b.md", "${S}/b.md", "$(echo " + s + "/b.md)", "`echo " + s + "/b.md`"} {
-		reason := runCiteHook(t, session, "S="+s+"; cd "+lane+" && gh pr create --base dev --body-file "+spec)
+		reason := runCiteHook(t, session, "cd "+lane+" && gh pr create --base dev --body-file "+spec)
 		if reason == "" {
 			t.Errorf("--body-file %s: admitted; the gate graded an unread body as empty", spec)
 			continue
@@ -40,6 +41,21 @@ func TestCiteHook_RefusesABodyFileNamedThroughAShellExpansion(t *testing.T) {
 		named := strings.Fields(spec)[0]
 		if !strings.Contains(reason, "--body-file "+named) || !strings.Contains(reason, "shell expansion") {
 			t.Errorf("--body-file %s: denied, but the reason does not name the spec as an expansion:\n%s", spec, reason)
+		}
+	}
+}
+
+// With S assigned earlier in the same line, $S/b.md is the file gh reads, so
+// it is graded: refused for the citation it does not quote.
+func TestCiteHook_GradesABodyFileThroughAVariableTheLineAssigns(t *testing.T) {
+	session, lane := citeFixture(t)
+	s := t.TempDir()
+	unquotedBody(t, s)
+
+	for _, spec := range []string{"$S/b.md", "${S}/b.md"} {
+		reason := runCiteHook(t, session, "S="+s+"; cd "+lane+" && gh pr create --base dev --body-file "+spec)
+		if !strings.Contains(reason, "neonlink.go:3") || strings.Contains(reason, "cannot be checked") {
+			t.Errorf("--body-file %s with S assigned: not graded for its citation: %q", spec, reason)
 		}
 	}
 }
@@ -98,13 +114,19 @@ func TestCiteHook_RefusesACdThroughAnExpansionWhenTheBodyCites(t *testing.T) {
 	session, lane := citeFixture(t)
 	right := citeBody(t, t.TempDir(), "\tproducer, err := neonlink.NewTransactionalProducer(sdkCfg, logger)")
 
-	reason := runCiteHook(t, session, "L="+lane+"; cd $L && gh issue create --body-file "+right)
+	reason := runCiteHook(t, session, "cd $L && gh issue create --body-file "+right)
 	if !strings.Contains(reason, "cd to ") || !strings.Contains(reason, "$L") {
 		t.Fatalf("a cd through a variable was not refused for a citing body: %q", reason)
 	}
 
+	// Assigned earlier in the line, the cd is followed into the lane, where
+	// the quoted line is right.
+	if reason := runCiteHook(t, session, "L="+lane+"; cd $L && gh issue create --body-file "+right); reason != "" {
+		t.Fatalf("a cd through a variable this line assigns was not followed: %s", reason)
+	}
+
 	// A relative body file after that cd is refused for the cd, not as missing.
-	reason = runCiteHook(t, session, "L="+lane+"; cd $L && gh pr create --base dev --body-file body.md")
+	reason = runCiteHook(t, session, "cd $L && gh pr create --base dev --body-file body.md")
 	if !strings.Contains(reason, "--body-file body.md: relative to a `cd` through a shell expansion") {
 		t.Fatalf("a relative body file after a cd through a variable was not refused for the cd: %q", reason)
 	}
@@ -113,7 +135,7 @@ func TestCiteHook_RefusesACdThroughAnExpansionWhenTheBodyCites(t *testing.T) {
 	if err := os.WriteFile(plain, []byte("No citations here.\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if reason := runCiteHook(t, session, "L="+lane+"; cd $L && gh issue comment 1 --body-file "+plain); reason != "" {
+	if reason := runCiteHook(t, session, "cd $L && gh issue comment 1 --body-file "+plain); reason != "" {
 		t.Fatalf("a body citing nothing was refused for its cd: %s", reason)
 	}
 }

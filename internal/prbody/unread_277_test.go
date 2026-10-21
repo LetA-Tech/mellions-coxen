@@ -35,6 +35,14 @@ func TestUnreadNamesEveryBodyFileSpecThisParseCouldNotRead(t *testing.T) {
 		{"braced variable", "gh issue create -F ${S}/b.md", []string{"${S}/b.md"}},
 		{"missing path", "gh issue comment 1 --body-file " + gone, []string{gone}},
 		{"empty spec", "gh pr edit 1 --body-file ''", []string{""}},
+		{"assigned earlier in the line", "S=" + dir + "; gh pr create --body-file $S/b.md", nil},
+		{"exported earlier, braced", "export S=" + dir + " && gh pr create --body-file ${S}/b.md", nil},
+		{"cd through an assigned variable", "L=" + dir + "; cd $L && gh pr create --body-file b.md", nil},
+		{"assigned from an expansion", "S=$(mktemp -d); gh pr create --body-file $S/b.md", []string{"$S/b.md"}},
+		{"reassigned to an expansion", "S=" + dir + "; S=$HOME; gh pr create --body-file $S/b.md", []string{"$S/b.md"}},
+		{"a prefix is the command's own environment", "S=" + dir + " gh pr create --body-file $S/b.md", []string{"$S/b.md"}},
+		{"assigned after the use", "gh pr create --body-file $S/b.md; S=" + dir, []string{"$S/b.md"}},
+		{"assigned, but no file there", "S=" + dir + "; gh pr create --body-file $S/gone.md", []string{"$S/gone.md"}},
 		{"stdin from a pipe", "printf 'body' | gh pr create --body-file -", []string{"-"}},
 		{"stdin from a here-string", "gh issue comment 1 -F - <<< 'body'", []string{"-"}},
 		{"stdin from a redirect", "gh pr comment 1 --body-file - < b.md", []string{"-"}},
@@ -44,7 +52,11 @@ func TestUnreadNamesEveryBodyFileSpecThisParseCouldNotRead(t *testing.T) {
 			if len(calls) != 1 {
 				t.Fatalf("got %d calls", len(calls))
 			}
-			if got := calls[0].Unread; !reflect.DeepEqual(got, tc.want) {
+			var got []string
+			for _, u := range calls[0].Unread {
+				got = append(got, u.Spec)
+			}
+			if !reflect.DeepEqual(got, tc.want) {
 				t.Fatalf("Unread = %q, want %q", got, tc.want)
 			}
 		})
