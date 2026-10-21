@@ -138,6 +138,9 @@ func cmdCiteCheck(ctx context.Context, args []string) error {
 	if len(calls) == 0 {
 		return nil
 	}
+	if unread := unreadable(calls); len(unread) > 0 {
+		return denyUnreadable(unread)
+	}
 	cwd := ev.Cwd
 	if cwd == "" {
 		cwd = "."
@@ -234,11 +237,53 @@ func cmdCiteCheck(ctx context.Context, args []string) error {
 	return enc.Encode(d)
 }
 
+// unreadable names what keeps a call's body from being graded as gh will
+// publish it: a --body-file whose text this hook could not read, and, where the
+// body cites anything, a `cd` target holding a shell expansion, which would
+// grade those citations against a tree the command never runs in.
+func unreadable(calls []prbody.Call) []string {
+	var out []string
+	for _, call := range calls {
+		for _, u := range call.Unread {
+			out = append(out, "  --body-file "+u.Spec+": "+u.Why)
+		}
+		if !strings.ContainsAny(call.Dir, "$`") {
+			continue
+		}
+		for _, body := range call.Bodies {
+			if len(cite.Extract(body)) > 0 || len(cite.Ungraded(body)) > 0 {
+				out = append(out, "  cd to "+call.Dir+": a shell expansion this hook does not "+
+					"perform, so it cannot open the tree these citations are about")
+				break
+			}
+		}
+	}
+	return dedupe(out)
+}
+
+func denyUnreadable(unread []string) error {
+	var d decision
+	d.Output.Event = preToolUseEvent
+	d.Output.Decide = "deny"
+	d.Output.Reason = "This body cannot be checked before it is published:\n\n" +
+		strings.Join(unread, "\n") + "\n\n" +
+		"The citation gate grades the text gh will publish. A body it cannot read has no " +
+		"citations it can see, so it would pass every line it cites unchecked. Give the body " +
+		"file and any `cd` as literal paths, and write the file in an earlier call or with a " +
+		"heredoc in this same command. To check a body by hand: " +
+		"`mellions cite check -file <path> -dir <checkout>`."
+	enc := json.NewEncoder(os.Stdout)
+	enc.SetEscapeHTML(false)
+	return enc.Encode(d)
+}
+
 // citeDir is the checkout one call's citations resolve in: the directory the
 // command moved to, or the session's where it named none. A path this host does
 // not hold is not a checkout to read — the `cd` would have failed and the `gh`
 // never run — so it degrades to the session directory rather than to a root
-// that resolves nothing, which would silently pass every citation.
+// that resolves nothing, which would silently pass every citation. A target
+// holding a shell expansion does not fail that way, and unreadable refuses it
+// first.
 func citeDir(dir, cwd string) string {
 	if dir == "" {
 		return cwd

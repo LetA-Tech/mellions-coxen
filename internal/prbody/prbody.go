@@ -46,12 +46,21 @@ type Call struct {
 	Base   string
 	Repo   string
 	Bodies []string
+	// Unread is each --body-file whose text this parse could not read. Its
+	// entry in Bodies is "", which is not what gh will publish.
+	Unread []Unreadable
 	// Dir is the directory this call runs in: the session's, or wherever the
 	// command's own `cd` moved to before it. A citation is a claim about the
 	// tree the body is published FROM, and `cd <worktree> && gh pr create` is
 	// how a lane publishes, so a checker reading the session directory reads a
 	// different tree and endorses lines that are wrong for the branch (#27).
 	Dir string
+}
+
+// Unreadable is a --body-file spec as written, and why its text was not read.
+type Unreadable struct {
+	Spec string
+	Why  string
 }
 
 // Close is a closing declaration a body makes.
@@ -152,7 +161,18 @@ func calls(command, cwd string, accept func(noun, verb string) bool) []Call {
 
 	var out []Call
 	dir := cwd
+	// redirected holds each path an earlier command in this line writes by
+	// redirection: what is on disk now is not what gh will read.
+	redirected := map[string]bool{}
+	prevOut := ""
 	for _, c := range cmds {
+		if prevOut != "" {
+			redirected[prevOut] = true
+		}
+		prevOut = ""
+		if c.Out != "" && len(c.Heredocs) == 0 {
+			prevOut = resolve(c.Out, dir)
+		}
 		if moved, ok := chdir(c.Words, cwd, dir); ok {
 			dir = moved
 			continue
@@ -180,7 +200,11 @@ func calls(command, cwd string, accept func(noun, verb string) bool) []Call {
 			case "--body", "-b":
 				call.Bodies = append(call.Bodies, v)
 			case "--body-file", "-F":
-				call.Bodies = append(call.Bodies, bodyFile(v, c, written, dir))
+				body, why := bodyFile(v, hasGlued, c, written, redirected, dir)
+				call.Bodies = append(call.Bodies, body)
+				if why != "" {
+					call.Unread = append(call.Unread, Unreadable{Spec: v, Why: why})
+				}
 			case "--base", "-B":
 				if call.Base == "" {
 					call.Base = v
@@ -249,33 +273,79 @@ func chdir(words []string, cwd, dir string) (string, bool) {
 // the heredoc this command line is about to write to that path, else the file
 // as it stands. Text arriving on stdin from another process is not visible to
 // a PreToolUse hook and is not read.
-func bodyFile(spec string, c *shellsplit.Command, written map[string]string, cwd string) string {
-	switch {
-	case spec == "":
-		return ""
-	case spec == "-":
-		return strings.Join(c.Heredocs, "")
+//
+// why is non-empty where the text gh will publish is not what this returns:
+// a spec holding `$` or a backtick names whatever the shell expands it to, and
+// even an assignment earlier in the line may not be the one that ran (`||`,
+// `if` and `&&` are invisible here); a path with no regular file behind it, or
+// one an earlier command in the line rewrites, has no text here to grade.
+//
+// bash expands a leading `~` or `~/` in a separate word, never in a glued
+// `--body-file=~/x`, so only the separate form is expanded here.
+func bodyFile(spec string, glued bool, c *shellsplit.Command, written map[string]string, redirected map[string]bool, cwd string) (body, why string) {
+	const unseen = "no regular file is at that path when this hook runs"
+	switch spec {
+	case "":
+		return "", "an empty path"
+	case "-":
+		// Stdin from a pipe, a here-string or a redirect never reaches this
+		// parse, so only the command's own heredoc is a body it has read.
+		if len(c.Heredocs) == 0 {
+			return "", "stdin from outside a heredoc in this command, which this hook cannot see"
+		}
+		return strings.Join(c.Heredocs, ""), ""
 	}
 	if b, ok := written[spec]; ok {
-		return b
+		return b, ""
 	}
 	path := spec
+	if strings.ContainsAny(path, "$`") {
+		return "", "a shell expansion this hook does not perform"
+	}
+	if !glued && (path == "~" || strings.HasPrefix(path, "~/")) {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", "a home directory this hook cannot find"
+		}
+		path = filepath.Join(home, strings.TrimPrefix(path[1:], "/"))
+	}
 	if !filepath.IsAbs(path) && cwd != "" {
+		if strings.ContainsAny(cwd, "$`") {
+			return "", "relative to a `cd` through a shell expansion this hook does not perform"
+		}
 		path = filepath.Join(cwd, path)
+	}
+	if redirected[filepath.Clean(path)] {
+		return "", "written by an earlier command in this line, which runs after this hook reads it"
 	}
 	// A regular file and nothing else: a path in the payload is not this
 	// hook's to trust, and opening a fifo would hang the tool call.
 	if info, err := os.Stat(path); err != nil || !info.Mode().IsRegular() {
-		return ""
+		return "", unseen
 	}
 	f, err := os.Open(path)
 	if err != nil {
-		return ""
+		return "", unseen
 	}
 	defer f.Close()
 	b, err := io.ReadAll(io.LimitReader(f, bodyLimit))
 	if err != nil {
-		return ""
+		return "", unseen
 	}
-	return string(b)
+	return string(b), ""
+}
+
+// resolve is the absolute path a redirection target names from dir, with a
+// separate-word `~/` expanded as bash does, so a body file spelled another
+// way is still recognised as the same file.
+func resolve(p, dir string) string {
+	if p == "~" || strings.HasPrefix(p, "~/") {
+		if home, err := os.UserHomeDir(); err == nil {
+			p = filepath.Join(home, strings.TrimPrefix(p[1:], "/"))
+		}
+	}
+	if !filepath.IsAbs(p) && dir != "" {
+		p = filepath.Join(dir, p)
+	}
+	return filepath.Clean(p)
 }
