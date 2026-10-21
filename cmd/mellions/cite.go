@@ -246,8 +246,11 @@ func unreadable(calls []prbody.Call) []string {
 	for _, call := range calls {
 		for _, spec := range call.Unread {
 			why := "no regular file is at that path when this command runs"
-			if strings.ContainsAny(spec, "$`") {
+			switch {
+			case strings.ContainsAny(spec, "$`"):
 				why = "a shell expansion this hook does not perform"
+			case !filepath.IsAbs(spec) && strings.ContainsAny(call.Dir, "$`"):
+				why = "relative to a `cd` through a shell expansion this hook does not perform"
 			}
 			out = append(out, "  --body-file "+spec+": "+why)
 		}

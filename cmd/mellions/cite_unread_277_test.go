@@ -93,6 +93,12 @@ func TestCiteHook_RefusesACdThroughAnExpansionWhenTheBodyCites(t *testing.T) {
 		t.Fatalf("a cd through a variable was not refused for a citing body: %q", reason)
 	}
 
+	// A relative body file after that cd is refused for the cd, not as missing.
+	reason = runCiteHook(t, session, "L="+lane+"; cd $L && gh pr create --base dev --body-file body.md")
+	if !strings.Contains(reason, "--body-file body.md: relative to a `cd` through a shell expansion") {
+		t.Fatalf("a relative body file after a cd through a variable was not refused for the cd: %q", reason)
+	}
+
 	plain := filepath.Join(t.TempDir(), "plain.md")
 	if err := os.WriteFile(plain, []byte("No citations here.\n"), 0o644); err != nil {
 		t.Fatal(err)
