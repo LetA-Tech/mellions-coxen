@@ -267,7 +267,9 @@ func bodyFile(spec string, c *shellsplit.Command, written map[string]string, cwd
 	case spec == "":
 		return "", false
 	case spec == "-":
-		return strings.Join(c.Heredocs, ""), true
+		// Stdin from a pipe, a here-string or a redirect never reaches this
+		// parse, so only the command's own heredoc is a body it has read.
+		return strings.Join(c.Heredocs, ""), len(c.Heredocs) > 0
 	}
 	if b, ok := written[spec]; ok {
 		return b, true

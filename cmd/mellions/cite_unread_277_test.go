@@ -82,6 +82,16 @@ func TestCiteHook_RefusesABodyFileThatIsNotThere(t *testing.T) {
 	}
 }
 
+// Stdin the command does not carry as a heredoc never reached the gate either.
+func TestCiteHook_RefusesABodyOnStdinFromOutsideTheCommand(t *testing.T) {
+	session, lane := citeFixture(t)
+
+	reason := runCiteHook(t, session, "cd "+lane+" && printf 'Root cause is `neonlink.go:3`.' | gh pr create --base dev --body-file -")
+	if !strings.Contains(reason, "--body-file -: stdin from outside a heredoc") {
+		t.Fatalf("a piped body was not refused as unseen stdin: %q", reason)
+	}
+}
+
 // A `cd` through a variable graded the body against the session tree. Where
 // the body cites, that is refused; where it cites nothing, the tree is moot.
 func TestCiteHook_RefusesACdThroughAnExpansionWhenTheBodyCites(t *testing.T) {

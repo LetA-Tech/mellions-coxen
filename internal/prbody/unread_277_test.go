@@ -35,6 +35,9 @@ func TestUnreadNamesEveryBodyFileSpecThisParseCouldNotRead(t *testing.T) {
 		{"braced variable", "gh issue create -F ${S}/b.md", []string{"${S}/b.md"}},
 		{"missing path", "gh issue comment 1 --body-file " + gone, []string{gone}},
 		{"empty spec", "gh pr edit 1 --body-file ''", []string{""}},
+		{"stdin from a pipe", "printf 'body' | gh pr create --body-file -", []string{"-"}},
+		{"stdin from a here-string", "gh issue comment 1 -F - <<< 'body'", []string{"-"}},
+		{"stdin from a redirect", "gh pr comment 1 --body-file - < b.md", []string{"-"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			calls := Publishing(tc.command, dir)

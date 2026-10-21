@@ -247,6 +247,8 @@ func unreadable(calls []prbody.Call) []string {
 		for _, spec := range call.Unread {
 			why := "no regular file is at that path when this command runs"
 			switch {
+			case spec == "-":
+				why = "stdin from outside a heredoc in this command, which this hook cannot see"
 			case strings.ContainsAny(spec, "$`"):
 				why = "a shell expansion this hook does not perform"
 			case !filepath.IsAbs(spec) && strings.ContainsAny(call.Dir, "$`"):
