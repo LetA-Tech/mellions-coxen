@@ -66,7 +66,7 @@ func TestToolOutputOpeningABlockIsStillNotACitation(t *testing.T) {
 		"go test":  "```\ninternal/cite/a_test.go:117: 3 reports written, want 3\n--- FAIL: TestX\n```\n",
 		"go vet":   "```\ncmd/mellions/report.go:159:2: unreachable code\nexit status 1\n```\n",
 		"grep -n":  "```\ninternal/cite/cite.go:210:// path:line inside a fenced block or a\ninternal/cite/cite.go:501:\t\tcase x:\n```\n",
-		"frame":    "```\n\t/home/leta/x/internal/cite/cite.go:42 +0x1d\nmain.main()\n```\n",
+		"frame":    "```\n\t/go/src/x/internal/cite/cite.go:42 +0x1d\nmain.main()\n```\n",
 		"grep -c":  "```\ninternal/cite/cite.go:12\ninternal/cite/a_test.go:40\ncmd/mellions/report.go:3\n```\n",
 		"indented": "Output:\n\n    internal/cite/cite.go:12\n    internal/cite/a_test.go:40\n",
 	} {
