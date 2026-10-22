@@ -64,3 +64,39 @@ func TestExpandsMarksTheWordsBashExpands(t *testing.T) {
 		})
 	}
 }
+
+// bash expands the body of a heredoc whose delimiter is unquoted, so text read
+// off the line there is not what the command receives.
+func TestHeredocExpandsMarksAnUnquotedDelimitersExpansions(t *testing.T) {
+	for _, tc := range []struct {
+		name, delim, body string
+		want              bool
+	}{
+		{"unquoted, substitution", "EOF", "a $(cat f) b", true},
+		{"unquoted, variable", "EOF", "costs $5", true},
+		{"unquoted, backtick", "EOF", "run `date`", true},
+		{"unquoted, escaped dollar", "EOF", `costs \$5`, false},
+		{"unquoted, plain", "EOF", "plain text", false},
+		{"unquoted, lone dollar", "EOF", "costs $ 5", false},
+		{"single-quoted", "'EOF'", "a $(cat f) b", false},
+		{"double-quoted", `"EOF"`, "a $(cat f) b", false},
+		{"escaped", `\EOF`, "a $(cat f) b", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cmds := Split("gh pr create --body-file - <<" + tc.delim + "\n" + tc.body + "\nEOF")
+			if len(cmds) != 1 || len(cmds[0].Heredocs) != 1 || len(cmds[0].HeredocExpands) != 1 {
+				t.Fatalf("want one command with one heredoc, got %+v", cmds)
+			}
+			if got := cmds[0].HeredocExpands[0]; got != tc.want {
+				t.Fatalf("HeredocExpands = %v, want %v", got, tc.want)
+			}
+			sub := Split("gh pr create --body \"$(cat <<" + tc.delim + "\n" + tc.body + "\nEOF\n)\"")
+			if len(sub) != 1 || len(sub[0].Expands) < 5 {
+				t.Fatalf("substituted form: got %+v", sub)
+			}
+			if got := sub[0].Expands[4]; got != tc.want {
+				t.Fatalf("substituted form: Expands = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}

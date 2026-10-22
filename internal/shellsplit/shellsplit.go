@@ -23,19 +23,24 @@ import "strings"
 // parameter outside single quotes — so the word is its source text, not the
 // value the command receives. `'$5'` is literal and `"$5"` is not, and with the
 // quotes removed only this flag tells them apart.
+//
+// HeredocExpands[i] is the same for Heredocs[i]: bash expands an unquoted
+// delimiter's body, so `$(cat f)` inside `<<EOF` publishes f, not those bytes.
 type Command struct {
-	Words    []string
-	Expands  []bool
-	Heredocs []string
-	Out      string
+	Words          []string
+	Expands        []bool
+	Heredocs       []string
+	HeredocExpands []bool
+	Out            string
 }
 
 // pending is a heredoc whose delimiter has been read and whose body has not:
 // the body starts on the line after the one declaring it.
 type pending struct {
-	delim string
-	strip bool
-	owner *Command
+	delim  string
+	strip  bool
+	expand bool
+	owner  *Command
 }
 
 // Split lexes a Bash command line into its simple commands.
@@ -59,6 +64,7 @@ func lex(command string, i int, stopAtParen bool) ([]*Command, int) {
 	var w strings.Builder
 	hasWord := false
 	expands := false
+	quoted := false
 
 	var queue []pending
 	redirOut := false
@@ -73,9 +79,11 @@ func lex(command string, i int, stopAtParen bool) ([]*Command, int) {
 		hasWord = false
 		exp := expands
 		expands = false
+		q := quoted
+		quoted = false
 		switch {
 		case heredocNext != 0:
-			queue = append(queue, pending{delim: s, strip: heredocNext == 2, owner: cur})
+			queue = append(queue, pending{delim: s, strip: heredocNext == 2, expand: !q, owner: cur})
 			heredocNext = 0
 		case redirOut:
 			cur.Out = s
@@ -109,6 +117,7 @@ func lex(command string, i int, stopAtParen bool) ([]*Command, int) {
 			return out, i + 1
 
 		case c == '\\' && i+1 < len(command):
+			quoted = true
 			if command[i+1] != '\n' {
 				w.WriteByte(command[i+1])
 				hasWord = true
@@ -116,6 +125,7 @@ func lex(command string, i int, stopAtParen bool) ([]*Command, int) {
 			i += 2
 
 		case c == '\'':
+			quoted = true
 			j := strings.IndexByte(command[i+1:], '\'')
 			hasWord = true
 			if j < 0 {
@@ -127,6 +137,7 @@ func lex(command string, i int, stopAtParen bool) ([]*Command, int) {
 			i += j + 2
 
 		case c == '"':
+			quoted = true
 			i++
 			for i < len(command) && command[i] != '"' {
 				if command[i] == '\\' && i+1 < len(command) {
@@ -248,6 +259,21 @@ func lex(command string, i int, stopAtParen bool) ([]*Command, int) {
 	return out, i
 }
 
+// bodyExpands reports whether an unquoted heredoc body holds an expansion bash
+// performs. There a backslash escapes `$`, a backtick and itself, and quotes are
+// ordinary text.
+func bodyExpands(s string) bool {
+	for i := 0; i < len(s); i++ {
+		switch {
+		case s[i] == '\\':
+			i++
+		case s[i] == '$' && i+1 < len(s) && s[i+1] == '(', expansion(s, i):
+			return true
+		}
+	}
+	return false
+}
+
 // expansion reports whether the unescaped byte at i, outside single quotes,
 // starts an expansion bash performs: a backtick, or a `$` naming a parameter —
 // `${`, a name, a digit, or one of the special parameters. A `$` before
@@ -304,15 +330,19 @@ func substitution(command string, i int) (text string, read bool, next int) {
 	}
 	inner, next := lex(command, i+2, true)
 	var b strings.Builder
+	read = true
 	for _, c := range inner {
-		for _, h := range c.Heredocs {
+		for j, h := range c.Heredocs {
 			b.WriteString(h)
+			if c.HeredocExpands[j] {
+				read = false
+			}
 		}
 	}
 	if b.Len() == 0 {
 		return command[i:next], false, next
 	}
-	return b.String(), true, next
+	return b.String(), read, next
 }
 
 // readHeredocs consumes the queued heredoc bodies starting at i, which is the
@@ -341,6 +371,7 @@ func readHeredocs(s string, i int, queue []pending) int {
 			body.WriteByte('\n')
 		}
 		p.owner.Heredocs = append(p.owner.Heredocs, body.String())
+		p.owner.HeredocExpands = append(p.owner.HeredocExpands, p.expand && bodyExpands(body.String()))
 	}
 	return i
 }

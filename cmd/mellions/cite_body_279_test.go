@@ -47,3 +47,20 @@ func TestCiteHook_GradesABodyItCanRead(t *testing.T) {
 		}
 	}
 }
+
+// bash expands an unquoted heredoc, so `$(cat f)` inside `<<EOF` publishes f's
+// citations; the hook graded the bytes `$(cat f)` and passed them.
+func TestCiteHook_RefusesAHeredocBashExpands(t *testing.T) {
+	session, lane := citeFixture(t)
+	path := unquotedBody(t, t.TempDir())
+
+	for _, cmd := range []string{
+		"gh pr comment 5 --body \"$(cat <<EOF\nSummary.\n$(cat " + path + ")\nEOF\n)\"",
+		"gh pr comment 5 --body-file - <<EOF\nSummary.\n$(cat " + path + ")\nEOF",
+	} {
+		reason := runCiteHook(t, session, "cd "+lane+" && "+cmd)
+		if !strings.Contains(reason, unreadReason) {
+			t.Errorf("%q: want an unread refusal, got:\n%s", cmd, reason)
+		}
+	}
+}
