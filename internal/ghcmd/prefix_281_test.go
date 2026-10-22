@@ -48,6 +48,8 @@ func TestAPublishingCallIsFoundWhereverBashRunsIt(t *testing.T) {
 		`if gh pr comment 5 --body 'see a.go:3'; then :; fi`,
 		`while gh pr comment 5 --body 'see a.go:3'; do break; done`,
 		`( gh pr comment 5 --body 'see a.go:3' )`,
+		// The glued opening paren is the case here. The lexer still glues a
+		// closing paren onto the last word, so that word is not asserted.
 		`(gh pr comment 5 --body 'see a.go:3' --repo o/r)`,
 		`{ gh pr comment 5 --body 'see a.go:3'; }`,
 		`! gh pr comment 5 --body 'see a.go:3'`,
