@@ -10,6 +10,7 @@ import "strings"
 // wrappers whose own flags and counts come before it.
 var prefixes = map[string]bool{
 	"do": true, "then": true, "else": true, "{": true, "!": true,
+	"if": true, "elif": true, "while": true, "until": true,
 	"sudo": true, "command": true, "exec": true, "nice": true, "env": true,
 	"time": true, "timeout": true, "nohup": true,
 }
