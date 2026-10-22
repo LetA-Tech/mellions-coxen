@@ -17,8 +17,15 @@ import "strings"
 
 // Command is one command in a compound: its words with quoting removed, the
 // bodies of the heredocs it declares, and the file it redirects stdout to.
+//
+// Expands[i] reports whether Words[i] holds an expansion bash performs and this
+// lexer does not — a `$(…)` it could not read off the line, a backtick, or a
+// parameter outside single quotes — so the word is its source text, not the
+// value the command receives. `'$5'` is literal and `"$5"` is not, and with the
+// quotes removed only this flag tells them apart.
 type Command struct {
 	Words    []string
+	Expands  []bool
 	Heredocs []string
 	Out      string
 }
@@ -51,6 +58,7 @@ func lex(command string, i int, stopAtParen bool) ([]*Command, int) {
 	cur := &Command{}
 	var w strings.Builder
 	hasWord := false
+	expands := false
 
 	var queue []pending
 	redirOut := false
@@ -63,6 +71,8 @@ func lex(command string, i int, stopAtParen bool) ([]*Command, int) {
 		s := w.String()
 		w.Reset()
 		hasWord = false
+		exp := expands
+		expands = false
 		switch {
 		case heredocNext != 0:
 			queue = append(queue, pending{delim: s, strip: heredocNext == 2, owner: cur})
@@ -72,6 +82,7 @@ func lex(command string, i int, stopAtParen bool) ([]*Command, int) {
 			redirOut = false
 		default:
 			cur.Words = append(cur.Words, s)
+			cur.Expands = append(cur.Expands, exp)
 		}
 	}
 	endCmd := func() {
@@ -87,9 +98,11 @@ func lex(command string, i int, stopAtParen bool) ([]*Command, int) {
 		switch {
 		case c == '$' && i+1 < len(command) && command[i+1] == '(':
 			var text string
-			text, i = substitution(command, i)
+			var read bool
+			text, read, i = substitution(command, i)
 			w.WriteString(text)
 			hasWord = true
+			expands = expands || !read
 
 		case stopAtParen && c == ')':
 			endCmd()
@@ -133,9 +146,14 @@ func lex(command string, i int, stopAtParen bool) ([]*Command, int) {
 				// command across words the caller never sees.
 				if command[i] == '$' && i+1 < len(command) && command[i+1] == '(' {
 					var text string
-					text, i = substitution(command, i)
+					var read bool
+					text, read, i = substitution(command, i)
 					w.WriteString(text)
+					expands = expands || !read
 					continue
+				}
+				if expansion(command, i) {
+					expands = true
 				}
 				w.WriteByte(command[i])
 				i++
@@ -218,6 +236,9 @@ func lex(command string, i int, stopAtParen bool) ([]*Command, int) {
 			redirOut = true
 
 		default:
+			if expansion(command, i) {
+				expands = true
+			}
 			w.WriteByte(c)
 			hasWord = true
 			i++
@@ -225,6 +246,25 @@ func lex(command string, i int, stopAtParen bool) ([]*Command, int) {
 	}
 	endCmd()
 	return out, i
+}
+
+// expansion reports whether the unescaped byte at i, outside single quotes,
+// starts an expansion bash performs: a backtick, or a `$` naming a parameter —
+// `${`, a name, a digit, or one of the special parameters. A `$` before
+// anything else is a literal dollar sign to bash, as in "costs $ 5".
+func expansion(command string, i int) bool {
+	switch command[i] {
+	case '`':
+		return true
+	case '$':
+		if i+1 >= len(command) {
+			return false
+		}
+		n := command[i+1]
+		return n == '{' || n == '_' || n >= 'a' && n <= 'z' || n >= 'A' && n <= 'Z' ||
+			n >= '0' && n <= '9' || strings.IndexByte("@*#?$!-", n) >= 0
+	}
+	return false
 }
 
 // substitution reads $(...) beginning at i. It returns the text the
@@ -251,13 +291,16 @@ func lex(command string, i int, stopAtParen bool) ([]*Command, int) {
 // variable, which is the idiom the secret guard steers toward.
 //
 // $((…)) is arithmetic and names no command.
-func substitution(command string, i int) (string, int) {
+//
+// read reports whether the text is the value bash substitutes (a heredoc's)
+// rather than the substitution's own source.
+func substitution(command string, i int) (text string, read bool, next int) {
 	if strings.HasPrefix(command[i:], "$((") {
 		if j := strings.Index(command[i+3:], "))"); j >= 0 {
 			next := i + 3 + j + 2
-			return command[i:next], next
+			return command[i:next], false, next
 		}
-		return command[i:], len(command)
+		return command[i:], false, len(command)
 	}
 	inner, next := lex(command, i+2, true)
 	var b strings.Builder
@@ -267,9 +310,9 @@ func substitution(command string, i int) (string, int) {
 		}
 	}
 	if b.Len() == 0 {
-		return command[i:next], next
+		return command[i:next], false, next
 	}
-	return b.String(), next
+	return b.String(), true, next
 }
 
 // readHeredocs consumes the queued heredoc bodies starting at i, which is the

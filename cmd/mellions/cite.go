@@ -238,14 +238,20 @@ func cmdCiteCheck(ctx context.Context, args []string) error {
 }
 
 // unreadable names what keeps a call's body from being graded as gh will
-// publish it: a --body-file whose text this hook could not read, and, where the
+// publish it: a --body-file whose text this hook could not read, a --body
+// holding a shell expansion, and, where the
 // body cites anything, a `cd` target holding a shell expansion, which would
 // grade those citations against a tree the command never runs in.
 func unreadable(calls []prbody.Call) []string {
 	var out []string
 	for _, call := range calls {
 		for _, u := range call.Unread {
-			out = append(out, "  --body-file "+u.Spec+": "+u.Why)
+			spec := u.Spec
+			if u.Flag == "--body" {
+				// The value is a whole body; a path is never clipped.
+				spec = clip(spec, 80)
+			}
+			out = append(out, "  "+u.Flag+" "+spec+": "+u.Why)
 		}
 		if !strings.ContainsAny(call.Dir, "$`") {
 			continue
@@ -268,8 +274,9 @@ func denyUnreadable(unread []string) error {
 	d.Output.Reason = "This body cannot be checked before it is published:\n\n" +
 		strings.Join(unread, "\n") + "\n\n" +
 		"The citation gate grades the text gh will publish. A body it cannot read has no " +
-		"citations it can see, so it would pass every line it cites unchecked. Give the body " +
-		"file and any `cd` as literal paths, and write the file in an earlier call or with a " +
+		"citations it can see, so it would pass every line it cites unchecked. Give a body as " +
+		"literal text, or a quoted heredoc (`--body \"$(cat <<'EOF' … EOF)\"`), or a body " +
+		"file and any `cd` as literal paths, writing the file in an earlier call or with a " +
 		"heredoc in this same command. To check a body by hand: " +
 		"`mellions cite check -file <path> -dir <checkout>`."
 	enc := json.NewEncoder(os.Stdout)

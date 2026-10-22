@@ -46,8 +46,9 @@ type Call struct {
 	Base   string
 	Repo   string
 	Bodies []string
-	// Unread is each --body-file whose text this parse could not read. Its
-	// entry in Bodies is "", which is not what gh will publish.
+	// Unread is each body whose text this parse could not read: a --body-file
+	// it could not open, or a --body holding an expansion bash performs. Its
+	// entry in Bodies is not what gh will publish.
 	Unread []Unreadable
 	// Dir is the directory this call runs in: the session's, or wherever the
 	// command's own `cd` moved to before it. A citation is a claim about the
@@ -57,8 +58,10 @@ type Call struct {
 	Dir string
 }
 
-// Unreadable is a --body-file spec as written, and why its text was not read.
+// Unreadable is a body flag, its value as written, and why its text was not
+// read.
 type Unreadable struct {
+	Flag string
 	Spec string
 	Why  string
 }
@@ -182,6 +185,9 @@ func calls(command, cwd string, accept func(noun, verb string) bool) []Call {
 			continue
 		}
 		call := Call{Dir: dir}
+		// args is the tail of c.Words; off maps an index in args back to its
+		// word, and so to whether that word holds an expansion.
+		off := len(c.Words) - len(args)
 		for i := 0; i < len(args); i++ {
 			name, glued, hasGlued := ghcmd.SplitFlag(args[i])
 			var v string
@@ -199,11 +205,15 @@ func calls(command, cwd string, accept func(noun, verb string) bool) []Call {
 			switch name {
 			case "--body", "-b":
 				call.Bodies = append(call.Bodies, v)
+				if c.Expands[off+i] {
+					call.Unread = append(call.Unread, Unreadable{Flag: "--body", Spec: v,
+						Why: "a shell expansion this hook does not perform, so the text gh publishes is not this"})
+				}
 			case "--body-file", "-F":
 				body, why := bodyFile(v, hasGlued, c, written, redirected, dir)
 				call.Bodies = append(call.Bodies, body)
 				if why != "" {
-					call.Unread = append(call.Unread, Unreadable{Spec: v, Why: why})
+					call.Unread = append(call.Unread, Unreadable{Flag: "--body-file", Spec: v, Why: why})
 				}
 			case "--base", "-B":
 				if call.Base == "" {
