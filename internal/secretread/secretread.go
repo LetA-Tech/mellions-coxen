@@ -476,13 +476,9 @@ func containsSecretRead(word string) bool {
 // reads, or "".
 //
 // Each substitution is lexed as the shell will run it, and its words are
-// classified as a bare argument is. A word with whitespace in it is quoted text
-// the shell hands over whole: a sed script, a grep pattern, a `sh -c` or
-// `python3 -c` program, a path with a space. It is split at whitespace and the
-// punctuation that wraps a path, and each fragment is tested by name, never by
-// glob stem, so `.*` in a regex does not stand for every dotted file. A fragment
-// that is only a subject word, the `credential` in `grep 'a credential file'`,
-// is a word of that text and not a file it opens.
+// classified as a bare argument is, then searched as text: a quoted sed
+// script, grep pattern, `sh -c` or `python3 -c` program or a path with a space
+// is one word the shell hands over whole.
 func secretInside(word string) string {
 	for i := 0; i < len(word); {
 		j := strings.Index(word[i:], "$(")
@@ -525,7 +521,7 @@ func secretInCommands(cmds []*shellsplit.Command) string {
 			if found := secretsInWord(w); len(found) > 0 {
 				return found[0]
 			}
-			if f := secretInQuotedText(w); f != "" {
+			if f := secretInText(w); f != "" {
 				return f
 			}
 			if f := secretInside(w); f != "" {
@@ -536,24 +532,47 @@ func secretInCommands(cmds []*shellsplit.Command) string {
 	return ""
 }
 
-// secretInQuotedText returns a credential name carried by a word that holds
-// whitespace, or "".
-func secretInQuotedText(word string) string {
-	if !strings.ContainsAny(word, " \t\n") {
-		return ""
-	}
-	for _, f := range strings.FieldsFunc(word, func(r rune) bool {
-		switch r {
-		case ' ', '\t', '\n', '(', ')', '\'', '"', '`', ',', '=', ';', '{', '}', '[', ']', '<', '>', '$':
-			return true
-		}
-		return false
-	}) {
-		if !subjectWords[strings.ToLower(f)] && secretByName(f) {
-			return f
+// secretInText returns a credential path named inside a word's text, or "".
+//
+// The word is split at whitespace into tokens, and each token at the
+// punctuation that wraps a path. A fragment is a credential by name, or by a
+// glob stem: the program the text runs may glob it, as `sh -c 'cat .db_conn*'`
+// and `find -name '.env*'` do. Two fragments are not:
+//   - a subject word that is not itself a credential's name, the `credential`
+//     in `grep 'a credential file'`;
+//   - a stem of dots carved out of a larger token, the `.*` in the sed
+//     script `s/\(.*\)/\1/`, which is a regex and not a pattern any
+//     program expands. A whole token `.*` stays a glob: `sh -c 'cat .*'`
+//     prints every dotfile.
+func secretInText(word string) string {
+	for _, tok := range strings.Fields(word) {
+		for _, f := range strings.FieldsFunc(tok, func(r rune) bool {
+			switch r {
+			case '(', ')', '\'', '"', '`', ',', '=', ';', '{', '}', '[', ']', '<', '>', '$':
+				return true
+			}
+			return false
+		}) {
+			lower := strings.ToLower(f)
+			if subjectWords[lower] && !exactSecretNames[lower] {
+				continue
+			}
+			if secretByName(f) {
+				return f
+			}
+			if secretByGlob(f) && (f == tok || !dotsOnlyStem(f)) {
+				return f
+			}
 		}
 	}
 	return ""
+}
+
+// dotsOnlyStem reports whether a word's glob stem is nothing but dots.
+func dotsOnlyStem(word string) bool {
+	base := basename(word)
+	i := strings.IndexAny(base, "*?")
+	return i > 0 && strings.Trim(base[:i], ".") == ""
 }
 
 // names reports whether an argument references the shell variable.

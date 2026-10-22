@@ -6,15 +6,16 @@ package secretread
 
 import "testing"
 
-// A substitution is lexed as the shell runs it. Quoted text with whitespace in
-// it is searched for credential names, never for glob stems, and a bare subject
-// word in it is a word of the text rather than a file.
+// A substitution is lexed as the shell runs it, and quoted text inside it is
+// searched for credential names and glob stems. A subject word that is not a
+// credential's name, and a dot stem carved out of a larger token, are words of
+// the text rather than files.
 func TestScanBash_QuotedTextInASubstitution(t *testing.T) {
 	admitted := []string{
 		`V=$(sed -n 's/^go \(.*\)$/go\1/p' go.mod) && echo "$V"`,
 		`GV=$(sed -n 's/^go \(.*\)$/go\1/p' go.mod) && echo $GV`,
 		`f=$(grep -rln 'a credential file' internal) && grep -n x "$f"`,
-		`K=$(grep -o 'event stream kept: .*' run.out | awk '{print $4}'); echo $K`,
+		`V=$(grep -rln 'secret token' .) && echo "$V"`,
 		`echo "$(grep -c 'no secrets here' notes.md)"`,
 		`echo "$(date) .env"`,
 	}
@@ -46,6 +47,15 @@ func TestScanBash_QuotedTextInASubstitution(t *testing.T) {
 		{"echo \"`cat .pgpass`\"", ".pgpass"},
 		{"echo \"`date` `cat .pgpass`\"", ".pgpass"},
 		{"V=\"`date`-`cat .pgpass`\" && echo \"$V\"", "$V"},
+		{`V=$(sh -c 'cat credentials') && echo "$V"`, "$V"},
+		{`V=$(sh -c 'cat .db_conn*') && echo "$V"`, "$V"},
+		{`V=$(sh -c 'cat .*') && echo "$V"`, "$V"},
+		{`echo "$(bash -c "find . -name '.env*' -exec cat {} +")"`, ".env*"},
+		{`V=$(ssh host 'cat .env*') && echo "$V"`, "$V"},
+		{`V=$(python3 -c "import glob; print(open(glob.glob('.db_conn*')[0]).read())") && echo "$V"`, "$V"},
+		{`V=$(python3 -c "print(open(__import__('glob').glob('.db_conn*')[0]).read())") && echo "$V"`, "$V"},
+		// A whole-token .* in a pattern cannot be told from a shell's glob.
+		{`K=$(grep -o 'event stream kept: .*' run.out); echo $K`, "$K"},
 	}
 	for _, c := range caught {
 		got := ScanBash(c.cmd)
