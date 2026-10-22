@@ -8,8 +8,8 @@ import "testing"
 
 // A substitution is lexed as the shell runs it, and quoted text inside it is
 // searched for credential names and glob stems. A subject word that is not a
-// credential's name, and a dot-star carrying a regex backslash, are words of
-// the text rather than files.
+// credential's name, and a dot-star ending in a regex group's backslash, are
+// words of the text rather than files.
 func TestScanBash_QuotedTextInASubstitution(t *testing.T) {
 	admitted := []string{
 		`V=$(sed -n 's/^go \(.*\)$/go\1/p' go.mod) && echo "$V"`,
@@ -59,6 +59,8 @@ func TestScanBash_QuotedTextInASubstitution(t *testing.T) {
 		{`V=$(sh -c '(cat .*)') && echo "$V"`, "$V"},
 		{`V=$(bash -c 'cat "".*') && echo "$V"`, "$V"},
 		{`V=$(python3 -c "import glob,os; [print(open(f).read()) for f in glob.glob('.*') if os.path.isfile(f)]") && echo "$V"`, "$V"},
+		{`V=$(sh -c 'cat .*\n') && echo "$V"`, "$V"},
+		{`V=$(sh -c 'cat .?\b*') && echo "$V"`, "$V"},
 		// A .* in a pattern without a backslash cannot be told from a glob.
 		{`K=$(grep -o 'event stream kept: .*' run.out); echo $K`, "$K"},
 	}
