@@ -63,7 +63,10 @@ chmod +x "$tmp/path/gh"
 export PATH="$tmp/path:$PATH"
 
 payload() { printf '{"tool_name":"Bash","cwd":"%s","tool_input":{"command":"%s"}}' "$tmp" "$1"; }
-runhook() { MELLIONS_BIN="$bin" CLAUDE_PLUGIN_ROOT="$root" bash "$hook"; }
+# runhook [VAR=value...] — the payload is drained to a file before the hook
+# starts: a writer the hook outlives takes SIGPIPE, which pipefail would make
+# the status. Arguments are environment overrides for the hook alone.
+runhook() { cat >"$tmp/stdin"; env "$@" MELLIONS_BIN="$bin" CLAUDE_PLUGIN_ROOT="$root" bash "$hook" <"$tmp/stdin"; }
 
 # 1. Mergeability GitHub has not computed. The failure this was written for.
 export GH_PR_JSON='{"number":177,"url":"https://github.com/o/r/pull/177","baseRefName":"dev","headRefOid":"abc","mergeStateStatus":"UNKNOWN","state":"OPEN","files":[]}'
@@ -193,13 +196,13 @@ grep -q 'cfg/a.go:3' <<<"$out" ||
 note "cd <checkout> && gh pr merge: graded in the checkout"
 
 # 4d. The body check off alone: the body is not graded, the rest still is.
-out=$(inrepo "gh pr merge 51 --merge" | MELLIONS_MERGE_BODY_CHECK=off MELLIONS_BIN="$bin" CLAUDE_PLUGIN_ROOT="$root" bash "$hook")
+out=$(inrepo "gh pr merge 51 --merge" | runhook MELLIONS_MERGE_BODY_CHECK=off)
 [[ -z "$out" ]] || bad "MELLIONS_MERGE_BODY_CHECK=off did not silence the body check: $out"
 note "body check off alone: silent on the body"
 
 # 5. The off switch, on the state that is otherwise refused.
 export GH_PR_JSON='{"number":177,"url":"u","baseRefName":"dev","headRefOid":"abc","mergeStateStatus":"UNKNOWN","state":"OPEN","files":[]}'
-out=$(payload 'gh pr merge 177' | MELLIONS_MERGE_CHECK=off MELLIONS_BIN="$bin" CLAUDE_PLUGIN_ROOT="$root" bash "$hook")
+out=$(payload 'gh pr merge 177' | runhook MELLIONS_MERGE_CHECK=off)
 [[ -z "$out" ]] || bad "MELLIONS_MERGE_CHECK=off did not silence the guard: $out"
 note "off switch: silent on a state it would otherwise refuse"
 

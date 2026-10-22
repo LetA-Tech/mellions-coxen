@@ -55,9 +55,12 @@ exit 0
 STUB
 chmod +x "$tmp/mellions"
 
+# work — the payload is drained to a file before the hook starts, so the hook
+# never waits on, or outlives, a writer still running.
+work() { cat >"$tmp/stdin"; MELLIONS_BIN="$tmp/mellions" CLAUDE_PLUGIN_ROOT="$root" bash "$root/hooks/session-work.sh" <"$tmp/stdin"; }
+
 for src in resume compact; do
-  out=$(printf '{"source":"%s"}' "$src" |
-    MELLIONS_BIN="$tmp/mellions" CLAUDE_PLUGIN_ROOT="$root" bash "$root/hooks/session-work.sh")
+  out=$(printf '{"source":"%s"}' "$src" | work)
   grep -qF -- 'settle' <<<"$out" ||
     bad "on $src the block does not name the rule a summary never carries"
   first=$(grep -nF -- 'mellions:mellions-continuity' <<<"$out" | head -1 | cut -d: -f1)
@@ -74,22 +77,19 @@ note "resume and compact: the method leads, above the work"
 # with its context replaced, so there is no earlier session it could have
 # missed — and telling it there was invites it to discount, as somebody else's
 # testimony, facts it established itself.
-out=$(printf '{"source":"resume"}' |
-  MELLIONS_BIN="$tmp/mellions" CLAUDE_PLUGIN_ROOT="$root" bash "$root/hooks/session-work.sh")
+out=$(printf '{"source":"resume"}' | work)
 grep -qF -- 'You did not attend the session before this one' <<<"$out" ||
   bad "a resumed session is not told it did not attend the session it inherits from"
 note "resume: the reader is told it did not attend"
 
-out=$(printf '{"source":"compact"}' |
-  MELLIONS_BIN="$tmp/mellions" CLAUDE_PLUGIN_ROOT="$root" bash "$root/hooks/session-work.sh")
+out=$(printf '{"source":"compact"}' | work)
 grep -qF -- 'You did not attend the session before this one' <<<"$out" &&
   bad "a compacted session is told it did not attend a session that is itself"
 grep -qF -- 'same session, with its context renewed' <<<"$out" ||
   bad "a compacted session is not told what actually happened to it"
 note "compact: the reader is told its context was renewed, not handed over"
 
-out=$(printf '{"source":"startup"}' |
-  MELLIONS_BIN="$tmp/mellions" CLAUDE_PLUGIN_ROOT="$root" bash "$root/hooks/session-work.sh")
+out=$(printf '{"source":"startup"}' | work)
 grep -qF -- 'You did not attend the session before this one' <<<"$out" &&
   bad "a fresh session is told it is recovering from one that did not happen"
 grep -qF -- 'mellions:mellions-continuity' <<<"$out" ||
