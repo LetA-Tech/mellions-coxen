@@ -272,6 +272,16 @@ func substitution(command string, i int) (string, int) {
 	return b.String(), next
 }
 
+// Substitution returns the commands the $(…) beginning at s[i] runs, and the
+// index just past its ")". $((…)) is arithmetic and runs none.
+func Substitution(s string, i int) ([]*Command, int) {
+	if strings.HasPrefix(s[i:], "$((") {
+		_, next := substitution(s, i)
+		return nil, next
+	}
+	return lex(s, i+2, true)
+}
+
 // readHeredocs consumes the queued heredoc bodies starting at i, which is the
 // first byte of the line after the one that declared them, and returns the
 // index just past the last delimiter line. A heredoc the command line never
