@@ -27,17 +27,17 @@ piped() { joined "$1" | grep -E "$stage"; }
 probe=$(mktemp) || { bad "no temp file for the pattern's own controls"; exit 1; }
 trap 'rm -f "$probe"' EXIT INT TERM HUP
 must_catch=(
-  'out=$(printf '"'"'%s'"'"' "$payload" | MELLIONS_BIN="$bin" CLAUDE_PLUGIN_ROOT="$root" bash "$hook")'
-  'run() { payload "$1" | MELLIONS_BIN="$bin" bash "$hook"; }'
+  'out=$(printf '"'"'%s'"'"' "$payload" | A_BIN="$bin" CLAUDE_PLUGIN_ROOT="$root" bash "$hook")'
+  'run() { payload "$1" | A_BIN="$bin" bash "$hook"; }'
   'run() { printf '"'"'%s'"'"' "$1" | bash "$hook" 2>/dev/null; }'
-  $'out=$(printf \'{"source":"%s"}\' "$src" |\n    MELLIONS_BIN="$tmp/mellions" CLAUDE_PLUGIN_ROOT="$root" bash "$root/hooks/session-work.sh")'
+  $'out=$(printf \'{"source":"%s"}\' "$src" |\n    A_BIN="$tmp/mellions" CLAUDE_PLUGIN_ROOT="$root" bash "$root/hooks/session-work.sh")'
   'x=$(payload a | env A=1 bash "${hook}")'
-  'o=$(printf '"'"'%s'"'"' "$p" | MELLIONS_DEADLINE=$(( $(date +%s) + 2700 )) MELLIONS_BIN="$bin" bash "$hook")'
+  'o=$(printf '"'"'%s'"'"' "$p" | A_DEADLINE=$(( $(date +%s) + 2700 )) A_BIN="$bin" bash "$hook")'
 )
 must_pass=(
-  'out=$(MELLIONS_BIN="$bin" CLAUDE_PLUGIN_ROOT="$root" bash "$hook" <"$tmpdir/payload")'
-  'runhook() { cat >"$tmp/stdin"; env "$@" MELLIONS_BIN="$bin" bash "$hook" <"$tmp/stdin"; }'
-  'out=$(payload x | runhook MELLIONS_MERGE_CHECK=off)'
+  'out=$(A_BIN="$bin" CLAUDE_PLUGIN_ROOT="$root" bash "$hook" <"$tmpdir/payload")'
+  'runhook() { cat >"$tmp/stdin"; env "$@" A_BIN="$bin" bash "$hook" <"$tmp/stdin"; }'
+  'out=$(payload x | runhook A_CHECK=off)'
   'grep -q deny <<<"$out" || bash "$hook" <&-'
   $'grep -q deny <<<"$out" ||\n  bash "$hook" <&-'
 )

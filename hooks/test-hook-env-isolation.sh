@@ -38,7 +38,9 @@ exported=$(grep -oE '^[[:space:]]*export[[:space:]]+MELLIONS_[A-Z_]+' "$root/scr
 [[ -n "$exported" ]] || bad "no exported MELLIONS_* found in scripts/shift.sh — this test has stopped reading it"
 
 env_args=()
+unset_args=()
 for v in $exported; do
+  unset_args+=(-u "$v")
   if val=$(shift_value "$v"); then
     env_args+=("$v=$val")
   else
@@ -53,10 +55,16 @@ for t in "$root"/hooks/test-*.sh; do
   # Expanded through `${a[@]+…}`: bash 3.2, which is what /usr/bin/env bash
   # finds on a stock macOS, kills the script on a plain "${empty[@]}" under
   # `set -u` — and empty is exactly the fail-closed path this file exists for.
+  # A failure inside is attributed to a shift variable only once the same
+  # script, every shift variable unset, has passed: otherwise the cause is
+  # something else, and naming a variable sends the reader after the wrong one.
   if out=$(env ${env_args[@]+"${env_args[@]}"} bash "$t" 2>&1); then
     printf '  %s\n' "$name"
-  else
+  elif env ${unset_args[@]+"${unset_args[@]}"} bash "$t" >/dev/null 2>&1; then
     bad "$name passes outside a shift and fails inside one — it inherits a shift variable instead of setting it"
+    printf '%s\n' "$out" | sed 's/^/    /' | tail -12
+  else
+    bad "$name fails outside a shift as well, so no shift variable explains it"
     printf '%s\n' "$out" | sed 's/^/    /' | tail -12
   fi
 done
