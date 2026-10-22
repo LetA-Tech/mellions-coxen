@@ -117,8 +117,9 @@ func lex(command string, i int, stopAtParen bool) ([]*Command, int) {
 			return out, i + 1
 
 		case c == '\\' && i+1 < len(command):
-			quoted = true
+			// A line continuation quotes nothing: it is not part of a word.
 			if command[i+1] != '\n' {
+				quoted = true
 				w.WriteByte(command[i+1])
 				hasWord = true
 			}
@@ -259,6 +260,17 @@ func lex(command string, i int, stopAtParen bool) ([]*Command, int) {
 	return out, i
 }
 
+// catsStdin reports whether words are a `cat` that prints only its stdin.
+func catsStdin(words []string) bool {
+	switch len(words) {
+	case 1:
+		return words[0] == "cat"
+	case 2:
+		return words[0] == "cat" && words[1] == "-"
+	}
+	return false
+}
+
 // bodyExpands reports whether an unquoted heredoc body holds an expansion bash
 // performs. There a backslash escapes `$`, a backtick and itself, and quotes are
 // ordinary text.
@@ -318,8 +330,9 @@ func expansion(command string, i int) bool {
 //
 // $((…)) is arithmetic and names no command.
 //
-// read reports whether the text is the value bash substitutes (a heredoc's)
-// rather than the substitution's own source.
+// read reports whether the text is the value bash substitutes rather than the
+// substitution's own source: only a lone `cat` or `cat -` printing its one
+// heredoc, unexpanded, prints exactly that heredoc.
 func substitution(command string, i int) (text string, read bool, next int) {
 	if strings.HasPrefix(command[i:], "$((") {
 		if j := strings.Index(command[i+3:], "))"); j >= 0 {
@@ -330,7 +343,7 @@ func substitution(command string, i int) (text string, read bool, next int) {
 	}
 	inner, next := lex(command, i+2, true)
 	var b strings.Builder
-	read = true
+	read = len(inner) == 1 && len(inner[0].Heredocs) == 1 && catsStdin(inner[0].Words)
 	for _, c := range inner {
 		for j, h := range c.Heredocs {
 			b.WriteString(h)

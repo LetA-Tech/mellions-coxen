@@ -57,6 +57,9 @@ func TestCiteHook_RefusesAHeredocBashExpands(t *testing.T) {
 	for _, cmd := range []string{
 		"gh pr comment 5 --body \"$(cat <<EOF\nSummary.\n$(cat " + path + ")\nEOF\n)\"",
 		"gh pr comment 5 --body-file - <<EOF\nSummary.\n$(cat " + path + ")\nEOF",
+		"gh pr comment 5 --body-file - \\\n  <<EOF\nSummary.\n$(cat " + path + ")\nEOF",
+		"gh pr comment 5 --body \"$(cat <<'EOF'\nIntro\nEOF\ncat " + path + ")\"",
+		"gh pr comment 5 --body \"$(cat " + path + " - <<'EOF'\nIntro\nEOF\n)\"",
 	} {
 		reason := runCiteHook(t, session, "cd "+lane+" && "+cmd)
 		if !strings.Contains(reason, unreadReason) {

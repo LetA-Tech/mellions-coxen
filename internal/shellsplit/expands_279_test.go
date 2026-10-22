@@ -33,6 +33,10 @@ func TestExpandsMarksTheWordsBashExpands(t *testing.T) {
 		{"backtick in single quotes", "'a `code` span'", false},
 		{"arithmetic", `"$((1+2))"`, true},
 		{"substituted quoted heredoc", "\"$(cat <<'EOF'\nbody $X\nEOF\n)\"", false},
+		{"substituted quoted heredoc, cat -", "\"$(cat - <<'EOF'\nbody\nEOF\n)\"", false},
+		{"quoted heredoc, then another command", "\"$(cat <<'EOF'\nIntro\nEOF\ncat f)\"", true},
+		{"quoted heredoc, cat also reads a file", "\"$(cat f - <<'EOF'\nIntro\nEOF\n)\"", true},
+		{"quoted heredoc through another command", "\"$(sed s/a/b/ <<'EOF'\nIntro\nEOF\n)\"", true},
 		{"plain text", `"plain text"`, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -98,5 +102,17 @@ func TestHeredocExpandsMarksAnUnquotedDelimitersExpansions(t *testing.T) {
 				t.Fatalf("substituted form: Expands = %v, want %v", got, tc.want)
 			}
 		})
+	}
+}
+
+// A line continuation before `<<EOF` is no quote: the delimiter stays unquoted
+// and bash still expands the body.
+func TestALineContinuationDoesNotQuoteTheHeredocDelimiter(t *testing.T) {
+	cmds := Split("gh pr create --body-file - \\\n  <<EOF\n$(cat f)\nEOF")
+	if len(cmds) != 1 || len(cmds[0].HeredocExpands) != 1 {
+		t.Fatalf("want one command with one heredoc, got %+v", cmds)
+	}
+	if !cmds[0].HeredocExpands[0] {
+		t.Fatal("HeredocExpands = false after a line continuation, want true")
 	}
 }
