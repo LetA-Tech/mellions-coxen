@@ -8,7 +8,7 @@ import "testing"
 
 // A substitution is lexed as the shell runs it, and quoted text inside it is
 // searched for credential names and glob stems. A subject word that is not a
-// credential's name, and a dot stem carved out of a larger token, are words of
+// credential's name, and a dot-star carrying a regex backslash, are words of
 // the text rather than files.
 func TestScanBash_QuotedTextInASubstitution(t *testing.T) {
 	admitted := []string{
@@ -54,7 +54,11 @@ func TestScanBash_QuotedTextInASubstitution(t *testing.T) {
 		{`V=$(ssh host 'cat .env*') && echo "$V"`, "$V"},
 		{`V=$(python3 -c "import glob; print(open(glob.glob('.db_conn*')[0]).read())") && echo "$V"`, "$V"},
 		{`V=$(python3 -c "print(open(__import__('glob').glob('.db_conn*')[0]).read())") && echo "$V"`, "$V"},
-		// A whole-token .* in a pattern cannot be told from a shell's glob.
+		{`V=$(sh -c 'cat .*;') && echo "$V"`, "$V"},
+		{`V=$(sh -c '(cat .*)') && echo "$V"`, "$V"},
+		{`V=$(bash -c 'cat "".*') && echo "$V"`, "$V"},
+		{`V=$(python3 -c "import glob,os; [print(open(f).read()) for f in glob.glob('.*') if os.path.isfile(f)]") && echo "$V"`, "$V"},
+		// A .* in a pattern without a backslash cannot be told from a glob.
 		{`K=$(grep -o 'event stream kept: .*' run.out); echo $K`, "$K"},
 	}
 	for _, c := range caught {

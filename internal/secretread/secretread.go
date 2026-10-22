@@ -540,10 +540,10 @@ func secretInCommands(cmds []*shellsplit.Command) string {
 // and `find -name '.env*'` do. Two fragments are not:
 //   - a subject word that is not itself a credential's name, the `credential`
 //     in `grep 'a credential file'`;
-//   - a stem of dots carved out of a larger token, the `.*` in the sed
-//     script `s/\(.*\)/\1/`, which is a regex and not a pattern any
-//     program expands. A whole token `.*` stays a glob: `sh -c 'cat .*'`
-//     prints every dotfile.
+//   - a stem of dots in a fragment that carries a backslash, the `.*\` the
+//     sed script `s/\(.*\)/\1/` splits into, which is a regex escape and
+//     not a pattern any program expands. Any other `.*` stays a glob:
+//     `sh -c 'cat .*;'` prints every dotfile.
 func secretInText(word string) string {
 	for _, tok := range strings.Fields(word) {
 		for _, f := range strings.FieldsFunc(tok, func(r rune) bool {
@@ -560,7 +560,7 @@ func secretInText(word string) string {
 			if secretByName(f) {
 				return f
 			}
-			if secretByGlob(f) && (f == tok || !dotsOnlyStem(f)) {
+			if secretByGlob(f) && !regexDots(f) {
 				return f
 			}
 		}
@@ -568,11 +568,12 @@ func secretInText(word string) string {
 	return ""
 }
 
-// dotsOnlyStem reports whether a word's glob stem is nothing but dots.
-func dotsOnlyStem(word string) bool {
-	base := basename(word)
+// regexDots reports whether a fragment is a regex's dot-star rather than a
+// glob: its stem is nothing but dots and it carries a backslash escape.
+func regexDots(f string) bool {
+	base := basename(f)
 	i := strings.IndexAny(base, "*?")
-	return i > 0 && strings.Trim(base[:i], ".") == ""
+	return i > 0 && strings.Trim(base[:i], ".") == "" && strings.Contains(f, `\`)
 }
 
 // names reports whether an argument references the shell variable.
