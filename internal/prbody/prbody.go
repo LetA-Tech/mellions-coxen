@@ -46,8 +46,9 @@ type Call struct {
 	Base   string
 	Repo   string
 	Bodies []string
-	// Unread is each --body-file whose text this parse could not read. Its
-	// entry in Bodies is "", which is not what gh will publish.
+	// Unread is each body whose text this parse could not read: a --body-file
+	// it could not open, or a --body holding an expansion bash performs. Its
+	// entry in Bodies is not what gh will publish.
 	Unread []Unreadable
 	// Dir is the directory this call runs in: the session's, or wherever the
 	// command's own `cd` moved to before it. A citation is a claim about the
@@ -57,8 +58,10 @@ type Call struct {
 	Dir string
 }
 
-// Unreadable is a --body-file spec as written, and why its text was not read.
+// Unreadable is a body flag, its value as written, and why its text was not
+// read.
 type Unreadable struct {
+	Flag string
 	Spec string
 	Why  string
 }
@@ -156,6 +159,9 @@ func calls(command, cwd string, accept func(noun, verb string) bool) []Call {
 	for _, c := range cmds {
 		if c.Out != "" && len(c.Heredocs) > 0 {
 			written[c.Out] = strings.Join(c.Heredocs, "")
+			if expands(c) {
+				written[c.Out] = unreadHeredoc
+			}
 		}
 	}
 
@@ -182,6 +188,9 @@ func calls(command, cwd string, accept func(noun, verb string) bool) []Call {
 			continue
 		}
 		call := Call{Dir: dir}
+		// args is the tail of c.Words; off maps an index in args back to its
+		// word, and so to whether that word holds an expansion.
+		off := len(c.Words) - len(args)
 		for i := 0; i < len(args); i++ {
 			name, glued, hasGlued := ghcmd.SplitFlag(args[i])
 			var v string
@@ -199,11 +208,15 @@ func calls(command, cwd string, accept func(noun, verb string) bool) []Call {
 			switch name {
 			case "--body", "-b":
 				call.Bodies = append(call.Bodies, v)
+				if c.Expands[off+i] {
+					call.Unread = append(call.Unread, Unreadable{Flag: "--body", Spec: v,
+						Why: "a shell expansion this hook does not perform, so the text gh publishes is not this"})
+				}
 			case "--body-file", "-F":
 				body, why := bodyFile(v, hasGlued, c, written, redirected, dir)
 				call.Bodies = append(call.Bodies, body)
 				if why != "" {
-					call.Unread = append(call.Unread, Unreadable{Spec: v, Why: why})
+					call.Unread = append(call.Unread, Unreadable{Flag: "--body-file", Spec: v, Why: why})
 				}
 			case "--base", "-B":
 				if call.Base == "" {
@@ -293,9 +306,15 @@ func bodyFile(spec string, glued bool, c *shellsplit.Command, written map[string
 		if len(c.Heredocs) == 0 {
 			return "", "stdin from outside a heredoc in this command, which this hook cannot see"
 		}
+		if expands(c) {
+			return "", heredocWhy
+		}
 		return strings.Join(c.Heredocs, ""), ""
 	}
 	if b, ok := written[spec]; ok {
+		if b == unreadHeredoc {
+			return "", heredocWhy
+		}
 		return b, ""
 	}
 	path := spec
@@ -333,6 +352,23 @@ func bodyFile(spec string, glued bool, c *shellsplit.Command, written map[string
 		return "", unseen
 	}
 	return string(b), ""
+}
+
+// unreadHeredoc marks a path written from a heredoc bash expands, in a map of
+// heredoc text no body can equal: it holds a NUL.
+const unreadHeredoc = "\x00unread heredoc"
+
+const heredocWhy = "a heredoc with an unquoted delimiter holding an expansion this hook " +
+	"does not perform; quote the delimiter (<<'EOF')"
+
+// expands reports whether any heredoc c declares is one bash expands.
+func expands(c *shellsplit.Command) bool {
+	for _, e := range c.HeredocExpands {
+		if e {
+			return true
+		}
+	}
+	return false
 }
 
 // resolve is the absolute path a redirection target names from dir, with a

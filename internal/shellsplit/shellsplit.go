@@ -17,18 +17,30 @@ import "strings"
 
 // Command is one command in a compound: its words with quoting removed, the
 // bodies of the heredocs it declares, and the file it redirects stdout to.
+//
+// Expands[i] reports whether Words[i] holds an expansion bash performs and this
+// lexer does not — a `$(…)` it could not read off the line, a backtick, or a
+// parameter outside single quotes — so the word is its source text, not the
+// value the command receives. `'$5'` is literal and `"$5"` is not, and with the
+// quotes removed only this flag tells them apart.
+//
+// HeredocExpands[i] is the same for Heredocs[i]: bash expands an unquoted
+// delimiter's body, so `$(cat f)` inside `<<EOF` publishes f, not those bytes.
 type Command struct {
-	Words    []string
-	Heredocs []string
-	Out      string
+	Words          []string
+	Expands        []bool
+	Heredocs       []string
+	HeredocExpands []bool
+	Out            string
 }
 
 // pending is a heredoc whose delimiter has been read and whose body has not:
 // the body starts on the line after the one declaring it.
 type pending struct {
-	delim string
-	strip bool
-	owner *Command
+	delim  string
+	strip  bool
+	expand bool
+	owner  *Command
 }
 
 // Split lexes a Bash command line into its simple commands.
@@ -51,6 +63,8 @@ func lex(command string, i int, stopAtParen bool) ([]*Command, int) {
 	cur := &Command{}
 	var w strings.Builder
 	hasWord := false
+	expands := false
+	quoted := false
 
 	var queue []pending
 	redirOut := false
@@ -63,15 +77,20 @@ func lex(command string, i int, stopAtParen bool) ([]*Command, int) {
 		s := w.String()
 		w.Reset()
 		hasWord = false
+		exp := expands
+		expands = false
+		q := quoted
+		quoted = false
 		switch {
 		case heredocNext != 0:
-			queue = append(queue, pending{delim: s, strip: heredocNext == 2, owner: cur})
+			queue = append(queue, pending{delim: s, strip: heredocNext == 2, expand: !q, owner: cur})
 			heredocNext = 0
 		case redirOut:
 			cur.Out = s
 			redirOut = false
 		default:
 			cur.Words = append(cur.Words, s)
+			cur.Expands = append(cur.Expands, exp)
 		}
 	}
 	endCmd := func() {
@@ -87,22 +106,27 @@ func lex(command string, i int, stopAtParen bool) ([]*Command, int) {
 		switch {
 		case c == '$' && i+1 < len(command) && command[i+1] == '(':
 			var text string
-			text, i = substitution(command, i)
+			var read bool
+			text, read, i = substitution(command, i)
 			w.WriteString(text)
 			hasWord = true
+			expands = expands || !read
 
 		case stopAtParen && c == ')':
 			endCmd()
 			return out, i + 1
 
 		case c == '\\' && i+1 < len(command):
+			// A line continuation quotes nothing: it is not part of a word.
 			if command[i+1] != '\n' {
+				quoted = true
 				w.WriteByte(command[i+1])
 				hasWord = true
 			}
 			i += 2
 
 		case c == '\'':
+			quoted = true
 			j := strings.IndexByte(command[i+1:], '\'')
 			hasWord = true
 			if j < 0 {
@@ -114,6 +138,7 @@ func lex(command string, i int, stopAtParen bool) ([]*Command, int) {
 			i += j + 2
 
 		case c == '"':
+			quoted = true
 			i++
 			for i < len(command) && command[i] != '"' {
 				if command[i] == '\\' && i+1 < len(command) {
@@ -133,9 +158,14 @@ func lex(command string, i int, stopAtParen bool) ([]*Command, int) {
 				// command across words the caller never sees.
 				if command[i] == '$' && i+1 < len(command) && command[i+1] == '(' {
 					var text string
-					text, i = substitution(command, i)
+					var read bool
+					text, read, i = substitution(command, i)
 					w.WriteString(text)
+					expands = expands || !read
 					continue
+				}
+				if expansion(command, i) {
+					expands = true
 				}
 				w.WriteByte(command[i])
 				i++
@@ -218,6 +248,9 @@ func lex(command string, i int, stopAtParen bool) ([]*Command, int) {
 			redirOut = true
 
 		default:
+			if expansion(command, i) {
+				expands = true
+			}
 			w.WriteByte(c)
 			hasWord = true
 			i++
@@ -225,6 +258,51 @@ func lex(command string, i int, stopAtParen bool) ([]*Command, int) {
 	}
 	endCmd()
 	return out, i
+}
+
+// catsStdin reports whether words are a `cat` that prints only its stdin.
+func catsStdin(words []string) bool {
+	switch len(words) {
+	case 1:
+		return words[0] == "cat"
+	case 2:
+		return words[0] == "cat" && words[1] == "-"
+	}
+	return false
+}
+
+// bodyExpands reports whether an unquoted heredoc body holds an expansion bash
+// performs. There a backslash escapes `$`, a backtick and itself, and quotes are
+// ordinary text.
+func bodyExpands(s string) bool {
+	for i := 0; i < len(s); i++ {
+		switch {
+		case s[i] == '\\':
+			i++
+		case s[i] == '$' && i+1 < len(s) && s[i+1] == '(', expansion(s, i):
+			return true
+		}
+	}
+	return false
+}
+
+// expansion reports whether the unescaped byte at i, outside single quotes,
+// starts an expansion bash performs: a backtick, or a `$` naming a parameter —
+// `${`, a name, a digit, or one of the special parameters. A `$` before
+// anything else is a literal dollar sign to bash, as in "costs $ 5".
+func expansion(command string, i int) bool {
+	switch command[i] {
+	case '`':
+		return true
+	case '$':
+		if i+1 >= len(command) {
+			return false
+		}
+		n := command[i+1]
+		return n == '{' || n == '_' || n >= 'a' && n <= 'z' || n >= 'A' && n <= 'Z' ||
+			n >= '0' && n <= '9' || strings.IndexByte("@*#?$!-", n) >= 0
+	}
+	return false
 }
 
 // substitution reads $(...) beginning at i. It returns the text the
@@ -251,25 +329,33 @@ func lex(command string, i int, stopAtParen bool) ([]*Command, int) {
 // variable, which is the idiom the secret guard steers toward.
 //
 // $((…)) is arithmetic and names no command.
-func substitution(command string, i int) (string, int) {
+//
+// read reports whether the text is the value bash substitutes rather than the
+// substitution's own source: only a lone `cat` or `cat -` printing its one
+// heredoc, unexpanded, prints exactly that heredoc.
+func substitution(command string, i int) (text string, read bool, next int) {
 	if strings.HasPrefix(command[i:], "$((") {
 		if j := strings.Index(command[i+3:], "))"); j >= 0 {
 			next := i + 3 + j + 2
-			return command[i:next], next
+			return command[i:next], false, next
 		}
-		return command[i:], len(command)
+		return command[i:], false, len(command)
 	}
 	inner, next := lex(command, i+2, true)
 	var b strings.Builder
+	read = len(inner) == 1 && len(inner[0].Heredocs) == 1 && catsStdin(inner[0].Words)
 	for _, c := range inner {
-		for _, h := range c.Heredocs {
+		for j, h := range c.Heredocs {
 			b.WriteString(h)
+			if c.HeredocExpands[j] {
+				read = false
+			}
 		}
 	}
 	if b.Len() == 0 {
-		return command[i:next], next
+		return command[i:next], false, next
 	}
-	return b.String(), next
+	return b.String(), read, next
 }
 
 // readHeredocs consumes the queued heredoc bodies starting at i, which is the
@@ -298,6 +384,7 @@ func readHeredocs(s string, i int, queue []pending) int {
 			body.WriteByte('\n')
 		}
 		p.owner.Heredocs = append(p.owner.Heredocs, body.String())
+		p.owner.HeredocExpands = append(p.owner.HeredocExpands, p.expand && bodyExpands(body.String()))
 	}
 	return i
 }
