@@ -546,13 +546,7 @@ func secretInCommands(cmds []*shellsplit.Command) string {
 //     `sh -c 'cat .*;'` prints every dotfile.
 func secretInText(word string) string {
 	for _, tok := range strings.Fields(word) {
-		for _, f := range strings.FieldsFunc(tok, func(r rune) bool {
-			switch r {
-			case '(', ')', '\'', '"', '`', ',', '=', ';', '{', '}', '[', ']', '<', '>', '$':
-				return true
-			}
-			return false
-		}) {
+		for _, f := range strings.FieldsFunc(tok, wrapsAPath) {
 			lower := strings.ToLower(f)
 			if subjectWords[lower] && !exactSecretNames[lower] {
 				continue
@@ -560,12 +554,29 @@ func secretInText(word string) string {
 			if secretByName(f) {
 				return f
 			}
+		}
+		// A glob is cut only at quotes, parentheses and backquotes, so a
+		// stem keeps the operator in front of it: `>.*` in a sed script
+		// names no file.
+		for _, f := range strings.FieldsFunc(tok, func(r rune) bool {
+			return r == '(' || r == ')' || r == '`' || r == '"' || r == '\''
+		}) {
 			if secretByGlob(f) && !regexDots(f) {
 				return f
 			}
 		}
 	}
 	return ""
+}
+
+// wrapsAPath reports whether a rune is punctuation that wraps a path inside
+// another language's text.
+func wrapsAPath(r rune) bool {
+	switch r {
+	case '(', ')', '\'', '"', '`', ',', '=', ';', '{', '}', '[', ']', '<', '>', '$':
+		return true
+	}
+	return false
 }
 
 // regexDots reports whether a fragment is a regex's dot-star rather than a

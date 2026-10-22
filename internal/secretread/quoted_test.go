@@ -18,6 +18,7 @@ func TestScanBash_QuotedTextInASubstitution(t *testing.T) {
 		`V=$(grep -rln 'secret token' .) && echo "$V"`,
 		`echo "$(grep -c 'no secrets here' notes.md)"`,
 		`echo "$(date) .env"`,
+		`ARGS=$(sed -n '/run.sh/,/timeout/p' f | sed -E 's/>.*$//') && echo "$ARGS"`,
 	}
 	for _, cmd := range admitted {
 		if got := ScanBash(cmd); len(got) != 0 {
