@@ -28,7 +28,9 @@ export MELLIONS_CONFIG="$tmp/config.json"
 printf '{"owner":"test"}\n' > "$MELLIONS_CONFIG"
 export MELLIONS_BIN="$bin"
 
-run() { printf '%s' "$1" | bash "$hook" 2>/dev/null; }
+# The hook reads its payload from a file, never a pipe: a writer the hook
+# outlives takes SIGPIPE, which pipefail makes the status this test reads.
+run() { printf '%s' "$1" >"$tmp/stdin"; bash "$hook" <"$tmp/stdin" 2>/dev/null; }
 
 # A key-name parser is unsafe when a credential file contains a bare URI.
 out=$(run '{"tool_name":"Bash","cwd":"/tmp","tool_input":{"command":"awk -F= \"{print \\$1}\" .db_connection"}}')

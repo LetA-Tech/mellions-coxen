@@ -39,9 +39,12 @@ cat > "$MELLIONS_CONFIG" <<JSON
 JSON
 
 payload='{"session_id":"s","cwd":"'"$root"'","hook_event_name":"PreCompact","trigger":"auto","custom_instructions":null}'
+# Fed from a file, not a pipe: a writer the hook outlives takes SIGPIPE, which
+# pipefail makes the status this test asserts.
+printf '%s' "$payload" > "$tmpdir/payload"
 
 cuterr="$tmpdir/renewal.err"
-out=$(printf '%s' "$payload" | MELLIONS_BIN="$bin" CLAUDE_PLUGIN_ROOT="$root" bash "$hook" 2>"$cuterr")
+out=$(MELLIONS_BIN="$bin" CLAUDE_PLUGIN_ROOT="$root" bash "$hook" <"$tmpdir/payload" 2>"$cuterr")
 rc=$?
 [[ $rc -eq 0 ]] || bad "the hook exited $rc; anything but 0 risks blocking a compaction"
 
@@ -63,7 +66,7 @@ note "block $bytes bytes, exit $rc"
 
 # A missing binary is the ordinary partial install. It must still exit 0: a
 # hook that fails loudly here is a hook that stops the session.
-gone=$(printf '%s' "$payload" | MELLIONS_BIN=/nonexistent/mellions CLAUDE_PLUGIN_ROOT="$root" bash "$hook")
+gone=$(MELLIONS_BIN=/nonexistent/mellions CLAUDE_PLUGIN_ROOT="$root" bash "$hook" <"$tmpdir/payload")
 rc=$?
 [[ $rc -eq 0 ]] || bad "a missing binary made the hook exit $rc, which would block the compaction"
 [[ -z "$gone" ]] || note "a missing binary still printed $(printf '%s' "$gone" | wc -c | tr -d ' ') bytes"
