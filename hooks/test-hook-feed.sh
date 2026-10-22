@@ -63,5 +63,20 @@ for t in "$root"/hooks/test-*.sh "$root"/scripts/test-*.sh "$root"/deploy/test-*
 done
 [[ $n -gt 0 ]] || bad "no test scripts found, so nothing was checked"
 
+# The same race one layer down: a hook that pipes its payload into the binary
+# gets the writer's SIGPIPE as its status whenever the command never reads stdin.
+binpipe='(^|[^|])\|[^|;&]*[[:space:]]"?\$\{?mellions\}?"?([[:space:]]|$)'
+printf '%s\n' '    printf '"'%s'"' "$payload" | MELLIONS_HOOK=1 timeout 8 "$mellions" "$@" 2>/dev/null' >"$probe"
+[[ -n "$(joined "$probe" | grep -E "$binpipe")" ]] || bad "the binary pattern misses a pipe into the binary"
+printf '%s\n' '    MELLIONS_HOOK=1 "$mellions" "$@" < <(printf '"'%s'"' "$payload") 2>/dev/null' >"$probe"
+[[ -z "$(joined "$probe" | grep -E "$binpipe")" ]] || bad "the binary pattern flags a process-substitution feed"
+for h in "$root"/hooks/*.sh; do
+  case "$(basename "$h")" in test-*) continue ;; esac
+  if hits=$(joined "$h" | grep -E "$binpipe"); [[ -n "$hits" ]]; then
+    bad "${h#"$root"/} pipes the payload into the binary; feed it by process substitution:"
+    printf '%s\n' "$hits" | sed 's/^/    /'
+  fi
+done
+
 [[ $fail -eq 0 ]] && echo "ok  hook-feed ($n test scripts)"
 exit $fail
