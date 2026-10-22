@@ -18,11 +18,7 @@ import "strings"
 // Command is one command in a compound: its words with quoting removed, the
 // bodies of the heredocs it declares, and the file it redirects stdout to.
 type Command struct {
-	Words []string
-	// Globs[i] reports whether Words[i] holds an unquoted *, ? or [, which bash
-	// expands against the filesystem. The same character quoted or escaped is
-	// a literal byte of the word.
-	Globs    []bool
+	Words    []string
 	Heredocs []string
 	Out      string
 }
@@ -55,7 +51,6 @@ func lex(command string, i int, stopAtParen bool) ([]*Command, int) {
 	cur := &Command{}
 	var w strings.Builder
 	hasWord := false
-	glob := false
 
 	var queue []pending
 	redirOut := false
@@ -68,8 +63,6 @@ func lex(command string, i int, stopAtParen bool) ([]*Command, int) {
 		s := w.String()
 		w.Reset()
 		hasWord = false
-		g := glob
-		glob = false
 		switch {
 		case heredocNext != 0:
 			queue = append(queue, pending{delim: s, strip: heredocNext == 2, owner: cur})
@@ -79,7 +72,6 @@ func lex(command string, i int, stopAtParen bool) ([]*Command, int) {
 			redirOut = false
 		default:
 			cur.Words = append(cur.Words, s)
-			cur.Globs = append(cur.Globs, g)
 		}
 	}
 	endCmd := func() {
@@ -226,9 +218,6 @@ func lex(command string, i int, stopAtParen bool) ([]*Command, int) {
 			redirOut = true
 
 		default:
-			if c == '*' || c == '?' || c == '[' {
-				glob = true
-			}
 			w.WriteByte(c)
 			hasWord = true
 			i++

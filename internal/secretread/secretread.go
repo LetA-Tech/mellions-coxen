@@ -315,8 +315,7 @@ func secretByGlob(word string) bool {
 	return false
 }
 
-// secretsInWord returns the credential paths a single shell word names, where
-// glob says whether the word holds a wildcard the shell expands.
+// secretsInWord returns the credential paths a single word names.
 //
 // A word is scanned as a whole first. Where that finds nothing and the word
 // carries no whitespace, it is split at the punctuation that wraps a path
@@ -328,12 +327,8 @@ func secretByGlob(word string) bool {
 // document that says `cat .db_connection prints it` is a word with spaces in
 // it, so it is never fragmented and never matches, while a one-liner that
 // actually opens the file is not.
-//
-// A wildcard the shell does not expand is a literal byte: `grep -c '.*' go.mod`
-// hands grep the two characters `.*`, which name no file, so the stem before
-// it is tested only when glob is set.
-func secretsInWord(word string, glob bool) []string {
-	if secretByName(word) || glob && secretByGlob(word) {
+func secretsInWord(word string) []string {
+	if IsSecretPath(word) {
 		return []string{word}
 	}
 	if word == "" || strings.ContainsAny(word, " \t\n") {
@@ -453,7 +448,7 @@ func ScanBash(command string) []Finding {
 			if ai > 0 && consumed[args[ai-1]] {
 				continue
 			}
-			if found := secretsInWord(a, c.Globs[i+1+ai]); len(found) > 0 {
+			if found := secretsInWord(a); len(found) > 0 {
 				// A path, however it is spelled: the command opens the file
 				// itself. Only the enumerated non-emitters are exonerated.
 				if !safeReaders[reader] {
@@ -480,43 +475,82 @@ func containsSecretRead(word string) bool {
 // secretInside returns the credential path a command substitution in the word
 // reads, or "".
 //
-// The substitution is lexed as the shell will run it, and each of its words is
-// classified exactly as the same word is as an argument on a command line of
-// its own. A quoted sed script or grep pattern is one word the shell neither
-// splits nor globs: the `.*` in `sed -n 's/\(.*\)/\1/p'` is no glob, and the
-// `credential` in `grep 'a credential file'` is not a word at all.
+// Each substitution is lexed as the shell will run it, and its words are
+// classified as a bare argument is. A word with whitespace in it is quoted text
+// the shell hands over whole: a sed script, a grep pattern, a `sh -c` or
+// `python3 -c` program, a path with a space. It is split at whitespace and the
+// punctuation that wraps a path, and each fragment is tested by name, never by
+// glob stem, so `.*` in a regex does not stand for every dotted file. A fragment
+// that is only a subject word, the `credential` in `grep 'a credential file'`,
+// is a word of that text and not a file it opens.
 func secretInside(word string) string {
 	for i := 0; i < len(word); {
 		j := strings.Index(word[i:], "$(")
 		if j < 0 {
 			break
 		}
-		cmds, next := shellsplit.Substitution(word, i+j)
-		if f := secretInCommands(cmds); f != "" {
+		at := i + j
+		cmds, next := shellsplit.Substitution(word, at)
+		if strings.HasPrefix(word[at:], "$((") {
+			// Arithmetic runs nothing itself, but a substitution inside it runs.
+			if f := secretInside(word[at+3 : next]); f != "" {
+				return f
+			}
+		} else if f := secretInCommands(cmds); f != "" {
 			return f
 		}
 		i = next
 	}
-	// The lexer does not group a backquoted command, so its text runs to the
-	// next backquote in the word, or to the word's end.
-	if _, rest, ok := strings.Cut(word, "`"); ok {
-		body, _, _ := strings.Cut(rest, "`")
-		return secretInCommands(shellsplit.Split(body))
+	// The lexer does not group a backquoted command, so each pair of backquotes
+	// in the word encloses one.
+	rest := word
+	for {
+		_, after, ok := strings.Cut(rest, "`")
+		if !ok {
+			return ""
+		}
+		body, tail, _ := strings.Cut(after, "`")
+		if f := secretInCommands(shellsplit.Split(body)); f != "" {
+			return f
+		}
+		rest = tail
 	}
-	return ""
 }
 
 // secretInCommands returns the first credential path the commands' words name,
 // including one read by a substitution nested in a word.
 func secretInCommands(cmds []*shellsplit.Command) string {
 	for _, c := range cmds {
-		for k, w := range c.Words {
-			if found := secretsInWord(w, c.Globs[k]); len(found) > 0 {
+		for _, w := range c.Words {
+			if found := secretsInWord(w); len(found) > 0 {
 				return found[0]
+			}
+			if f := secretInQuotedText(w); f != "" {
+				return f
 			}
 			if f := secretInside(w); f != "" {
 				return f
 			}
+		}
+	}
+	return ""
+}
+
+// secretInQuotedText returns a credential name carried by a word that holds
+// whitespace, or "".
+func secretInQuotedText(word string) string {
+	if !strings.ContainsAny(word, " \t\n") {
+		return ""
+	}
+	for _, f := range strings.FieldsFunc(word, func(r rune) bool {
+		switch r {
+		case ' ', '\t', '\n', '(', ')', '\'', '"', '`', ',', '=', ';', '{', '}', '[', ']', '<', '>', '$':
+			return true
+		}
+		return false
+	}) {
+		if !subjectWords[strings.ToLower(f)] && secretByName(f) {
+			return f
 		}
 	}
 	return ""

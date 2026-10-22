@@ -6,19 +6,16 @@ package secretread
 
 import "testing"
 
-// A substitution is lexed as the shell runs it, and a wildcard counts only where
-// the shell expands it. A quoted sed script or grep pattern is one literal word:
-// neither its `.*` nor the words inside its quotes name a file the command opens.
-func TestScanBash_QuotedTextIsOneLiteralWord(t *testing.T) {
+// A substitution is lexed as the shell runs it. Quoted text with whitespace in
+// it is searched for credential names, never for glob stems, and a bare subject
+// word in it is a word of the text rather than a file.
+func TestScanBash_QuotedTextInASubstitution(t *testing.T) {
 	admitted := []string{
 		`V=$(sed -n 's/^go \(.*\)$/go\1/p' go.mod) && echo "$V"`,
+		`GV=$(sed -n 's/^go \(.*\)$/go\1/p' go.mod) && echo $GV`,
 		`f=$(grep -rln 'a credential file' internal) && grep -n x "$f"`,
-		`V=$(grep -c '.*' go.mod) && echo "$V"`,
-		`V=$(sed 's/.*//' go.mod) && echo "$V"`,
-		`echo "$(grep -c ".*" go.mod)"`,
-		`grep -c '.*' go.mod`,
-		`grep -c ".*" go.mod`,
-		`grep -c \.\* go.mod`,
+		`K=$(grep -o 'event stream kept: .*' run.out | awk '{print $4}'); echo $K`,
+		`echo "$(grep -c 'no secrets here' notes.md)"`,
 		`echo "$(date) .env"`,
 	}
 	for _, cmd := range admitted {
@@ -33,12 +30,22 @@ func TestScanBash_QuotedTextIsOneLiteralWord(t *testing.T) {
 		{`V=$(cat ".db_conn"*) && echo "$V"`, "$V"},
 		{`echo "$(cat .db_conn*)"`, ".db_conn*"},
 		{`echo "$(cat '.db_connection')"`, ".db_connection"},
+		{`cat $(echo '.db_conn*')`, ".db_conn*"},
+		{`V=$(find . -name '.db_conn*' -exec cat {} \;) && echo "$V"`, "$V"},
+		{`find . -name '.db_conn*' -exec cat {} \;`, ".db_conn*"},
+		{`grep -r --include '.db_conn*' '' .`, ".db_conn*"},
 		{`V=$(python3 -c "print(open('.db_connection').read())") && echo "$V"`, "$V"},
+		{`V=$(python3 -c "f = open('.db_connection'); print(f.read())") && echo "$V"`, "$V"},
+		{`V=$(sh -c 'cat .pgpass') && echo "$V"`, "$V"},
+		{`echo "$(bash -c 'cat .pgpass')"`, ".pgpass"},
+		{`V=$(ssh host 'cat .env') && echo "$V"`, "$V"},
+		{`V=$(cat "my dir/.pgpass") && echo "$V"`, "$V"},
 		{`V=$(echo "$(cat .pgpass)") && echo "$V"`, "$V"},
 		{`echo "$(<.pgpass)"`, ".pgpass"},
+		{`echo $(( $(cat .pgpass) ))`, ".pgpass"},
 		{"echo \"`cat .pgpass`\"", ".pgpass"},
-		{`cat .db_conn*`, ".db_conn*"},
-		{`cat ".db_conn"*`, ".db_conn*"},
+		{"echo \"`date` `cat .pgpass`\"", ".pgpass"},
+		{"V=\"`date`-`cat .pgpass`\" && echo \"$V\"", "$V"},
 	}
 	for _, c := range caught {
 		got := ScanBash(c.cmd)
