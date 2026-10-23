@@ -384,7 +384,7 @@ func ScanBash(command string) []Finding {
 	holdsPath := map[string]bool{}
 
 	for _, c := range shellsplit.Split(command) {
-		words := c.Words
+		words := commandFirst(c)
 		if len(words) == 0 {
 			continue
 		}
@@ -464,6 +464,28 @@ func ScanBash(command string) []Finding {
 		}
 	}
 	return dedupe(out)
+}
+
+// commandFirst returns a command's words with its stdin operands moved after
+// the rest. `<wc cat .pgpass` runs cat, not wc, and the file it reads on stdin
+// stays an operand the command opens.
+func commandFirst(c *shellsplit.Command) []string {
+	if len(c.Stdin) == 0 {
+		return c.Words
+	}
+	stdin := map[int]bool{}
+	for _, i := range c.Stdin {
+		stdin[i] = true
+	}
+	var head, tail []string
+	for i, w := range c.Words {
+		if stdin[i] {
+			tail = append(tail, w)
+		} else {
+			head = append(head, w)
+		}
+	}
+	return append(head, tail...)
 }
 
 // containsSecretRead reports whether a word embeds a command substitution that

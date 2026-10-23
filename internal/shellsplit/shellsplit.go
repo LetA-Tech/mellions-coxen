@@ -17,10 +17,14 @@ import "strings"
 
 // Command is one command in a compound: its words with quoting removed, the
 // bodies of the heredocs it declares, and the file it redirects stdout to.
+//
+// Stdin lists the indexes in Words of the operands of <, <> and <<<: what the
+// command reads on stdin, held in place among its words but never its name.
 type Command struct {
 	Words    []string
 	Heredocs []string
 	Out      string
+	Stdin    []int
 }
 
 // pending is a heredoc whose delimiter has been read and whose body has not:
@@ -54,6 +58,7 @@ func lex(command string, i int, stopAtParen bool) ([]*Command, int) {
 
 	var queue []pending
 	redirOut := false
+	redirIn := false
 	heredocNext := 0 // 0 none, 1 <<, 2 <<-
 
 	endWord := func() {
@@ -70,6 +75,10 @@ func lex(command string, i int, stopAtParen bool) ([]*Command, int) {
 		case redirOut:
 			cur.Out = s
 			redirOut = false
+		case redirIn:
+			cur.Words = append(cur.Words, s)
+			cur.Stdin = append(cur.Stdin, len(cur.Words)-1)
+			redirIn = false
 		default:
 			cur.Words = append(cur.Words, s)
 		}
@@ -80,6 +89,7 @@ func lex(command string, i int, stopAtParen bool) ([]*Command, int) {
 			out = append(out, cur)
 		}
 		cur = &Command{}
+		redirIn = false
 	}
 
 	for i < len(command) {
@@ -190,6 +200,7 @@ func lex(command string, i int, stopAtParen bool) ([]*Command, int) {
 			switch {
 			case strings.HasPrefix(command[i:], "<<<"):
 				i += 3 // a here-string's word is data, and no body gh reads
+				redirIn = true
 			case strings.HasPrefix(command[i:], "<<-"):
 				heredocNext = 2
 				i += 3
@@ -200,8 +211,10 @@ func lex(command string, i int, stopAtParen bool) ([]*Command, int) {
 				// <> opens its file for reading on stdin: an operand read as
 				// after <, not the file stdout goes to.
 				i += 2
+				redirIn = true
 			default:
 				i++
+				redirIn = true
 			}
 
 		case c == '>':
