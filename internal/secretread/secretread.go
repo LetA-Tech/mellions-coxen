@@ -384,7 +384,7 @@ func ScanBash(command string) []Finding {
 	holdsPath := map[string]bool{}
 
 	for _, c := range shellsplit.Split(command) {
-		words := commandFirst(c)
+		words, argc := commandFirst(c)
 		if len(words) == 0 {
 			continue
 		}
@@ -444,8 +444,9 @@ func ScanBash(command string) []Finding {
 					out = append(out, Finding{Path: "$" + name, Reader: reader, Held: true})
 				}
 			}
-			// An option operand the reader consumes rather than prints.
-			if ai > 0 && consumed[args[ai-1]] {
+			// An option operand the reader consumes rather than prints. A stdin
+			// operand is never one, wherever it was written.
+			if ai > 0 && consumed[args[ai-1]] && i+1+ai < argc {
 				continue
 			}
 			if found := secretsInWord(a); len(found) > 0 {
@@ -467,11 +468,11 @@ func ScanBash(command string) []Finding {
 }
 
 // commandFirst returns a command's words with its stdin operands moved after
-// the rest. `<wc cat .pgpass` runs cat, not wc, and the file it reads on stdin
-// stays an operand the command opens.
-func commandFirst(c *shellsplit.Command) []string {
+// the rest, and how many words precede them. `<wc cat .pgpass` runs cat, not
+// wc, and the file it reads on stdin stays an operand the command opens.
+func commandFirst(c *shellsplit.Command) ([]string, int) {
 	if len(c.Stdin) == 0 {
-		return c.Words
+		return c.Words, len(c.Words)
 	}
 	stdin := map[int]bool{}
 	for _, i := range c.Stdin {
@@ -485,7 +486,7 @@ func commandFirst(c *shellsplit.Command) []string {
 			head = append(head, w)
 		}
 	}
-	return append(head, tail...)
+	return append(head, tail...), len(head)
 }
 
 // containsSecretRead reports whether a word embeds a command substitution that

@@ -18,8 +18,9 @@ import "strings"
 // Command is one command in a compound: its words with quoting removed, the
 // bodies of the heredocs it declares, and the file it redirects stdout to.
 //
-// Stdin lists the indexes in Words of the operands of <, <> and <<<: what the
-// command reads on stdin, held in place among its words but never its name.
+// Stdin lists the indexes in Words of the operands of <, <> and <<<: a file or
+// text a redirection opens for reading, held in place among the words but
+// never the command's name or an option's operand.
 type Command struct {
 	Words    []string
 	Heredocs []string
