@@ -213,6 +213,11 @@ func lex(command string, i int, stopAtParen bool) ([]*Command, int) {
 				// after <, not the file stdout goes to.
 				i += 2
 				redirIn = true
+			case strings.HasPrefix(command[i:], "<("):
+				// Process substitution is an argument, not a redirection, and
+				// its fragments are no operand of a < written before it.
+				i++
+				redirIn = false
 			default:
 				i++
 				redirIn = true

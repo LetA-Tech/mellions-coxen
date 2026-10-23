@@ -56,6 +56,8 @@ func TestStdinIndexesTheStdinOperands(t *testing.T) {
 		{`cat a <b > c`, []int{2}},
 		{`cat <a>b`, []int{1}},
 		{`cat a`, nil},
+		{`< <(cat x) cat`, nil},
+		{`cat <(cat x)`, nil},
 	} {
 		got := Split(tc.cmd)[0].Stdin
 		if len(got) != len(tc.want) {

@@ -23,6 +23,10 @@ func TestScanBash_ReadWriteRedirectIsARead(t *testing.T) {
 		`<source cat .pgpass`,
 		`ssh host 'cat #' < .pgpass -i`,
 		`ssh host sh -c cat < .pgpass -i`,
+		`< <(cat .pgpass) cat`,
+		`< <(cat .env) sort`,
+		`cat <(cat .pgpass)`,
+		`ssh -i < <(cat .pgpass) KEY HOST cat`,
 	} {
 		if got := ScanBash(cmd); len(got) == 0 {
 			t.Errorf("ScanBash(%q) returned no finding; bash prints the file", cmd)
