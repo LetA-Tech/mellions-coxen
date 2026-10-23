@@ -75,11 +75,11 @@ func lex(command string, i int, stopAtParen bool) ([]*Command, int) {
 		case redirOut:
 			cur.Out = s
 			redirOut = false
-		case redirIn:
-			cur.Words = append(cur.Words, s)
-			cur.Stdin = append(cur.Stdin, len(cur.Words)-1)
-			redirIn = false
 		default:
+			if redirIn {
+				cur.Stdin = append(cur.Stdin, len(cur.Words))
+				redirIn = false
+			}
 			cur.Words = append(cur.Words, s)
 		}
 	}
