@@ -196,6 +196,10 @@ func lex(command string, i int, stopAtParen bool) ([]*Command, int) {
 			case strings.HasPrefix(command[i:], "<<"):
 				heredocNext = 1
 				i += 2
+			case strings.HasPrefix(command[i:], "<>"):
+				// <> opens its file for reading on stdin: an operand read as
+				// after <, not the file stdout goes to.
+				i += 2
 			default:
 				i++
 			}
