@@ -143,6 +143,8 @@ func cmdCiteCheck(ctx context.Context, args []string) error {
 		cwd = "."
 	}
 	var reasons []string
+	// unquoted counts the findings whose line the body shows outside any quotation, others the rest.
+	var unquoted, others int
 	// where names a redirected tree; it is kept apart so the cap below never cuts it.
 	var where []string
 	// unchecked carries what nothing denied but nothing verified either.
@@ -167,6 +169,11 @@ func cmdCiteCheck(ctx context.Context, args []string) error {
 			findings, unresolved := cite.Check(body, read)
 			for _, f := range findings {
 				reasons = append(reasons, "  "+f.Reason())
+				if f.Kind == cite.Unquoted {
+					unquoted++
+				} else {
+					others++
+				}
 			}
 			if mapped != "" && len(findings) > 0 {
 				where = append(where, mapped)
@@ -214,24 +221,43 @@ func cmdCiteCheck(ctx context.Context, args []string) error {
 	d.Output.Event = preToolUseEvent
 	d.Output.Decide = "deny"
 	d.Output.Reason = "This body publishes a citation the checkout does not back:\n\n" +
-		strings.Join(reasons, "\n") + "\n\n" +
-		"A reader cannot tell a citation that landed one line off from one that landed " +
+		strings.Join(reasons, "\n") + "\n\n" + denyAdvice(unquoted, others)
+	enc := json.NewEncoder(os.Stdout)
+	enc.SetEscapeHTML(false)
+	return enc.Encode(d)
+}
+
+// denyAdvice is what follows the reasons in a deny. A finding whose line the
+// body shows outside any quotation may have the right number and checkout, so a
+// deny made of those alone says the markup changes if they are right.
+func denyAdvice(unquoted, others int) string {
+	const check = "  mellions cite check -file body.md -dir <checkout> [-commit <ref>]\n\n"
+	if others == 0 {
+		return "The line each of these cites is in the body, outside any quotation, so the check " +
+			"cannot read it as one. If the number and the checkout are right, the markup is what " +
+			"changes: a fenced block in a list item ends where the item does, so indent its lines " +
+			"to the item's content column, or put the quote in a fence or blockquote of its own " +
+			"under the citation. If the number may be wrong, or this checkout is the wrong subject, " +
+			"settle that first. To check without publishing:\n\n" + strings.TrimSuffix(check, "\n\n")
+	}
+	advice := "A reader cannot tell a citation that landed one line off from one that landed " +
 		"on the code it claims, so both read as evidence and one is not. Quote the line " +
 		"under the citation — the form mellions-deep-research already asks for, and what " +
-		"makes the claim checkable at all.\n\n" +
+		"makes the claim checkable at all.\n\n"
+	if unquoted > 0 {
+		advice += "A reason that says the body shows the line outside any quotation is a third case " +
+			"beside the two below: if its number and checkout are right, its own remedy applies.\n\n"
+	}
+	return advice +
 		"Two things produce this and the remedies differ. The number may be wrong, and " +
 		"opening the line fixes it. Or this checkout is the wrong subject: a body about a " +
 		"branch, a pull request or an older commit is right about that ref and wrong here, " +
 		"and re-deriving the numbers against this tree would make it wrong there instead. " +
-		"Check which before editing:\n\n" +
-		"  mellions cite check -file body.md -dir <checkout> [-commit <ref>]\n\n" +
+		"Check which before editing:\n\n" + check +
 		"`-commit` resolves every citation at that ref — the branch under review, not the " +
 		"one checked out — and reports the same thing without publishing anything. A ref it " +
 		"cannot resolve is refused rather than graded, because every citation would read as " +
 		"unresolvable and the check would pass having verified nothing."
-	enc := json.NewEncoder(os.Stdout)
-	enc.SetEscapeHTML(false)
-	return enc.Encode(d)
 }
 
 // citeDir is the checkout one call's citations resolve in: the directory the
