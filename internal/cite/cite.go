@@ -106,10 +106,10 @@ const (
 	Unanchored
 	// Inverted: a range that ends before it starts, which names no lines.
 	Inverted
-	// Paragraph: the body shows the line, as paragraph text. GitHub renders it
-	// so where an item ended the fence holding it, or an indent continues a
-	// paragraph, and a paragraph quotes nothing.
-	Paragraph
+	// Unquoted: the body has the line's text, outside any quotation. An item that
+	// ended the fence holding it, or an indent that continues a paragraph, leaves
+	// it prose, and prose quotes nothing.
+	Unquoted
 )
 
 // Finding is a citation the document cannot back, with what the line says.
@@ -139,12 +139,12 @@ func (f Finding) Reason() string {
 			"Backing is anchored: a citation is backed by a span on its own line, or by the first line of the block its own paragraph introduces, " +
 			"and a quotation already spent on an earlier citation is not free to back a second. " +
 			"Put the quotation under this citation, repeating it if another one already uses it."
-	case Paragraph:
+	case Unquoted:
 		return f.Raw + ": that line says " + strconv.Quote(strings.TrimSpace(f.Actual)) +
-			", and the body shows it only as paragraph text, which GitHub does not render as a quotation. " +
-			"A fenced block in a list item ends where the item does, so a line indented less than the item's content column is a paragraph, " +
-			"and an indented line that continues a paragraph is not a code block. " +
-			"Indent the fenced block's lines to the item's content column, or put the quote in a fence or blockquote of its own under the citation."
+			", and the body shows it only outside any quotation, so the check cannot read it as one. " +
+			"If the number and the checkout are right, the markup is what changes. " +
+			"A fenced block in a list item ends where the item does, so indent its lines to the item's content column; an indented code block needs four columns past that. " +
+			"Or put the quote in a fence or blockquote of its own under the citation."
 	default:
 		if strings.TrimSpace(f.Actual) == "" {
 			return f.Raw + ": that line is blank. Nothing there is the claim."
@@ -487,7 +487,7 @@ func Check(doc string, read func(path string) ([]string, error)) ([]Finding, []C
 		case q.exhibits(want):
 			kind = Unanchored
 		case want != "" && isProse(want):
-			kind = Paragraph
+			kind = Unquoted
 		}
 		note(Finding{Citation: c, Kind: kind, Actual: actual})
 	}

@@ -142,9 +142,9 @@ func TestFencedLines(t *testing.T) {
 	}
 }
 
-// A quote GitHub renders as paragraph text is in the body and is not a
-// quotation, so the refusal says that and names the remedy; each remedy backs it.
-func TestAQuoteRenderedAsParagraphTextIsRefusedWithItsRemedy(t *testing.T) {
+// A line the body shows outside any quotation is refused with a reason that says
+// so and names the remedy; each remedy backs the citation.
+func TestALineShownOutsideAQuotationIsRefusedWithItsRemedy(t *testing.T) {
 	read := "- Read " + execCite + ":\n"
 	for name, doc := range map[string]string{
 		"an item's fence with its code at the margin": read + "  ```go\n" + execLine + "\n  ```\n",
@@ -153,12 +153,12 @@ func TestAQuoteRenderedAsParagraphTextIsRefusedWithItsRemedy(t *testing.T) {
 		"no markup at all":                            "Read " + execCite + ":\n\n" + execLine + "\n",
 	} {
 		fs := firstOnly(Check(doc, execFile.read))
-		if len(fs) != 1 || fs[0].Kind != Paragraph {
-			t.Errorf("%s: findings = %#v, want one Paragraph finding", name, fs)
+		if len(fs) != 1 || fs[0].Kind != Unquoted {
+			t.Errorf("%s: findings = %#v, want one Unquoted finding", name, fs)
 			continue
 		}
 		r := fs[0].Reason()
-		for _, want := range []string{"paragraph text", "content column", "fence or blockquote"} {
+		for _, want := range []string{"outside any quotation", "If the number and the checkout are right", "content column", "fence or blockquote"} {
 			if !strings.Contains(r, want) {
 				t.Errorf("%s: reason %q does not say %q", name, r, want)
 			}
@@ -179,9 +179,52 @@ func TestAQuoteRenderedAsParagraphTextIsRefusedWithItsRemedy(t *testing.T) {
 	}
 }
 
+// The check knows the line is in the body outside a quotation, not what GitHub
+// renders it as and not that the number is right; the text claims neither, for a
+// heading, a table row, a list item, a comment and a brace in a pasted function.
+func TestTheReasonClaimsOnlyWhatTheCheckKnows(t *testing.T) {
+	files := tree{
+		"pkg/f.go": "package f\nfunc f() {\n\treturn\n}\n",
+		"pkg/h.md": "## Scope\n",
+		"pkg/t.md": "| a | b |\n|---|---|\n| c | d |\n",
+		"pkg/l.md": "- item text here\n",
+		"pkg/c.md": "<!-- a note -->\n",
+	}
+	for name, doc := range map[string]string{
+		"a closing brace in a pasted function": "- Read `pkg/f.go:4`:\n  ```go\nfunc f() {\n\treturn\n}\n  ```\n",
+		"a heading":                            "Read `pkg/h.md:1`:\n\n## Scope\n",
+		"a table row":                          "Read `pkg/t.md:3`:\n\n| a | b |\n|---|---|\n| c | d |\n",
+		"a list item":                          "Read `pkg/l.md:1`:\n\n- item text here\n",
+		"an HTML comment":                      "Read `pkg/c.md:1`:\n\n<!-- a note -->\n",
+	} {
+		fs := firstOnly(Check(doc, files.read))
+		if len(fs) != 1 || fs[0].Kind != Unquoted {
+			t.Errorf("%s: findings = %#v, want one Unquoted finding", name, fs)
+			continue
+		}
+		r := fs[0].Reason()
+		for _, want := range []string{"outside any quotation", "If the number and the checkout are right"} {
+			if !strings.Contains(r, want) {
+				t.Errorf("%s: reason %q does not say %q", name, r, want)
+			}
+		}
+		for _, not := range []string{"aragraph", "renders", "The number and the checkout are right"} {
+			if strings.Contains(r, not) {
+				t.Errorf("%s: reason claims %q: %q", name, not, r)
+			}
+		}
+	}
+	// The brace's markup fixed, the citation is still refused: its number named a
+	// line inside a function, which the block's first line is not.
+	fixed := "- Read `pkg/f.go:4`:\n  ```go\n  func f() {\n  \treturn\n  }\n  ```\n"
+	if fs := firstOnly(Check(fixed, files.read)); len(fs) != 1 || fs[0].Kind != Unanchored {
+		t.Errorf("the brace with its markup fixed: findings = %#v, want one Unanchored", fs)
+	}
+}
+
 // A line the body shows nowhere keeps the older reason, and a quote shown in
-// the wrong place keeps its own: Paragraph is neither.
-func TestParagraphIsOnlyForALineTheBodyShowsAsProse(t *testing.T) {
+// the wrong place keeps its own: Unquoted is neither.
+func TestUnquotedIsOnlyForALineTheBodyShowsAsProse(t *testing.T) {
 	for name, c := range map[string]struct {
 		doc  string
 		kind Kind

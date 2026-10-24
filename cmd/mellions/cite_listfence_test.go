@@ -35,22 +35,34 @@ func TestCiteHook_AParagraphAfterAnItemsFenceIsGraded(t *testing.T) {
 	}
 }
 
-// A deny made of quotes GitHub renders as paragraph text says to fix the markup,
-// not the number or the checkout; beside an ordinary refusal it names both.
-func TestCiteHook_AParagraphTextDenyAdvisesTheMarkup(t *testing.T) {
+// A deny made of lines the body shows outside any quotation says the markup
+// changes if the number and checkout are right, and claims neither; beside an
+// ordinary refusal it names a third case.
+func TestCiteHook_AnUnquotedLineDenyClaimsOnlyWhatTheCheckKnows(t *testing.T) {
 	root := citeGitRepo(t)
-	paragraph := "- Read `internal/a.go:1`:\n  ```go\npackage a\n  ```\n"
+	for file, text := range map[string]string{
+		"f.go":    "package f\nfunc f() {\n\treturn\n}\n",
+		"docs.md": "## Scope\n",
+	} {
+		if err := os.WriteFile(filepath.Join(root, file), []byte(text), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	margin := "- Read `internal/a.go:1`:\n  ```go\npackage a\n  ```\n"
 	wrong := "Read `top.txt:1`: `y`\n"
+	only := []string{"outside any quotation", "If the number and the checkout are right", "content column", "fence or blockquote", "settle that first"}
+	claims := []string{"aragraph", "renders", "The number and the checkout are right", "Two things produce this"}
 	for name, c := range map[string]struct {
 		doc     string
 		want    []string
 		notWant []string
 	}{
-		"only paragraph text": {paragraph, []string{"paragraph text", "content column", "fence or blockquote", "The number and the checkout are right"},
-			[]string{"The number may be wrong", "wrong subject"}},
+		"fence code at the margin":     {margin, only, claims},
+		"a brace in a pasted function": {"- Read `f.go:4`:\n  ```go\nfunc f() {\n\treturn\n}\n  ```\n", only, claims},
+		"a heading":                    {"Read `docs.md:1`:\n\n## Scope\n", only, claims},
 		"an ordinary refusal": {wrong, []string{"The number may be wrong", "wrong subject"},
-			[]string{"paragraph text", "neither case below"}},
-		"both": {wrong + "\n" + paragraph, []string{"paragraph text", "The number may be wrong", "neither case below"}, nil},
+			[]string{"outside any quotation", "third case"}},
+		"both": {wrong + "\n" + margin, []string{"outside any quotation", "The number may be wrong", "third case beside the two below"}, []string{"aragraph", "The number and the checkout are right"}},
 	} {
 		body := filepath.Join(root, "b.md")
 		if err := os.WriteFile(body, []byte(c.doc), 0o644); err != nil {
