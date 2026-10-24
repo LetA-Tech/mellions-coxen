@@ -244,11 +244,9 @@ func TestIndentedCode(t *testing.T) {
 	}
 }
 
-// A fence marker is indented less than four columns past its container, which
-// is the margin or the content column of the list item holding the fence. A
-// line past that is content of the fence, or code, and never opens or closes
-// one. Each document ends in a citation that is backed, so it is admitted when
-// the fence before it has closed and left ungraded when it has not.
+// A fence marker is indented less than four columns past its container, the
+// margin or the content column of its item; past that it is content or code.
+// Each document ends in a backed citation, graded only once its fence closes.
 func TestAFenceMarkerIsLessThanFourColumnsPastItsContainer(t *testing.T) {
 	after := "\nRead " + execCite + ": `" + execLine + "`\n"
 	for name, c := range map[string]struct {
