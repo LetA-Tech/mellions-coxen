@@ -496,14 +496,19 @@ func containsSecretRead(word string) bool {
 }
 
 // secretInside returns the credential path embedded in a substitution, or "".
-// A redirection operator glued to its file (`<.pgpass`, `0<>.pgpass`) ends a
-// token as whitespace does: bash opens the file either way.
+// A shell operator glued to a file name (`<.pgpass`, `0<>.pgpass`,
+// `.pgpass|base64`, `.pgpass;`) ends a token as whitespace does: bash opens
+// the file either way.
 func secretInside(word string) string {
 	if !strings.Contains(word, "$(") && !strings.Contains(word, "`") {
 		return ""
 	}
 	for _, f := range strings.FieldsFunc(word, func(r rune) bool {
-		return r == ' ' || r == '\t' || r == '(' || r == ')' || r == '<' || r == '>' || r == '`' || r == '"' || r == '\''
+		switch r {
+		case ' ', '\t', '(', ')', '<', '>', '|', ';', '&', '`', '"', '\'':
+			return true
+		}
+		return false
 	}) {
 		if IsSecretPath(f) {
 			return f
