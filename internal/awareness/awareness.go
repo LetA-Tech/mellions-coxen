@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -588,6 +589,9 @@ var startsContainer = regexp.MustCompile(
 //
 // It names the capability rather than the rule, because the rule is the Skill's
 // and the judgement about whether the sandbox suits this work is the session's.
+//
+// The file it names can come from another script's text, so the name is shown
+// quoted and escaped, never as words of the note's own sentence.
 func sandboxNote(command, through string) (Note, bool) {
 	because := "This session is starting a container on a host it shares with other lanes."
 	switch {
@@ -595,7 +599,7 @@ func sandboxNote(command, through string) (Note, bool) {
 		return Note{}, false
 	case startsContainer.MatchString(command):
 	case through != "":
-		because = "This session is starting a container, through " + through +
+		because = "This session is starting a container, through " + quotedPath(through) +
 			", on a host it shares with other lanes."
 	default:
 		return Note{}, false
@@ -611,4 +615,11 @@ func sandboxNote(command, through string) (Note, bool) {
 			"neither is visible from the handoff being written hours later.",
 		Ident: "sandbox-capability",
 	}, true
+}
+
+// quotedPath returns path as one Go-quoted literal with < and > escaped too, so
+// a file name, whatever it holds, reads as one bounded value: it cannot break a
+// line, close the quote early or close the block the notes are delivered in.
+func quotedPath(path string) string {
+	return strings.NewReplacer("<", `\u003c`, ">", `\u003e`).Replace(strconv.Quote(path))
 }
