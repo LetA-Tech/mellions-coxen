@@ -487,25 +487,26 @@ func Check(doc string, read func(path string) ([]string, error)) ([]Finding, []C
 func prose(doc string) string {
 	var out strings.Builder
 	lines := strings.Split(doc, "\n")
-	code := indentedCode(lines)
+	code, base := indentedCode(lines)
 	fence := ""
 	for i, line := range lines {
 		if i > 0 {
 			out.WriteByte('\n')
 		}
 		trimmed := strings.TrimLeft(line, " \t")
-		closer := strings.TrimRight(trimmed, " \t\r")
+		marker := fenceText(line, base[i])
+		closer := strings.TrimRight(marker, " \t\r")
 		switch {
 		case fence != "":
 			if len(closer) >= len(fence) && strings.TrimLeft(closer, fence[:1]) == "" {
 				fence = ""
 			}
-		case strings.HasPrefix(trimmed, "```"), strings.HasPrefix(trimmed, "~~~"):
-			fence = trimmed[:runLen(trimmed)]
+		case strings.HasPrefix(marker, "```"), strings.HasPrefix(marker, "~~~"):
+			fence = marker[:runLen(marker)]
 		case strings.HasPrefix(trimmed, ">"):
 			// a blockquote: what it holds is quotation
 		case code[i]:
-			// an indented code block
+			// quotation by indentation alone
 		default:
 			out.WriteString(line)
 		}
@@ -513,23 +514,27 @@ func prose(doc string) string {
 	return out.String()
 }
 
-// indentedCode marks the lines that are an indented code block as CommonMark
-// reads one: four columns past the enclosing list item's content column, and
-// never the continuation of a paragraph or a blockquote.
-func indentedCode(lines []string) []bool {
-	code := make([]bool, len(lines))
+// indentedCode marks the lines indentation alone makes quotation: an indented
+// code block as CommonMark reads one, and the indented lazy lines of a
+// blockquote paragraph. base is the column each line's container starts at.
+func indentedCode(lines []string) (code []bool, base []int) {
+	code, base = make([]bool, len(lines)), make([]int, len(lines))
 	var items []int // content column of each open list item, outermost first
 	fence := ""
 	// A paragraph is open; it is a blockquote's; the last item opened empty.
 	var para, quote, bare bool
 	for i, line := range lines {
-		trimmed := strings.TrimLeft(line, " \t")
-		closer := strings.TrimRight(trimmed, " \t\r")
 		col, rest := margin(line)
 		depth := 0 // the open list items this line continues
 		for depth < len(items) && col >= items[depth] {
 			depth++
 		}
+		if depth > 0 {
+			base[i] = items[depth-1]
+		}
+		text := strings.TrimRight(rest, " \t\r")
+		marker := fenceText(line, base[i])
+		closer := strings.TrimRight(marker, " \t\r")
 		wasBare := bare
 		bare = false
 		switch {
@@ -537,23 +542,19 @@ func indentedCode(lines []string) []bool {
 			if len(closer) >= len(fence) && strings.TrimLeft(closer, fence[:1]) == "" {
 				fence = ""
 			}
-		case strings.HasPrefix(trimmed, "```"), strings.HasPrefix(trimmed, "~~~"):
-			fence = trimmed[:runLen(trimmed)]
+		case strings.HasPrefix(marker, "```"), strings.HasPrefix(marker, "~~~"):
+			fence = marker[:runLen(marker)]
 			items, para, quote = items[:depth], false, false
-		case strings.HasPrefix(trimmed, ">"):
+		case strings.HasPrefix(text, ">"):
 			items, para, quote = items[:depth], true, true
-		case closer == "":
+		case text == "":
 			if wasBare {
 				items = items[:len(items)-1]
 			}
 			para, quote = false, false
 			code[i] = col >= 4 && i > 0 && code[i-1]
 		default:
-			rel := col
-			if depth > 0 {
-				rel -= items[depth-1]
-			}
-			text := strings.TrimRight(rest, " \t\r")
+			rel := col - base[i]
 			it := readItem(col, text)
 			switch {
 			case rel >= 4 && para:
@@ -571,7 +572,16 @@ func indentedCode(lines []string) []bool {
 			}
 		}
 	}
-	return code
+	return code, base
+}
+
+// fenceText is the text of line if it may carry a fence marker, which is
+// indented less than four columns past its container, and "" if it may not.
+func fenceText(line string, base int) string {
+	if col, rest := margin(line); col-base < 4 {
+		return rest
+	}
+	return ""
 }
 
 // margin is the column a line's text starts at, tab stops every four, and the
@@ -665,7 +675,7 @@ type quotedText struct {
 func quotations(doc string) *quotedText {
 	q := &quotedText{lines: strings.Split(doc, "\n")}
 	fence := ""
-	code := indentedCode(q.lines)
+	code, base := indentedCode(q.lines)
 	open := -1
 	// head records a block's first non-blank line as what the block quotes,
 	// and each later line as present but backing nothing: a citation names
@@ -686,7 +696,8 @@ func quotations(doc string) *quotedText {
 	}
 	for i, line := range q.lines {
 		trimmed := strings.TrimLeft(line, " \t")
-		closer := strings.TrimRight(trimmed, " \t\r")
+		marker := fenceText(line, base[i])
+		closer := strings.TrimRight(marker, " \t\r")
 		switch {
 		case fence != "":
 			if len(closer) >= len(fence) && strings.TrimLeft(closer, fence[:1]) == "" {
@@ -694,8 +705,8 @@ func quotations(doc string) *quotedText {
 				continue
 			}
 			head(line)
-		case strings.HasPrefix(trimmed, "```"), strings.HasPrefix(trimmed, "~~~"):
-			fence = trimmed[:runLen(trimmed)]
+		case strings.HasPrefix(marker, "```"), strings.HasPrefix(marker, "~~~"):
+			fence = marker[:runLen(marker)]
 			start(i)
 		case strings.HasPrefix(trimmed, ">"):
 			if open < 0 {
@@ -714,7 +725,7 @@ func quotations(doc string) *quotedText {
 				}
 			}
 		case code[i]:
-			// an indented code block
+			// quotation by indentation alone
 			if open < 0 {
 				start(i)
 			}

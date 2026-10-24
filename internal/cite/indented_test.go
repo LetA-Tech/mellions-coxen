@@ -181,6 +181,12 @@ func TestIndentedCode(t *testing.T) {
 	}{
 		"after a blank line":                      {"a\n\n    b", []int{2}},
 		"a tab":                                   {"a\n\n\tb", []int{2}},
+		"spaces then a tab under a bullet":        {"- a\n\n  \tb", nil},
+		"spaces then a tab, ordered item":         {"1. a\n\n   \tb", nil},
+		"a tab after the marker":                  {"-\ta\n\n        b", []int{2}},
+		"a tab after an indented marker":          {"  -\ta\n\n        b", []int{2}},
+		"ordered 2 after a nested item":           {"1. a\n   - b\n2. c\n\n       d", []int{4}},
+		"a wider marker after a paragraph":        {"9. a\n10. b\n\n       x", nil},
 		"three spaces and a tab":                  {"a\n\n   \tb", []int{2}},
 		"three spaces":                            {"a\n\n   b", nil},
 		"cannot interrupt a paragraph":            {"a\n    b", nil},
@@ -225,7 +231,7 @@ func TestIndentedCode(t *testing.T) {
 		"crlf":                                    {"- a\r\n    - b\r\n\r\n          c\r\n", []int{3}},
 		"item with five-space gap":                {"-     a\n\n      b", []int{2}},
 	} {
-		code := indentedCode(strings.Split(c.doc, "\n"))
+		code, _ := indentedCode(strings.Split(c.doc, "\n"))
 		var got []int
 		for i, is := range code {
 			if is {
@@ -234,6 +240,37 @@ func TestIndentedCode(t *testing.T) {
 		}
 		if !slices.Equal(got, c.want) {
 			t.Errorf("%s: %s\nmarked %v, want %v", name, fmt.Sprintf("%q", c.doc), got, c.want)
+		}
+	}
+}
+
+// A fence marker is indented less than four columns past its container, which
+// is the margin or the content column of the list item holding the fence. A
+// line past that is content of the fence, or code, and never opens or closes
+// one. Each document ends in a citation that is backed, so it is admitted when
+// the fence before it has closed and left ungraded when it has not.
+func TestAFenceMarkerIsLessThanFourColumnsPastItsContainer(t *testing.T) {
+	after := "\nRead " + execCite + ": `" + execLine + "`\n"
+	for name, c := range map[string]struct {
+		doc     string
+		cited   int
+		refused bool
+	}{
+		"closer indented three":               {"```\nx\n   ```\n" + after, 1, false},
+		"a tab-led marker line is content":    {"```\n\t```\n" + testOutput + "\n```\n" + after, 1, false},
+		"a four-space marker line is content": {"```\nx\n    ```\n" + after, 0, false},
+		"a four-space marker is code":         {"Output:\n\n    ```\n" + after, 1, false},
+		"a tab-led marker is code":            {"Output:\n\n\t```\n" + after, 1, false},
+		"fence at an item's content column":   {"- Output:\n\n  ```\n  " + testOutput + "\n  ```\n" + after, 1, false},
+		"fence a tab into an item":            {"- Output:\n\n\t```\n\t" + testOutput + "\n\t```\n" + after, 1, false},
+		"fence in a four-space nest":          {"- a\n    - Output:\n\n      ```\n      " + testOutput + "\n      ```\n" + after, 1, false},
+		"marker four past an item's column":   {"- a\n\n      ```\n" + after, 1, false},
+		"unclosed fence swallows the rest":    {"```\nx\n" + after, 0, false},
+		"a marker line open in prose":         {"text\n```\n" + testOutput + "\n```\n" + after, 1, false},
+		"a true fence still hides output":     {"```\n" + testOutput + "\n```\n" + after, 1, false},
+	} {
+		if cited, refused := graded(c.doc); cited != c.cited || refused != c.refused {
+			t.Errorf("%s: cited %d citations, refused = %v, want %d with refused = %v", name, cited, refused, c.cited, c.refused)
 		}
 	}
 }
