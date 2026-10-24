@@ -486,12 +486,14 @@ func Check(doc string, read func(path string) ([]string, error)) ([]Finding, []C
 // claim's line, and that is exactly where a citation's own backing usually is.
 func prose(doc string) string {
 	var out strings.Builder
+	lines := strings.Split(doc, "\n")
+	code := indentedCode(lines)
 	fence := ""
-	for i, line := range strings.Split(doc, "\n") {
+	for i, line := range lines {
 		if i > 0 {
 			out.WriteByte('\n')
 		}
-		trimmed := strings.TrimLeft(line, " ")
+		trimmed := strings.TrimLeft(line, " \t")
 		closer := strings.TrimRight(trimmed, " \t\r")
 		switch {
 		case fence != "":
@@ -502,13 +504,133 @@ func prose(doc string) string {
 			fence = trimmed[:runLen(trimmed)]
 		case strings.HasPrefix(trimmed, ">"):
 			// a blockquote: what it holds is quotation
-		case strings.HasPrefix(line, "    "), strings.HasPrefix(line, "\t"):
+		case code[i]:
 			// an indented code block
 		default:
 			out.WriteString(line)
 		}
 	}
 	return out.String()
+}
+
+// indentedCode marks the lines that are an indented code block as CommonMark
+// reads one: four columns past the enclosing list item's content column, and
+// never the continuation of a paragraph or a blockquote.
+func indentedCode(lines []string) []bool {
+	code := make([]bool, len(lines))
+	var items []int // content column of each open list item, outermost first
+	fence := ""
+	// A paragraph is open; it is a blockquote's; the last item opened empty.
+	var para, quote, bare bool
+	for i, line := range lines {
+		trimmed := strings.TrimLeft(line, " \t")
+		closer := strings.TrimRight(trimmed, " \t\r")
+		col, rest := margin(line)
+		depth := 0 // the open list items this line continues
+		for depth < len(items) && col >= items[depth] {
+			depth++
+		}
+		wasBare := bare
+		bare = false
+		switch {
+		case fence != "":
+			if len(closer) >= len(fence) && strings.TrimLeft(closer, fence[:1]) == "" {
+				fence = ""
+			}
+		case strings.HasPrefix(trimmed, "```"), strings.HasPrefix(trimmed, "~~~"):
+			fence = trimmed[:runLen(trimmed)]
+			items, para, quote = items[:depth], false, false
+		case strings.HasPrefix(trimmed, ">"):
+			items, para, quote = items[:depth], true, true
+		case closer == "":
+			if wasBare {
+				items = items[:len(items)-1]
+			}
+			para, quote = false, false
+			code[i] = col >= 4 && i > 0 && code[i-1]
+		default:
+			rel := col
+			if depth > 0 {
+				rel -= items[depth-1]
+			}
+			text := strings.TrimRight(rest, " \t\r")
+			it := readItem(col, text)
+			switch {
+			case rel >= 4 && para:
+				code[i] = quote
+			case rel >= 4:
+				items, para = items[:depth], false
+				code[i] = true
+			case atxHeading.MatchString(text), thematicBreak.MatchString(text),
+				para && !quote && depth == len(items) && setextUnderline.MatchString(text):
+				items, para, quote = items[:depth], false, false
+			case it.content > 0 && (it.bumps || !para || quote || depth < len(items)):
+				items, para, quote, bare = append(items[:depth], it.content), it.text, false, it.empty
+			case !para:
+				items, para = items[:depth], true
+			}
+		}
+	}
+	return code
+}
+
+// margin is the column a line's text starts at, tab stops every four, and the
+// text from there.
+func margin(line string) (int, string) {
+	col := 0
+	for i := 0; i < len(line); i++ {
+		switch line[i] {
+		case ' ':
+			col++
+		case '\t':
+			col += 4 - col%4
+		default:
+			return col, line[i:]
+		}
+	}
+	return col, ""
+}
+
+var (
+	listMarker      = regexp.MustCompile(`^(?:[-+*]|(\d{1,9})[.)])([ \t]+|$)`)
+	atxHeading      = regexp.MustCompile(`^#{1,6}(?:[ \t]|$)`)
+	setextUnderline = regexp.MustCompile(`^(?:=+|-+)[ \t]*$`)
+	thematicBreak   = regexp.MustCompile(`^(?:(?:-[ \t]*){3,}|(?:\*[ \t]*){3,}|(?:_[ \t]*){3,})$`)
+)
+
+// item is a list marker read off the start of a line. content is the column the
+// item's content starts at, and 0 where the line opens no item.
+type item struct {
+	content int
+	// empty: nothing follows the marker. text: a paragraph does. bumps: the
+	// marker may interrupt a paragraph.
+	empty, text, bumps bool
+}
+
+// readItem reads the list marker at the start of s, which begins at column col.
+func readItem(col int, s string) item {
+	m := listMarker.FindStringSubmatch(s)
+	if m == nil {
+		return item{}
+	}
+	at := col + len(m[0]) - len(m[2])
+	gap := 0
+	for _, c := range m[2] {
+		if c == '\t' {
+			gap += 4 - (at+gap)%4
+		} else {
+			gap++
+		}
+	}
+	it := item{content: at + gap, empty: len(s) == len(m[0])}
+	// Past four columns of gap the item opens with code, and its content
+	// column is the one after the marker.
+	if it.empty || gap > 4 {
+		it.content = at + 1
+	}
+	it.text = !it.empty && gap <= 4
+	it.bumps = it.text && (m[1] == "" || strings.TrimLeft(m[1], "0") == "1")
+	return it
 }
 
 // quoted is one place a document exhibits a line's text, and the place is half
@@ -543,6 +665,7 @@ type quotedText struct {
 func quotations(doc string) *quotedText {
 	q := &quotedText{lines: strings.Split(doc, "\n")}
 	fence := ""
+	code := indentedCode(q.lines)
 	open := -1
 	// head records a block's first non-blank line as what the block quotes,
 	// and each later line as present but backing nothing: a citation names
@@ -562,7 +685,7 @@ func quotations(doc string) *quotedText {
 		open = len(q.all) - 1
 	}
 	for i, line := range q.lines {
-		trimmed := strings.TrimLeft(line, " ")
+		trimmed := strings.TrimLeft(line, " \t")
 		closer := strings.TrimRight(trimmed, " \t\r")
 		switch {
 		case fence != "":
@@ -590,7 +713,7 @@ func quotations(doc string) *quotedText {
 					q.all[open].rest = append(q.all[open].rest, k)
 				}
 			}
-		case strings.HasPrefix(line, "    "), strings.HasPrefix(line, "\t"):
+		case code[i]:
 			// an indented code block
 			if open < 0 {
 				start(i)
