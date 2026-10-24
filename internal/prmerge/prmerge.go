@@ -279,11 +279,13 @@ func refuse(s State) string {
 			"the head commit pins the code, not the body: an edit that was refused, or that is " +
 			"running beside this merge, leaves the earlier body in place.\n\n" +
 			"Correct the body, read that the edit went through, then merge. A citation is " +
-			"corrected one of two ways, and they differ. Where the number is wrong — a line " +
+			"corrected one of three ways, and they differ. Where the number is wrong — a line " +
 			"that is blank, or that is not what the body quotes — open it at this head and " +
 			"cite the line that says it. Where the citation is right about another ref, the " +
 			"base or an earlier commit, write that ref in front of it (`<commit>:path:line`), " +
 			"which is not graded here; renumbering it against this head would make it wrong. " +
+			"Where the reason says GitHub renders the line as paragraph text, the number and the " +
+			"ref are right and the markup is not: follow that reason's remedy. " +
 			"A path in another repository is graded here when this checkout has a directory " +
 			"of the same name; write it with that repository's name in front. To check a body " +
 			"against this head without publishing it:\n\n" +

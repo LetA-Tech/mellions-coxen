@@ -106,6 +106,10 @@ const (
 	Unanchored
 	// Inverted: a range that ends before it starts, which names no lines.
 	Inverted
+	// Paragraph: the body shows the line, as paragraph text. GitHub renders it
+	// so where an item ended the fence holding it, or an indent continues a
+	// paragraph, and a paragraph quotes nothing.
+	Paragraph
 )
 
 // Finding is a citation the document cannot back, with what the line says.
@@ -135,6 +139,12 @@ func (f Finding) Reason() string {
 			"Backing is anchored: a citation is backed by a span on its own line, or by the first line of the block its own paragraph introduces, " +
 			"and a quotation already spent on an earlier citation is not free to back a second. " +
 			"Put the quotation under this citation, repeating it if another one already uses it."
+	case Paragraph:
+		return f.Raw + ": that line says " + strconv.Quote(strings.TrimSpace(f.Actual)) +
+			", and the body shows it only as paragraph text, which GitHub does not render as a quotation. " +
+			"A fenced block in a list item ends where the item does, so a line indented less than the item's content column is a paragraph, " +
+			"and an indented line that continues a paragraph is not a code block. " +
+			"Indent the fenced block's lines to the item's content column, or put the quote in a fence or blockquote of its own under the citation."
 	default:
 		if strings.TrimSpace(f.Actual) == "" {
 			return f.Raw + ": that line is blank. Nothing there is the claim."
@@ -413,6 +423,16 @@ func Check(doc string, read func(path string) ([]string, error)) ([]Finding, []C
 			first[f.Raw] = f
 		}
 	}
+	var proseLines map[string]bool // built when a refusal first needs it
+	isProse := func(want string) bool {
+		if proseLines == nil {
+			proseLines = map[string]bool{}
+			for _, l := range strings.Split(prose(doc), "\n") {
+				proseLines[normalize(l)] = true
+			}
+		}
+		return proseLines[want]
+	}
 	graded, _ := occurrences(doc)
 	for _, c := range graded {
 		if backed[c.Raw] {
@@ -463,8 +483,11 @@ func Check(doc string, read func(path string) ([]string, error)) ([]Finding, []C
 			continue
 		}
 		kind := Unbacked
-		if q.exhibits(normalize(actual)) {
+		switch want := normalize(actual); {
+		case q.exhibits(want):
 			kind = Unanchored
+		case want != "" && isProse(want):
+			kind = Paragraph
 		}
 		note(Finding{Citation: c, Kind: kind, Actual: actual})
 	}
@@ -518,12 +541,9 @@ const (
 // live reports whether a fence is still open after the line.
 func (r fenceRole) live() bool { return r == fenceOpen || r == fenceBody }
 
-// indentedCode classifies each line by the block it sits in. code marks the
-// lines indentation alone makes quotation: an indented code block as CommonMark
-// reads one, and the indented lazy lines of a blockquote paragraph. fenced is
-// the line's part in a fenced block, which ends at its closing marker or at the
-// first line outside the list item holding it, and at the end of the document
-// if neither comes.
+// indentedCode returns the lines indentation alone makes quotation, and each
+// line's part in a fenced block, which ends at its closing marker, at the first
+// line outside its list item, or at the end of the document.
 func indentedCode(lines []string) (code []bool, fenced []fenceRole) {
 	code, fenced = make([]bool, len(lines)), make([]fenceRole, len(lines))
 	var items []int // content column of each open list item, outermost first

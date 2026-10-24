@@ -128,6 +128,8 @@ func TestFencedLines(t *testing.T) {
 		"an info string with a backtick":      {"```go `x`\ny", "nn"},
 		"a tilde info string with a backtick": {"~~~go `x`\ny\n~~~", "obc"},
 		"a marker four past the margin":       {"    ```\ny", "nn"},
+		"a CRLF blank line inside":            {"- a\r\n  ```\r\n  x\r\n\r\n  y\r\n  ```", "nobbbc"},
+		"a whitespace-only line inside":       {"- a\n  ```\n  x\n \n  y\n  ```", "nobbbc"},
 	} {
 		_, fenced := indentedCode(strings.Split(c.doc, "\n"))
 		var got strings.Builder
@@ -137,5 +139,65 @@ func TestFencedLines(t *testing.T) {
 		if got.String() != c.want {
 			t.Errorf("%s: %q\nroles %s, want %s", name, c.doc, got.String(), c.want)
 		}
+	}
+}
+
+// A quote GitHub renders as paragraph text is in the body and is not a
+// quotation, so the refusal says that and names the remedy; each remedy backs it.
+func TestAQuoteRenderedAsParagraphTextIsRefusedWithItsRemedy(t *testing.T) {
+	read := "- Read " + execCite + ":\n"
+	for name, doc := range map[string]string{
+		"an item's fence with its code at the margin": read + "  ```go\n" + execLine + "\n  ```\n",
+		"the same in a nested item":                   "- a\n  - Read " + execCite + ":\n    ```go\n" + execLine + "\n    ```\n",
+		"four spaces under a bullet":                  read + "\n    " + execLine + "\n",
+		"no markup at all":                            "Read " + execCite + ":\n\n" + execLine + "\n",
+	} {
+		fs := firstOnly(Check(doc, execFile.read))
+		if len(fs) != 1 || fs[0].Kind != Paragraph {
+			t.Errorf("%s: findings = %#v, want one Paragraph finding", name, fs)
+			continue
+		}
+		r := fs[0].Reason()
+		for _, want := range []string{"paragraph text", "content column", "fence or blockquote"} {
+			if !strings.Contains(r, want) {
+				t.Errorf("%s: reason %q does not say %q", name, r, want)
+			}
+		}
+		if strings.Contains(r, "quotes no line equal to it") {
+			t.Errorf("%s: reason denies the body shows the line: %q", name, r)
+		}
+	}
+	for name, doc := range map[string]string{
+		"the fence's lines indented to the item": read + "  ```go\n  " + execLine + "\n  ```\n",
+		"a fence of its own at the margin":       read + "\n```go\n" + execLine + "\n```\n",
+		"a blockquote of its own":                read + "\n> " + execLine + "\n",
+		"content column plus four":               read + "\n      " + execLine + "\n",
+	} {
+		if fs := firstOnly(Check(doc, execFile.read)); len(fs) != 0 {
+			t.Errorf("remedy %q is refused: %s", name, fs[0].Reason())
+		}
+	}
+}
+
+// A line the body shows nowhere keeps the older reason, and a quote shown in
+// the wrong place keeps its own: Paragraph is neither.
+func TestParagraphIsOnlyForALineTheBodyShowsAsProse(t *testing.T) {
+	for name, c := range map[string]struct {
+		doc  string
+		kind Kind
+	}{
+		"quoted nowhere":         {"Read " + execCite + ".\n", Unbacked},
+		"a different line shown": {"Read " + execCite + ":\n\n    " + execLine + "XX\n", Unbacked},
+		"quoted above it":        {"```go\n" + execLine + "\n```\n\nRead " + execCite + ".\n", Unanchored},
+	} {
+		fs := firstOnly(Check(c.doc, execFile.read))
+		if len(fs) != 1 || fs[0].Kind != c.kind {
+			t.Errorf("%s: findings = %#v, want one of kind %v", name, fs, c.kind)
+		}
+	}
+	blank := tree{"pkg/blank.go": "a\n\nb\n"}
+	fs := firstOnly(Check("Read `pkg/blank.go:2`.\n\nSome text.\n", blank.read))
+	if len(fs) != 1 || fs[0].Kind != Unbacked || !strings.Contains(fs[0].Reason(), "that line is blank") {
+		t.Errorf("a citation to a blank line: findings = %#v, want one Unbacked saying the line is blank", fs)
 	}
 }

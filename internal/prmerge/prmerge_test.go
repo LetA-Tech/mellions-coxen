@@ -293,3 +293,17 @@ func TestTheOverlapListIsBoundedAndSaysSo(t *testing.T) {
 type errNotFound struct{}
 
 func (errNotFound) Error() string { return "no pull request found" }
+
+// A body citation the head does not back is refused, and the refusal names the
+// paragraph-text case beside the wrong number and the other ref.
+func TestAnUnbackedBodyRefusalNamesTheParagraphTextCase(t *testing.T) {
+	got := Deny(payloadFor("gh pr merge 42"), answering(State{
+		Number: 42, Base: "dev", MergeState: "CLEAN", Head: "0123456789abcdef",
+		Unbacked: []string{"a.go:1: that line says \"x\", and the body shows it only as paragraph text"},
+	}))
+	for _, want := range []string{"one of three ways", "renders the line as paragraph text", "follow that reason's remedy"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("the refusal does not carry %q: %q", want, got)
+		}
+	}
+}

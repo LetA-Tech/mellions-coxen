@@ -34,3 +34,42 @@ func TestCiteHook_AParagraphAfterAnItemsFenceIsGraded(t *testing.T) {
 		}
 	}
 }
+
+// A deny made of quotes GitHub renders as paragraph text says to fix the markup,
+// not the number or the checkout; beside an ordinary refusal it names both.
+func TestCiteHook_AParagraphTextDenyAdvisesTheMarkup(t *testing.T) {
+	root := citeGitRepo(t)
+	paragraph := "- Read `internal/a.go:1`:\n  ```go\npackage a\n  ```\n"
+	wrong := "Read `top.txt:1`: `y`\n"
+	for name, c := range map[string]struct {
+		doc     string
+		want    []string
+		notWant []string
+	}{
+		"only paragraph text": {paragraph, []string{"paragraph text", "content column", "fence or blockquote", "The number and the checkout are right"},
+			[]string{"The number may be wrong", "wrong subject"}},
+		"an ordinary refusal": {wrong, []string{"The number may be wrong", "wrong subject"},
+			[]string{"paragraph text", "neither case below"}},
+		"both": {wrong + "\n" + paragraph, []string{"paragraph text", "The number may be wrong", "neither case below"}, nil},
+	} {
+		body := filepath.Join(root, "b.md")
+		if err := os.WriteFile(body, []byte(c.doc), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		reason := runCiteHook(t, root, "gh pr create --base dev --body-file "+body)
+		if reason == "" {
+			t.Errorf("%s: not denied", name)
+			continue
+		}
+		for _, w := range c.want {
+			if !strings.Contains(reason, w) {
+				t.Errorf("%s: the deny does not say %q:\n%s", name, w, reason)
+			}
+		}
+		for _, w := range c.notWant {
+			if strings.Contains(reason, w) {
+				t.Errorf("%s: the deny says %q:\n%s", name, w, reason)
+			}
+		}
+	}
+}
