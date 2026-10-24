@@ -20,8 +20,10 @@ import (
 	"fmt"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
+	"unicode"
 )
 
 // Note is one thing worth telling a session, and what it can do about it.
@@ -588,6 +590,9 @@ var startsContainer = regexp.MustCompile(
 //
 // It names the capability rather than the rule, because the rule is the Skill's
 // and the judgement about whether the sandbox suits this work is the session's.
+//
+// The file it names can come from another script's text, so the name is shown
+// on one line, escaped wherever it holds a character that is not printable.
 func sandboxNote(command, through string) (Note, bool) {
 	because := "This session is starting a container on a host it shares with other lanes."
 	switch {
@@ -595,7 +600,7 @@ func sandboxNote(command, through string) (Note, bool) {
 		return Note{}, false
 	case startsContainer.MatchString(command):
 	case through != "":
-		because = "This session is starting a container, through " + through +
+		because = "This session is starting a container, through " + printablePath(through) +
 			", on a host it shares with other lanes."
 	default:
 		return Note{}, false
@@ -611,4 +616,14 @@ func sandboxNote(command, through string) (Note, bool) {
 			"neither is visible from the handoff being written hours later.",
 		Ident: "sandbox-capability",
 	}, true
+}
+
+// printablePath returns path as it is where every character prints, and quoted
+// with escapes otherwise, so a newline in a file name cannot start a line of
+// its own in what a session is told.
+func printablePath(path string) string {
+	if strings.IndexFunc(path, func(r rune) bool { return !unicode.IsPrint(r) }) < 0 {
+		return path
+	}
+	return strconv.Quote(path)
 }
