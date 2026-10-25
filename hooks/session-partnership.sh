@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 # Mellions Engineer | LetA Tech Ltd. | leta@letatech.ca
 # Who the engineer works with, how they want to work, what they delegated.
+# Unattended shifts only: scripts/shift.sh exports MELLIONS_DEADLINE and nothing
+# else sets it, so an interactive session pays nothing for this hook.
+[[ -n "${MELLIONS_DEADLINE:-}" ]] || exit 0
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 [[ -x "$mellions" ]] || exit 0
 partners=$(run partner list 2>/dev/null) || exit 0

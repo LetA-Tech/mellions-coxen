@@ -54,9 +54,8 @@ func cmdPRMergeCheck(ctx context.Context, args []string) error {
 			"a path:line its head commit does not back.")
 		return nil
 	}
-	// The escape hatch is the same shape cite-check has: a session that has
-	// established the merge is right, and said so, is not made to argue with a
-	// guard that cannot read its reasoning.
+	// Run by hand; a session that has established the merge is right can
+	// silence it rather than argue with a guard that cannot read its reasoning.
 	if strings.EqualFold(os.Getenv("MELLIONS_MERGE_CHECK"), "off") {
 		return nil
 	}

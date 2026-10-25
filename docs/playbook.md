@@ -113,9 +113,10 @@ An adopted tree is never removed by Mellions.
 
 ## What Mellions supplies automatically
 
-- The engineer identity and bearing methods arrive at session start.
-- Relevant program and partnership sections arrive with their provenance:
-  `DISCOVERED`, `DECLARED`, `INFERRED` or `UNKNOWN`.
+- The engineer identity and the owner's working rules arrive at session start;
+  the working rules alone after a compaction.
+- Unattended shifts also get the program and partnership sections, with their
+  provenance: `DISCOVERED`, `DECLARED`, `INFERRED` or `UNKNOWN`.
 - Open assignments and same-repository peers are surfaced without requiring a
   command to be remembered.
 - UserPromptSubmit and PreToolUse awareness says once when relevant state

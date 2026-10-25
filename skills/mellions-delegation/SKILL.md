@@ -44,13 +44,10 @@ A prohibition such as *never touch `<path>`* is not a boundary: a failed
 `cd` can leave a compound command writing in the wrong tree.
 
 Keep the dispatch near two kilobytes; its `CLAUDE.md` and named skills
-supply the rest. Owner-configured role mapping: Opus 5.5 (or Sol 6.1) XHigh
-reviews risky contracts and implementation early; subsequent review covers
-corrections and remaining gaps. Sonnet 5.5 or Sol 6.1 High handles Git and landing.
-Honor owner overrides and actual native model/effort names and settings;
-this mapping asserts no availability. Capable implementers carry
-grounded fixes; reassign if cause or design reopens, and skip needless handoffs.
-Restricted tiers need approval.
+supply the rest. Roles follow the session-start workflow: Opus orchestrates,
+falsifies and accepts; Sonnet implements and tests; Sonnet does git and
+landing; Opus gives the one final review. Honor owner overrides and the
+native model names; reassign if cause or design reopens.
 
 ## Judging what comes back
 
@@ -88,12 +85,10 @@ for a day is stale: swept, not obeyed. Draft state separates none of these.
 `mellions assign claim <lane> -pr <n>` — before sending the review. A
 comment is not what another host sees; the claim is.
 
-**First review: read the requirement at the base commit before the diff.** The
-body is the author's account, which biases a first judgment — `mellions-reasoning`.
-Where being wrong is expensive, take that reading from a subagent that has not
-seen the diff. Give it the original claim, including counts, zeros and citations,
-not a tidied version. Use an extraction you never write to, separate from lane
-and review scratch, and the issue body without comments revealing the fix.
+**One review per coordinated set, before merge.** Read the requirement before
+the diff; the body is the author's account. For a schema or credential change,
+optionally take that reading from a subagent that has not seen the diff, given
+the original claim rather than a tidied one.
 The base is `git merge-base <target> <head>`, not the metadata's target tip:
 a branch behind its target appears to remove newer production changes at that tip.
 
@@ -101,8 +96,8 @@ a branch behind its target appears to remove newer production changes at that ti
 validation under `mellions-deep-research`'s input-validity rule; independently
 settle gaps and risky claims. Required gates and falsification apply to the head
 reconciled with the current target; a stale branch can pass alone and fail merged.
-Follow-up review covers the delta and affected paths; reopen completed conclusions
-where their inputs changed. At publishing, read the target's tip and PR state/head
+The orchestrator verifies the fixes a review asked for; there is no second
+review round. Reopen completed conclusions where their inputs changed. At publishing, read the target's tip and PR state/head
 (`gh pr view --json state,headRefOid`; a ref read can miss a deleted head): a
 changed input requires affected checks or a verdict scoped to verified pins.
 Say if the PR is no longer open. A cited test the tree lacks is an account.
