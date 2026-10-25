@@ -5,6 +5,7 @@
 package assignment
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -125,5 +126,37 @@ func TestALaneOpenedNormallyStillHoldsItsIssue(t *testing.T) {
 		ID: "dup-8", Repo: "svc", Issue: "#8", Source: src, Objective: "fix", Because: "open",
 	}); err == nil {
 		t.Fatal("a second lane opened on an issue a normal lane holds")
+	}
+}
+
+// A reader that opens a fix of its own holds that pull request like any lane:
+// alongside is about the item another lane held, not every item this lane touches.
+func TestAnAlongsideLanesOwnPullRequestIsHeldExclusively(t *testing.T) {
+	src := gitFixture(t)
+	s, err := newStoreT(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	f := trackerOf(t, s)
+	f.claims[key("svc", "#272")] = []claim.Claim{{
+		ID: "owner-lane", Host: "build-host", State: StateActive, At: time.Now(),
+	}}
+	if _, err := s.Open(OpenOptions{
+		ID: "read-273", Repo: "svc", Issue: "#272", Source: src, Alongside: true,
+		Objective: "read the owner lane's draft", Because: "unread",
+	}); err != nil {
+		t.Fatalf("open -alongside: %v", err)
+	}
+	if err := s.ClaimPullRequest(context.Background(), "read-273", "298"); err != nil {
+		t.Fatalf("ClaimPullRequest: %v", err)
+	}
+	if err := s.Record("read-273", "found", "fix pushed"); err != nil {
+		t.Fatal(err)
+	}
+	if c, ok := claimOf(f, "svc", "PR #298", "read-273"); !ok || c.Alongside {
+		t.Fatalf("the reader's own pull request is claimed as %+v (found %v): a peer reads its fix as unheld", c, ok)
+	}
+	if c, ok := claimOf(f, "svc", "#272", "read-273"); !ok || !c.Alongside {
+		t.Fatalf("the held issue lost the alongside form once the lane claimed a pull request: %+v", c)
 	}
 }
