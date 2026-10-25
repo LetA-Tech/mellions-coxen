@@ -171,16 +171,10 @@ type Assignment struct {
 	// Absent on a lane with no issue; present and saying so on a lane whose
 	// claim could not be published.
 	Claim *ClaimState `json:"claim,omitempty"`
-	// Alongside records that the lane was opened -alongside another lane's hold
-	// on its issue. Every claim it publishes on that issue, at open and on each
-	// restate, reserves nothing; a pull request it claims as its own does.
+	// Alongside records that the lane was opened -alongside another lane's hold.
+	// Every claim it publishes, at open and on each restate, defers to a lane
+	// still working that item (claim.Defers) and is an ordinary hold otherwise.
 	Alongside bool `json:"alongside,omitempty"`
-}
-
-// alongsideOn reports whether ref is the item this lane was opened alongside
-// another lane on.
-func (a *Assignment) alongsideOn(ref string) bool {
-	return a.Alongside && sameIssue(a.Repo, ref, a.Repo, a.Issue)
 }
 
 // ClaimState is what this machine believes about its published hold on an
@@ -244,9 +238,9 @@ func (a *Assignment) heldRefs() []string {
 type Tracker interface {
 	Claims(ctx context.Context, repo, ref string) ([]claim.Claim, error)
 	Publish(ctx context.Context, repo, ref, id, state string) (claim.Claim, error)
-	// PublishAlongside publishes a claim that reserves nothing, for a lane
-	// opened beside another lane's hold.
-	PublishAlongside(ctx context.Context, repo, ref, id, state string) (claim.Claim, error)
+	// PublishBeside publishes for a lane opened beside another lane's hold:
+	// deferring to a lane still working the item, an ordinary hold otherwise.
+	PublishBeside(ctx context.Context, repo, ref, id, state string) (claim.Claim, error)
 	Release(ctx context.Context, repo, ref, id string) error
 	Sweep(ctx context.Context, repo, ref string) ([]claim.Claim, error)
 	// PullRequests finds the lane's change set from its branch, for a lane
@@ -580,9 +574,6 @@ func (s *Store) issueUnclaimed(o OpenOptions) error {
 			if ref != strings.TrimSpace(a.Issue) && !a.holdsPullRequest(now) {
 				continue
 			}
-			if a.alongsideOn(ref) {
-				continue
-			}
 			return fmt.Errorf("assignment: %s %s is already claimed by %s (%s) on this machine, "+
 				"which holds it as %s, opened %s.\n\n"+
 				"Read what it established before repeating it:\n"+
@@ -654,7 +645,7 @@ func (s *Store) estateUnclaimed(ctx context.Context, o OpenOptions) error {
 	}
 	now := s.clock()
 	for _, c := range claims {
-		if c.ID == o.ID || !c.Holds(now) {
+		if c.ID == o.ID || c.Stale(now) {
 			continue
 		}
 		return fmt.Errorf("assignment: %s %s is claimed on the tracker by %s.\n\n"+
@@ -738,11 +729,11 @@ func (s *Store) publishClaim(ctx context.Context, a *Assignment, unpublished boo
 	return nil
 }
 
-// publishOne publishes the lane's claim on one ref, in the alongside form where
-// the lane was opened beside another lane's hold on that item.
+// publishOne publishes the lane's claim on one ref; a lane opened -alongside
+// publishes beside whoever is still working it.
 func (s *Store) publishOne(ctx context.Context, a *Assignment, ref string) (claim.Claim, error) {
-	if a.alongsideOn(ref) {
-		return s.Tracker.PublishAlongside(ctx, a.Repo, ref, a.ID, a.State)
+	if a.Alongside {
+		return s.Tracker.PublishBeside(ctx, a.Repo, ref, a.ID, a.State)
 	}
 	return s.Tracker.Publish(ctx, a.Repo, ref, a.ID, a.State)
 }
@@ -1982,8 +1973,8 @@ func (a Assignment) Text(now time.Time) string {
 			fmt.Fprintf(&b, "- claim: LOCAL ONLY — %s. A session on another machine can take this same work\n",
 				a.Claim.Unpublished)
 		case a.Alongside:
-			fmt.Fprintf(&b, "- claim: alongside another lane's hold, on %s, restated %s — reserves neither the work nor the merge, and adds no %s label\n",
-				a.Claim.Host, a.Claim.At.Format(time.RFC3339), claim.Label)
+			fmt.Fprintf(&b, "- claim: %s on %s, restated %s — opened alongside: while another lane is still working an item this lane claims, the claim there defers the work and the merge to it\n",
+				claim.Label, a.Claim.Host, a.Claim.At.Format(time.RFC3339))
 		default:
 			fmt.Fprintf(&b, "- claim: %s on %s, restated %s\n",
 				claim.Label, a.Claim.Host, a.Claim.At.Format(time.RFC3339))

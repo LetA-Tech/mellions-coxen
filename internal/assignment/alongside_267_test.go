@@ -24,9 +24,9 @@ func claimOf(f *fakeTracker, repo, ref, id string) (claim.Claim, bool) {
 	return claim.Claim{}, false
 }
 
-// A lane opened -alongside a live lane's hold is a reader or a reconciler. Its
-// claim is what tells the holding lane, and everyone else, what it reserves, so
-// it has to say "nothing" at open and on every restate after it.
+// A lane opened -alongside a lane still working the issue is a reader or a
+// reconciler. Its claim must defer the work and the merge to that lane at open
+// and on every restate after it.
 func TestAnAlongsideLaneNeverPublishesAnExclusiveClaimOnTheHeldIssue(t *testing.T) {
 	src := gitFixture(t)
 	s, err := newStoreT(t.TempDir())
@@ -44,7 +44,7 @@ func TestAnAlongsideLaneNeverPublishesAnExclusiveClaimOnTheHeldIssue(t *testing.
 		t.Fatalf("open -alongside: %v", err)
 	}
 	if c, ok := claimOf(f, "svc", "#1494", "read-1497"); !ok || !c.Alongside {
-		t.Fatalf("at open the read lane published %+v (found %v): an exclusive claim on an issue another lane holds", c, ok)
+		t.Fatalf("at open the read lane published %+v (found %v): an exclusive claim on an issue another lane is working", c, ok)
 	}
 	a, err := s.Get("read-1497")
 	if err != nil {
@@ -53,30 +53,38 @@ func TestAnAlongsideLaneNeverPublishesAnExclusiveClaimOnTheHeldIssue(t *testing.
 	if !a.Alongside {
 		t.Fatal("the record does not keep -alongside, so the next restate publishes an exclusive claim")
 	}
-
 	if err := s.Record("read-1497", "found", "read posted"); err != nil {
 		t.Fatalf("record: %v", err)
 	}
 	if c, ok := claimOf(f, "svc", "#1494", "read-1497"); !ok || !c.Alongside {
 		t.Fatalf("after a restate the read lane holds %+v: the alongside form was lost after open", c)
 	}
-	if c, ok := claimOf(f, "svc", "#1494", "owner-lane"); !ok || !c.Holds(time.Now()) {
+	if c, ok := claimOf(f, "svc", "#1494", "owner-lane"); !ok || c.Alongside {
 		t.Fatalf("the owner lane's claim changed: %+v", c)
 	}
-	a, err = s.Get("read-1497")
-	if err != nil {
+	if a, err = s.Get("read-1497"); err != nil {
 		t.Fatal(err)
 	}
-	brief := a.Text(time.Now())
-	if strings.Contains(brief, "- claim: "+claim.Label+" on ") || !strings.Contains(brief, "- claim: alongside another lane's hold") {
-		t.Errorf("the lane's own brief tells its session it holds the issue:\n%s", brief)
+	if brief := a.Text(time.Now()); !strings.Contains(brief, "opened alongside: while another lane is still working") {
+		t.Errorf("the lane's own brief does not say its claim defers:\n%s", brief)
+	}
+
+	// Once nobody else is working it, the reader is the one on it: its next
+	// restate holds the issue, so a third lane is not invited in.
+	f.mu.Lock()
+	f.claims[key("svc", "#1494")] = f.claims[key("svc", "#1494")][1:]
+	f.mu.Unlock()
+	if err := s.Record("read-1497", "found", "owner lane gone"); err != nil {
+		t.Fatal(err)
+	}
+	if c, ok := claimOf(f, "svc", "#1494", "read-1497"); !ok || c.Alongside {
+		t.Fatalf("with no other lane on the issue the alongside lane still holds nothing: %+v", c)
 	}
 }
 
-// What an alongside claim reserves is decided by every reader, not only by its
-// text: once the owning lane is gone, a lane on this machine or another one is
-// not refused because a reader is still there.
-func TestAnAlongsideLaneDoesNotRefuseTheNextLane(t *testing.T) {
+// -alongside is the way through the refusal for work whose lane is finished —
+// the refusal says so. That lane takes the work over and must hold it.
+func TestAnAlongsideLaneTakingOverFinishedWorkHoldsIt(t *testing.T) {
 	src := gitFixture(t)
 	s, err := newStoreT(t.TempDir())
 	if err != nil {
@@ -84,33 +92,41 @@ func TestAnAlongsideLaneDoesNotRefuseTheNextLane(t *testing.T) {
 	}
 	f := trackerOf(t, s)
 	f.claims[key("svc", "#7")] = []claim.Claim{{
+		ID: "finished-lane", Host: "build-host", State: StateHandedOff, At: time.Now(),
+	}}
+	if _, err := s.Open(OpenOptions{
+		ID: "take-7", Repo: "svc", Issue: "#7", Source: src, Alongside: true,
+		Objective: "carry the work on", Because: "the earlier lane is finished",
+	}); err != nil {
+		t.Fatalf("open -alongside: %v", err)
+	}
+	if c, ok := claimOf(f, "svc", "#7", "take-7"); !ok || c.Alongside {
+		t.Fatalf("a take-over of finished work published %+v: a third lane would read the issue as free", c)
+	}
+}
+
+// What other lanes are refused by is unchanged: a lane opened alongside is
+// still a lane on the issue, here and on the tracker.
+func TestALaneOpenedAlongsideStillRefusesALaterOne(t *testing.T) {
+	src := gitFixture(t)
+	s, err := newStoreT(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	f := trackerOf(t, s)
+	f.claims[key("svc", "#9")] = []claim.Claim{{
 		ID: "owner-lane", Host: "build-host", State: StateActive, At: time.Now(),
 	}}
 	if _, err := s.Open(OpenOptions{
-		ID: "read-7", Repo: "svc", Issue: "#7", Source: src, Alongside: true,
+		ID: "read-9", Repo: "svc", Issue: "#9", Source: src, Alongside: true,
 		Objective: "read", Because: "unread",
 	}); err != nil {
 		t.Fatalf("open -alongside: %v", err)
 	}
-	f.mu.Lock()
-	kept := f.claims[key("svc", "#7")][:0:0]
-	for _, c := range f.claims[key("svc", "#7")] {
-		if c.ID != "owner-lane" {
-			kept = append(kept, c)
-		}
-	}
-	f.claims[key("svc", "#7")] = kept
-	f.relabel(key("svc", "#7"))
-	f.mu.Unlock()
-
 	if _, err := s.Open(OpenOptions{
-		ID: "next-7", Repo: "svc", Issue: "#7", Source: src,
-		Objective: "carry the work on", Because: "the owner lane closed",
-	}); err != nil {
-		t.Fatalf("a lane was refused by a reader's alongside claim, which reserves nothing: %v", err)
-	}
-	if c, ok := claimOf(f, "svc", "#7", "next-7"); !ok || c.Alongside {
-		t.Fatalf("a lane opened normally published %+v: it must hold the issue exclusively", c)
+		ID: "next-9", Repo: "svc", Issue: "#9", Source: src, Objective: "fix", Because: "open",
+	}); err == nil {
+		t.Fatal("a third lane opened on an issue two live lanes are on")
 	}
 }
 

@@ -50,50 +50,73 @@ func alongsideBody(id, host string, at time.Time) string {
 	return "Alongside another lane's hold\n\n" + marker + string(raw) + " -->\n"
 }
 
-func TestAnAlongsideClaimReservesNeitherTheWorkNorTheMerge(t *testing.T) {
+func TestABesideClaimDefersToALaneStillWorkingTheItem(t *testing.T) {
 	at := time.Date(2026, 10, 25, 0, 45, 0, 0, time.UTC)
 	f := &fake{view: view(ghComment{ID: "holder", Body: body("owner-lane", "build-host", "active", at)})}
-	c, err := tracker(f, at).PublishAlongside(context.Background(), "mellions-coxen", "#1494", "read-lane", "active")
+	c, err := tracker(f, at).PublishBeside(context.Background(), "mellions-coxen", "#1494", "read-lane", "active")
 	if err != nil {
-		t.Fatalf("PublishAlongside: %v", err)
+		t.Fatalf("PublishBeside: %v", err)
 	}
 	if !c.Alongside {
-		t.Error("the returned claim does not say it is alongside")
+		t.Error("the returned claim does not say it defers")
 	}
 	posted := postedBody(t, f)
 	if strings.Contains(posted, exclusive) {
-		t.Errorf("an alongside lane's claim tells the holding lane its own merge is not its own:\n%s", posted)
+		t.Errorf("a lane beside a live holder tells that holder its own merge is not its own:\n%s", posted)
 	}
-	if !strings.Contains(posted, "reserves nothing") || !strings.Contains(posted, "neither the work nor the merge") {
-		t.Errorf("an alongside claim does not say what it reserves:\n%s", posted)
+	if !strings.Contains(posted, "defers to it") || !strings.Contains(posted, "taking the work and merging it stay with that lane") {
+		t.Errorf("a deferring claim does not say who keeps the work and the merge:\n%s", posted)
 	}
-	if got := payloadOf(t, posted); !got.Alongside || got.ID != "read-lane" {
-		t.Errorf("payload %+v: another machine reading it cannot tell it reserves nothing", got)
+	if !strings.Contains(posted, `"alongside":true`) {
+		t.Errorf("the payload does not carry the alongside field another machine reads:\n%s", posted)
 	}
-	if f.sawArg("--add-label") || f.saw("label", "create") {
-		t.Error("an alongside claim put the claimed label on an item it does not hold")
+}
+
+// -alongside is also how a session takes over work whose lane is finished or
+// gone. Beside nobody still working the item, the claim is an ordinary hold, or
+// a third lane would open on work this one is doing.
+func TestABesideClaimHoldsWhenNobodyElseIsWorkingTheItem(t *testing.T) {
+	at := time.Date(2026, 10, 25, 0, 45, 0, 0, time.UTC)
+	for name, comments := range map[string][]ghComment{
+		"no other claim":       nil,
+		"holder handed off":    {{ID: "h", Body: body("owner-lane", "build-host", "handed_off", at)}},
+		"holder stale":         {{ID: "h", Body: body("owner-lane", "build-host", "active", at.Add(-2*StaleAfter))}},
+		"only a deferring one": {{ID: "r", Body: alongsideBody("other-reader", "build-host", at)}},
+		"only this lane's own": {{ID: "me", Body: body("read-lane", "here", "active", at)}},
+	} {
+		f := &fake{view: view(comments...)}
+		c, err := tracker(f, at).PublishBeside(context.Background(), "mellions-coxen", "#1494", "read-lane", "active")
+		if err != nil {
+			t.Fatalf("%s: PublishBeside: %v", name, err)
+		}
+		posted := postedBody(t, f)
+		if c.Alongside || !strings.Contains(posted, exclusive) || payloadOf(t, posted).Alongside {
+			t.Errorf("%s: a lane taking over work nobody is still doing published a claim that holds nothing:\n%s", name, posted)
+		}
 	}
 }
 
 func TestAHoldingClaimStillReservesTheWorkAndTheMerge(t *testing.T) {
 	at := time.Date(2026, 10, 25, 0, 45, 0, 0, time.UTC)
-	f := &fake{view: view()}
-	if _, err := tracker(f, at).Publish(context.Background(), "mellions-coxen", "#1494", "owner-lane", "active"); err != nil {
+	f := &fake{view: view(ghComment{ID: "holder", Body: body("owner-lane", "build-host", "active", at)})}
+	if _, err := tracker(f, at).Publish(context.Background(), "mellions-coxen", "#1494", "next-lane", "active"); err != nil {
 		t.Fatalf("Publish: %v", err)
 	}
 	posted := postedBody(t, f)
 	if !strings.Contains(posted, exclusive) {
 		t.Errorf("a live lane's claim no longer reserves the work:\n%s", posted)
 	}
-	if payloadOf(t, posted).Alongside {
-		t.Error("a holding claim's payload says alongside")
+	if payloadOf(t, posted).Alongside || strings.Contains(posted, `"alongside"`) {
+		t.Error("a holding claim's payload changed")
 	}
 	if !f.sawArg("--add-label") {
 		t.Error("a holding claim did not label the item")
 	}
 }
 
-func TestAnAlongsideClaimDoesNotKeepTheLabelOnAfterTheHolderReleases(t *testing.T) {
+// A deferring claim is still a lane working the item, so the label stays on
+// while it lives: the survey and every peer still see the item as worked.
+func TestADeferringClaimKeepsTheLabelAfterTheHolderReleases(t *testing.T) {
 	at := time.Date(2026, 10, 25, 0, 45, 0, 0, time.UTC)
 	f := &fake{view: view(
 		ghComment{ID: "holder", Body: body("owner-lane", "here", "active", at)},
@@ -102,25 +125,7 @@ func TestAnAlongsideClaimDoesNotKeepTheLabelOnAfterTheHolderReleases(t *testing.
 	if err := tracker(f, at).Release(context.Background(), "mellions-coxen", "#1494", "owner-lane"); err != nil {
 		t.Fatalf("Release: %v", err)
 	}
-	if !f.sawArg("--remove-label") {
-		t.Error("the label stayed on an item only an alongside lane is left on, so a survey prints it as held")
-	}
-}
-
-func TestASweepLeavingOnlyAnAlongsideClaimTakesTheLabelOff(t *testing.T) {
-	now := time.Date(2026, 10, 25, 0, 45, 0, 0, time.UTC)
-	f := &fake{view: view(
-		ghComment{ID: "gone", Body: body("owner-lane", "build-host", "active", now.Add(-2*StaleAfter))},
-		ghComment{ID: "reader", Body: alongsideBody("read-lane", "here", now)},
-	)}
-	swept, err := tracker(f, now).Sweep(context.Background(), "mellions-coxen", "#1494")
-	if err != nil {
-		t.Fatalf("Sweep: %v", err)
-	}
-	if len(swept) != 1 || swept[0].ID != "owner-lane" {
-		t.Fatalf("swept %+v, want the stale holder only", swept)
-	}
-	if !f.sawArg("--remove-label") {
-		t.Error("the label stayed on after its last holder was swept, held up by an alongside claim")
+	if f.sawArg("--remove-label") {
+		t.Error("the label came off an item a live lane is still on")
 	}
 }

@@ -83,9 +83,9 @@ type Claim struct {
 	// it, and the review — and the merge, where the reader establishes it
 	// ready — is what it is waiting for.
 	State string `json:"state"`
-	// Alongside marks a lane opened beside another lane's hold on the item
-	// (`mellions assign open -alongside`). It makes the lane visible and
-	// reserves nothing: neither the work nor the merge, nor the label.
+	// Alongside marks a claim published by a lane opened beside another lane
+	// that was actively holding the item when it was restated. It defers the
+	// work and the merge to that lane; to every other reader it is a hold.
 	Alongside bool `json:"alongside,omitempty"`
 	// At is when the claim was last restated, and the only input to staleness.
 	At time.Time `json:"at"`
@@ -99,9 +99,21 @@ type Claim struct {
 // longer evidence of work in flight.
 func (c Claim) Stale(now time.Time) bool { return now.Sub(c.At) > StaleAfter }
 
-// Holds reports whether the claim reserves the item at now: published by a
-// lane that is not alongside another's hold, and not stale.
-func (c Claim) Holds(now time.Time) bool { return !c.Alongside && !c.Stale(now) }
+// Defers reports whether lane id on host, opened beside another lane, has to
+// defer to a claim in existing at now: another lane's, not stale, not itself
+// deferring, and not handed off — a handed-off lane has finished the work and
+// asks a reader to take its merge, so a lane beside it holds the item outright.
+func Defers(existing []Claim, host, id string, now time.Time) bool {
+	for _, c := range existing {
+		if c.Host == host && c.ID == id {
+			continue
+		}
+		if !c.Stale(now) && !c.Alongside && c.State != HandedOffState {
+			return true
+		}
+	}
+	return false
+}
 
 // Held renders the claim the way a refusal has to name it.
 func (c Claim) Held() string {
@@ -335,9 +347,9 @@ const HandedOffState = "handed_off"
 // other state is a lane still holding the work, where the refusal is the point.
 func audience(state string, alongside bool) string {
 	if alongside {
-		return "the lane was opened alongside another lane's hold on this item and reserves nothing here — " +
-			"neither the work nor the merge. Whatever that other lane's claim says still applies; " +
-			"this one only says where a second reader or worker is."
+		return "the lane was opened alongside another lane that is still working this item, and defers to it — " +
+			"taking the work and merging it stay with that lane, and nothing here takes either from it. " +
+			"Whatever that lane's claim asks of you still applies."
 	}
 	if state == HandedOffState {
 		return "the lane has finished and written its handoff, and its worktree is kept for exactly this — " +
@@ -358,14 +370,15 @@ func (t *Tracker) Publish(ctx context.Context, repo, ref, id, state string) (Cla
 	return t.publish(ctx, repo, ref, id, state, false)
 }
 
-// PublishAlongside states that this machine's lane id is working beside
-// another lane's hold on the item. The comment reserves nothing and the label
-// is left to the lanes that do hold the item.
-func (t *Tracker) PublishAlongside(ctx context.Context, repo, ref, id, state string) (Claim, error) {
+// PublishBeside is Publish for a lane opened beside another lane's hold. While
+// another lane is still working the item (Defers) the claim defers the work and
+// the merge to it; otherwise it is an ordinary hold, so a lane that took over
+// finished or abandoned work holds it like any other.
+func (t *Tracker) PublishBeside(ctx context.Context, repo, ref, id, state string) (Claim, error) {
 	return t.publish(ctx, repo, ref, id, state, true)
 }
 
-func (t *Tracker) publish(ctx context.Context, repo, ref, id, state string, alongside bool) (Claim, error) {
+func (t *Tracker) publish(ctx context.Context, repo, ref, id, state string, beside bool) (Claim, error) {
 	slug, err := t.slug(repo)
 	if err != nil {
 		return Claim{}, err
@@ -378,6 +391,7 @@ func (t *Tracker) publish(ctx context.Context, repo, ref, id, state string, alon
 	if err != nil {
 		return Claim{}, err
 	}
+	alongside := beside && Defers(existing, t.Host, id, t.clock())
 	c := Claim{ID: id, Host: t.Host, State: state, Alongside: alongside, At: t.clock().UTC()}
 	payload, err := json.Marshal(c)
 	if err != nil {
@@ -392,19 +406,15 @@ func (t *Tracker) publish(ctx context.Context, repo, ref, id, state string, alon
 		"A claim not restated within %s is stale and is swept rather than trusted.\n\n"+
 		"%s%s -->\n", opening, id, t.Host, state, audience(state, alongside), StaleAfter, marker, payload)
 
-	if !alongside {
-		if _, err := t.run(ctx, "label", "create", Label, "--repo", slug,
-			"--color", "5319E7", "--description", "A Mellions lane holds this issue or pull request", "--force"); err != nil {
-			return Claim{}, fmt.Errorf("claim: create label on %s: %w", slug, err)
-		}
+	if _, err := t.run(ctx, "label", "create", Label, "--repo", slug,
+		"--color", "5319E7", "--description", "A Mellions lane holds this issue or pull request", "--force"); err != nil {
+		return Claim{}, fmt.Errorf("claim: create label on %s: %w", slug, err)
 	}
 	if _, err := t.run(ctx, verb, "comment", strconv.Itoa(n), "--repo", slug, "--body", body); err != nil {
 		return Claim{}, fmt.Errorf("claim: publish claim on %s: %w", name(slug, verb, n), err)
 	}
-	if !alongside {
-		if _, err := t.run(ctx, verb, "edit", strconv.Itoa(n), "--repo", slug, "--add-label", Label); err != nil {
-			return Claim{}, fmt.Errorf("claim: label %s: %w", name(slug, verb, n), err)
-		}
+	if _, err := t.run(ctx, verb, "edit", strconv.Itoa(n), "--repo", slug, "--add-label", Label); err != nil {
+		return Claim{}, fmt.Errorf("claim: label %s: %w", name(slug, verb, n), err)
 	}
 	// Only after the new claim is up: a delete that runs first and a publish
 	// that then fails leaves the issue unclaimed while the lane believes it
@@ -418,8 +428,7 @@ func (t *Tracker) publish(ctx context.Context, repo, ref, id, state string, alon
 }
 
 // Release withdraws this machine's claim on an issue or pull request, and takes
-// the label off when no other lane still holds it. An alongside claim holds
-// nothing, so it does not keep the label on.
+// the label off when no other lane still holds it.
 func (t *Tracker) Release(ctx context.Context, repo, ref, id string) error {
 	slug, err := t.slug(repo)
 	if err != nil {
@@ -443,7 +452,7 @@ func (t *Tracker) Release(ctx context.Context, repo, ref, id string) error {
 			}
 			continue
 		}
-		if c.Holds(t.clock()) {
+		if !c.Stale(t.clock()) {
 			remaining++
 		}
 	}
@@ -481,9 +490,7 @@ func (t *Tracker) Sweep(ctx context.Context, repo, ref string) ([]Claim, error) 
 	live := 0
 	for _, c := range claims {
 		if !c.Stale(now) {
-			if c.Holds(now) {
-				live++
-			}
+			live++
 			continue
 		}
 		if c.Ref != "" {
