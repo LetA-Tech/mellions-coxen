@@ -83,6 +83,10 @@ type Claim struct {
 	// it, and the review — and the merge, where the reader establishes it
 	// ready — is what it is waiting for.
 	State string `json:"state"`
+	// Alongside marks a lane opened beside another lane's hold on the item
+	// (`mellions assign open -alongside`). It makes the lane visible and
+	// reserves nothing: neither the work nor the merge, nor the label.
+	Alongside bool `json:"alongside,omitempty"`
 	// At is when the claim was last restated, and the only input to staleness.
 	At time.Time `json:"at"`
 	// Ref is the tracker's id for the comment carrying this claim, so it can be
@@ -94,6 +98,10 @@ type Claim struct {
 // Stale reports whether the claim has gone unrestated long enough that it is no
 // longer evidence of work in flight.
 func (c Claim) Stale(now time.Time) bool { return now.Sub(c.At) > StaleAfter }
+
+// Holds reports whether the claim reserves the item at now: published by a
+// lane that is not alongside another's hold, and not stale.
+func (c Claim) Holds(now time.Time) bool { return !c.Alongside && !c.Stale(now) }
 
 // Held renders the claim the way a refusal has to name it.
 func (c Claim) Held() string {
@@ -325,7 +333,12 @@ const HandedOffState = "handed_off"
 // (assignment.StateHandedOff), so refusing that reader refuses the only thing
 // the state is waiting for — and unattended there is no other reader. Every
 // other state is a lane still holding the work, where the refusal is the point.
-func audience(state string) string {
+func audience(state string, alongside bool) string {
+	if alongside {
+		return "the lane was opened alongside another lane's hold on this item and reserves nothing here — " +
+			"neither the work nor the merge. Whatever that other lane's claim says still applies; " +
+			"this one only says where a second reader or worker is."
+	}
 	if state == HandedOffState {
 		return "the lane has finished and written its handoff, and its worktree is kept for exactly this — " +
 			"reading it, and merging what it establishes is ready, is available to you rather than taken. " +
@@ -342,6 +355,17 @@ func audience(state string) string {
 // comment rather than a growing column of them, and the label is created if the
 // repository has never seen it.
 func (t *Tracker) Publish(ctx context.Context, repo, ref, id, state string) (Claim, error) {
+	return t.publish(ctx, repo, ref, id, state, false)
+}
+
+// PublishAlongside states that this machine's lane id is working beside
+// another lane's hold on the item. The comment reserves nothing and the label
+// is left to the lanes that do hold the item.
+func (t *Tracker) PublishAlongside(ctx context.Context, repo, ref, id, state string) (Claim, error) {
+	return t.publish(ctx, repo, ref, id, state, true)
+}
+
+func (t *Tracker) publish(ctx context.Context, repo, ref, id, state string, alongside bool) (Claim, error) {
 	slug, err := t.slug(repo)
 	if err != nil {
 		return Claim{}, err
@@ -354,25 +378,33 @@ func (t *Tracker) Publish(ctx context.Context, repo, ref, id, state string) (Cla
 	if err != nil {
 		return Claim{}, err
 	}
-	c := Claim{ID: id, Host: t.Host, State: state, At: t.clock().UTC()}
+	c := Claim{ID: id, Host: t.Host, State: state, Alongside: alongside, At: t.clock().UTC()}
 	payload, err := json.Marshal(c)
 	if err != nil {
 		return Claim{}, fmt.Errorf("claim: %w", err)
 	}
-	body := fmt.Sprintf("Claimed by Mellions lane `%s` on `%s` (%s).\n\n"+
+	opening := "Claimed by Mellions lane"
+	if alongside {
+		opening = "Alongside another lane's hold: Mellions lane"
+	}
+	body := fmt.Sprintf("%s `%s` on `%s` (%s).\n\n"+
 		"Another session reading this: %s "+
 		"A claim not restated within %s is stale and is swept rather than trusted.\n\n"+
-		"%s%s -->\n", id, t.Host, state, audience(state), StaleAfter, marker, payload)
+		"%s%s -->\n", opening, id, t.Host, state, audience(state, alongside), StaleAfter, marker, payload)
 
-	if _, err := t.run(ctx, "label", "create", Label, "--repo", slug,
-		"--color", "5319E7", "--description", "A Mellions lane holds this issue or pull request", "--force"); err != nil {
-		return Claim{}, fmt.Errorf("claim: create label on %s: %w", slug, err)
+	if !alongside {
+		if _, err := t.run(ctx, "label", "create", Label, "--repo", slug,
+			"--color", "5319E7", "--description", "A Mellions lane holds this issue or pull request", "--force"); err != nil {
+			return Claim{}, fmt.Errorf("claim: create label on %s: %w", slug, err)
+		}
 	}
 	if _, err := t.run(ctx, verb, "comment", strconv.Itoa(n), "--repo", slug, "--body", body); err != nil {
 		return Claim{}, fmt.Errorf("claim: publish claim on %s: %w", name(slug, verb, n), err)
 	}
-	if _, err := t.run(ctx, verb, "edit", strconv.Itoa(n), "--repo", slug, "--add-label", Label); err != nil {
-		return Claim{}, fmt.Errorf("claim: label %s: %w", name(slug, verb, n), err)
+	if !alongside {
+		if _, err := t.run(ctx, verb, "edit", strconv.Itoa(n), "--repo", slug, "--add-label", Label); err != nil {
+			return Claim{}, fmt.Errorf("claim: label %s: %w", name(slug, verb, n), err)
+		}
 	}
 	// Only after the new claim is up: a delete that runs first and a publish
 	// that then fails leaves the issue unclaimed while the lane believes it
@@ -386,7 +418,8 @@ func (t *Tracker) Publish(ctx context.Context, repo, ref, id, state string) (Cla
 }
 
 // Release withdraws this machine's claim on an issue or pull request, and takes
-// the label off when no other lane still holds it.
+// the label off when no other lane still holds it. An alongside claim holds
+// nothing, so it does not keep the label on.
 func (t *Tracker) Release(ctx context.Context, repo, ref, id string) error {
 	slug, err := t.slug(repo)
 	if err != nil {
@@ -410,7 +443,7 @@ func (t *Tracker) Release(ctx context.Context, repo, ref, id string) error {
 			}
 			continue
 		}
-		if !c.Stale(t.clock()) {
+		if c.Holds(t.clock()) {
 			remaining++
 		}
 	}
@@ -448,7 +481,9 @@ func (t *Tracker) Sweep(ctx context.Context, repo, ref string) ([]Claim, error) 
 	live := 0
 	for _, c := range claims {
 		if !c.Stale(now) {
-			live++
+			if c.Holds(now) {
+				live++
+			}
 			continue
 		}
 		if c.Ref != "" {

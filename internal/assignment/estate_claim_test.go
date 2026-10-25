@@ -69,7 +69,7 @@ func (f *fakeTracker) relabel(k string) {
 	}
 	now := f.now()
 	for _, e := range f.claims[k] {
-		if !e.Stale(now) {
+		if e.Holds(now) {
 			f.labelled[k] = true
 			return
 		}
@@ -96,7 +96,15 @@ func (f *fakeTracker) Claims(_ context.Context, repo, issue string) ([]claim.Cla
 	return append([]claim.Claim(nil), f.claims[key(repo, issue)]...), nil
 }
 
-func (f *fakeTracker) Publish(_ context.Context, repo, issue, id, state string) (claim.Claim, error) {
+func (f *fakeTracker) Publish(ctx context.Context, repo, issue, id, state string) (claim.Claim, error) {
+	return f.publish(repo, issue, id, state, false)
+}
+
+func (f *fakeTracker) PublishAlongside(ctx context.Context, repo, issue, id, state string) (claim.Claim, error) {
+	return f.publish(repo, issue, id, state, true)
+}
+
+func (f *fakeTracker) publish(repo, issue, id, state string, alongside bool) (claim.Claim, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.fail != nil {
@@ -105,7 +113,7 @@ func (f *fakeTracker) Publish(_ context.Context, repo, issue, id, state string) 
 	if f.failPublish != nil {
 		return claim.Claim{}, f.failPublish
 	}
-	c := claim.Claim{ID: id, Host: f.host, State: state, At: f.now().UTC()}
+	c := claim.Claim{ID: id, Host: f.host, State: state, Alongside: alongside, At: f.now().UTC()}
 	k := key(repo, issue)
 	kept := f.claims[k][:0:0]
 	for _, e := range f.claims[k] {

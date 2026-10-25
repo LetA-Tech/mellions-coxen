@@ -62,7 +62,8 @@ const usage = `mellions — the second engineer's deterministic surface
         taking back work that was handed off asks for none of them again. An
         issue a lane here holds — one not yet closed or abandoned, handed off
         included — is refused, naming that lane; -alongside takes it anyway,
-        which reconciling two lanes needs. A lane on an issue publishes a
+        which reconciling two lanes needs, and its claim there reserves
+        nothing. A lane on an issue publishes a
         mellions:claimed label and a comment naming it and its host, so a lane
         another machine holds is refused too, and one unrestated for 24h is
         swept rather than obeyed. A claim that cannot be published refuses the

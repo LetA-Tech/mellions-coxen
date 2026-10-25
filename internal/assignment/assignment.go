@@ -171,6 +171,16 @@ type Assignment struct {
 	// Absent on a lane with no issue; present and saying so on a lane whose
 	// claim could not be published.
 	Claim *ClaimState `json:"claim,omitempty"`
+	// Alongside records that the lane was opened -alongside another lane's hold
+	// on its issue. Every claim it publishes on that issue, at open and on each
+	// restate, reserves nothing; a pull request it claims as its own does.
+	Alongside bool `json:"alongside,omitempty"`
+}
+
+// alongsideOn reports whether ref is the item this lane was opened alongside
+// another lane on.
+func (a *Assignment) alongsideOn(ref string) bool {
+	return a.Alongside && sameIssue(a.Repo, ref, a.Repo, a.Issue)
 }
 
 // ClaimState is what this machine believes about its published hold on an
@@ -234,6 +244,9 @@ func (a *Assignment) heldRefs() []string {
 type Tracker interface {
 	Claims(ctx context.Context, repo, ref string) ([]claim.Claim, error)
 	Publish(ctx context.Context, repo, ref, id, state string) (claim.Claim, error)
+	// PublishAlongside publishes a claim that reserves nothing, for a lane
+	// opened beside another lane's hold.
+	PublishAlongside(ctx context.Context, repo, ref, id, state string) (claim.Claim, error)
 	Release(ctx context.Context, repo, ref, id string) error
 	Sweep(ctx context.Context, repo, ref string) ([]claim.Claim, error)
 	// PullRequests finds the lane's change set from its branch, for a lane
@@ -567,6 +580,9 @@ func (s *Store) issueUnclaimed(o OpenOptions) error {
 			if ref != strings.TrimSpace(a.Issue) && !a.holdsPullRequest(now) {
 				continue
 			}
+			if a.alongsideOn(ref) {
+				continue
+			}
 			return fmt.Errorf("assignment: %s %s is already claimed by %s (%s) on this machine, "+
 				"which holds it as %s, opened %s.\n\n"+
 				"Read what it established before repeating it:\n"+
@@ -638,7 +654,7 @@ func (s *Store) estateUnclaimed(ctx context.Context, o OpenOptions) error {
 	}
 	now := s.clock()
 	for _, c := range claims {
-		if c.ID == o.ID || c.Stale(now) {
+		if c.ID == o.ID || !c.Holds(now) {
 			continue
 		}
 		return fmt.Errorf("assignment: %s %s is claimed on the tracker by %s.\n\n"+
@@ -706,7 +722,7 @@ func (s *Store) publishClaim(ctx context.Context, a *Assignment, unpublished boo
 			"the same work:\n  mellions assign open %s ... -unpublished", a.Repo, a.Issue, a.ID)
 	}
 	for _, ref := range refs {
-		c, err := s.Tracker.Publish(ctx, a.Repo, ref, a.ID, a.State)
+		c, err := s.publishOne(ctx, a, ref)
 		if err != nil {
 			if unpublished {
 				a.Claim = &ClaimState{Unpublished: err.Error()}
@@ -720,6 +736,15 @@ func (s *Store) publishClaim(ctx context.Context, a *Assignment, unpublished boo
 		a.Claim = &ClaimState{Host: c.Host, At: c.At}
 	}
 	return nil
+}
+
+// publishOne publishes the lane's claim on one ref, in the alongside form where
+// the lane was opened beside another lane's hold on that item.
+func (s *Store) publishOne(ctx context.Context, a *Assignment, ref string) (claim.Claim, error) {
+	if a.alongsideOn(ref) {
+		return s.Tracker.PublishAlongside(ctx, a.Repo, ref, a.ID, a.State)
+	}
+	return s.Tracker.Publish(ctx, a.Repo, ref, a.ID, a.State)
 }
 
 // ClaimPullRequest publishes this lane's hold on a pull request and records it.
@@ -749,7 +774,7 @@ func (s *Store) ClaimPullRequest(ctx context.Context, id, pr string) error {
 		return fmt.Errorf("assignment: %s cannot claim %s: no tracker is configured, so no other "+
 			"machine could see the hold", id, ref)
 	}
-	c, err := s.Tracker.Publish(ctx, a.Repo, ref, a.ID, a.State)
+	c, err := s.publishOne(ctx, a, ref)
 	if err != nil {
 		return fmt.Errorf("assignment: %s %s could not be claimed on the tracker, so a peer would "+
 			"still read this change set as unheld: %w", a.Repo, ref, err)
@@ -795,7 +820,7 @@ func (s *Store) restateClaim(a *Assignment) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	for _, ref := range refs {
-		c, err := s.Tracker.Publish(ctx, a.Repo, ref, a.ID, a.State)
+		c, err := s.publishOne(ctx, a, ref)
 		if err != nil {
 			continue
 		}
@@ -940,8 +965,8 @@ func (s *Store) create(id string, o OpenOptions, ours bool) (*Assignment, error)
 		ID: id, Repo: o.Repo, Issue: o.Issue, Register: s.register(o.Repo),
 		Objective: o.Objective, Because: o.Because, NotChosen: o.NotChosen,
 		Branch: branch, Worktree: worktree, Source: o.Source, Base: base, BasePin: pin,
-		Scratch: scratch,
-		State:   StateActive, OpenedAt: now, UpdatedAt: now, Budget: o.Budget,
+		Scratch: scratch, Alongside: o.Alongside,
+		State: StateActive, OpenedAt: now, UpdatedAt: now, Budget: o.Budget,
 	}
 	undo := func() {
 		s.Git(o.Source, "worktree", "remove", "--force", worktree)
@@ -1225,8 +1250,8 @@ func (s *Store) adopt(id string, o OpenOptions, ours bool) (*Assignment, error) 
 		ID: id, Repo: o.Repo, Issue: o.Issue, Register: s.register(o.Repo),
 		Objective: o.Objective, Because: o.Because, NotChosen: o.NotChosen,
 		Branch: branch, Worktree: tree, Source: o.Source, Base: base, Adopted: true,
-		Scratch: scratch,
-		State:   StateActive, OpenedAt: now, UpdatedAt: now, Budget: o.Budget,
+		Scratch: scratch, Alongside: o.Alongside,
+		State: StateActive, OpenedAt: now, UpdatedAt: now, Budget: o.Budget,
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
