@@ -1981,6 +1981,9 @@ func (a Assignment) Text(now time.Time) string {
 		case a.Claim.Unpublished != "":
 			fmt.Fprintf(&b, "- claim: LOCAL ONLY — %s. A session on another machine can take this same work\n",
 				a.Claim.Unpublished)
+		case a.Alongside:
+			fmt.Fprintf(&b, "- claim: alongside another lane's hold, on %s, restated %s — reserves neither the work nor the merge, and adds no %s label\n",
+				a.Claim.Host, a.Claim.At.Format(time.RFC3339), claim.Label)
 		default:
 			fmt.Fprintf(&b, "- claim: %s on %s, restated %s\n",
 				claim.Label, a.Claim.Host, a.Claim.At.Format(time.RFC3339))

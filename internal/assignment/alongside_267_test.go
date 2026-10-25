@@ -6,6 +6,7 @@ package assignment
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -61,6 +62,14 @@ func TestAnAlongsideLaneNeverPublishesAnExclusiveClaimOnTheHeldIssue(t *testing.
 	}
 	if c, ok := claimOf(f, "svc", "#1494", "owner-lane"); !ok || !c.Holds(time.Now()) {
 		t.Fatalf("the owner lane's claim changed: %+v", c)
+	}
+	a, err = s.Get("read-1497")
+	if err != nil {
+		t.Fatal(err)
+	}
+	brief := a.Text(time.Now())
+	if strings.Contains(brief, "- claim: "+claim.Label+" on ") || !strings.Contains(brief, "- claim: alongside another lane's hold") {
+		t.Errorf("the lane's own brief tells its session it holds the issue:\n%s", brief)
 	}
 }
 
