@@ -238,3 +238,45 @@ func TestAHandoffThatCannotClearItsPredecessorSaysSo(t *testing.T) {
 		})
 	}
 }
+
+// A claim's marker is the line Publish writes last. A reviewer comment that
+// carries a pasted claim — even the current one, so the same instant — is not
+// that lane's claim, and the lane restating or releasing never deletes it.
+func TestAPastedClaimMarkerIsNotAClaim(t *testing.T) {
+	at := time.Date(2026, 10, 25, 2, 0, 0, 0, time.UTC)
+	pasted := body("lane-a", "here", "active", at.Add(-time.Hour))
+	for _, tc := range []struct {
+		name string
+		act  func(*Tracker) error
+	}{
+		{"restating", func(tr *Tracker) error {
+			_, err := tr.Publish(context.Background(), "mellions-coxen", "#40", "lane-a", "active")
+			return err
+		}},
+		{"releasing", func(tr *Tracker) error {
+			return tr.Release(context.Background(), "mellions-coxen", "#40", "lane-a")
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			th := &thread{comments: []ghComment{
+				{ID: "REAL", Body: pasted},
+				{ID: "REVIEWER", Body: "The claim's source, pasted:\n\n" + pasted + "\nI disagree with this lane holding the issue."},
+				{ID: "QUOTED", Body: "> " + strings.ReplaceAll(strings.TrimRight(pasted, "\n"), "\n", "\n> ") + "\n"},
+			}}
+			tr := &Tracker{Owner: "example-org", Host: "here", Run: th.run, now: func() time.Time { return at }}
+			if err := tc.act(tr); err != nil {
+				t.Fatal(err)
+			}
+			for _, kept := range []string{"I disagree with this lane", "> Claimed by"} {
+				if th.countHolding(kept) != 1 {
+					t.Errorf("a comment that is not the lane's claim was deleted (%q):\n%s", kept, strings.Join(th.bodies(), "\n---\n"))
+				}
+			}
+			for _, c := range th.comments {
+				if c.ID == "REAL" {
+					t.Errorf("the lane's own claim comment was left behind")
+				}
+			}
+		})
+	}
+}

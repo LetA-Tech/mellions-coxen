@@ -64,7 +64,7 @@ const StaleAfter = 24 * time.Hour
 // parses exactly to a machine.
 const marker = "<!-- mellions:claim "
 
-var markerPattern = regexp.MustCompile(`(?s)<!-- mellions:claim (\{.*?\}) -->`)
+var markerPattern = regexp.MustCompile(`^<!-- mellions:claim (\{[^\n]*\}) -->$`)
 
 // Claim is one lane's hold on one issue or pull request, as published.
 type Claim struct {
@@ -293,7 +293,7 @@ func (t *Tracker) Claims(ctx context.Context, repo, ref string) ([]Claim, error)
 	// must not resurrect a claim the lane has moved past.
 	byLane := map[string]Claim{}
 	for _, c := range got.Comments {
-		m := markerPattern.FindStringSubmatch(c.Body)
+		m := markerPattern.FindStringSubmatch(lastLine(c.Body))
 		if m == nil {
 			continue
 		}
@@ -483,13 +483,18 @@ type handoffLane struct {
 // same lane may still stand beside it on the same item.
 var ErrHandoffNotReplaced = errors.New("the lane's earlier handoff may still stand beside it")
 
-// isHandoffOf reports whether body is a handoff lane id posted from host. The
-// marker counts only as the body's last line, where Handoff writes it; a
-// handoff from before the marker is known by its exact opening line.
-func isHandoffOf(body, id, host string) bool {
+// lastLine is a comment's final non-blank line, the only place Publish and
+// Handoff write their marker; a marker anywhere else is quoted or pasted text.
+func lastLine(body string) string {
 	trimmed := strings.TrimRight(body, " \t\r\n")
-	last := trimmed[strings.LastIndexByte(trimmed, '\n')+1:]
-	if m := handoffPattern.FindStringSubmatch(last); m != nil {
+	return trimmed[strings.LastIndexByte(trimmed, '\n')+1:]
+}
+
+// isHandoffOf reports whether body is a handoff lane id posted from host, by
+// its last-line marker, or for a handoff from before the marker by its exact
+// opening line.
+func isHandoffOf(body, id, host string) bool {
+	if m := handoffPattern.FindStringSubmatch(lastLine(body)); m != nil {
 		var l handoffLane
 		return json.Unmarshal([]byte(m[1]), &l) == nil && l.ID == id && l.Host == host
 	}
