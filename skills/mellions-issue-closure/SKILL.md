@@ -110,9 +110,9 @@ Post it, then close — never the other order. By default the session that wrote
 the plan and code does not accept its own proof: a fresh session or subagent is
 cheap, and where none read it the comment says so. Where the change
 touched money, persisted state, a schema, a service or repository boundary,
-deployment or credentials that latitude ends — the independent reading comes
-first, on the requirement before the diff, its verdict in the comment, and
-self-acceptance is not available at all.
+deployment or credentials that latitude ends: the pre-merge independent final
+review's verdict, cited in the comment, is the acceptance, and self-acceptance
+is not available at all.
 
 ## Resolved by the world
 

@@ -10,7 +10,7 @@ The important distinction is between a **model** and an **integration**. A model
 
 | Runtime / model | Status | How Mellions connects | Notes |
 |---|---|---|---|
-| **Claude Code** | **First-class, production-used** | Native plugin registration, Skills, slash commands, session lifecycle hooks, pre-tool awareness, prompt awareness, and pre-compaction renewal | Deepest production use. Current unattended shift runner drives Claude Code. |
+| **Claude Code** | **First-class, production-used** | Native plugin registration, Skills, slash commands, session lifecycle hooks, prompt awareness, a shift clock on each tool call, and pre-compaction renewal | Deepest production use. Current unattended shift runner drives Claude Code. |
 | **Codex** | **Implemented, interactive** | Plugin marketplace registration, Skills, slash commands, and the Mellions hook manifest | Codex requires explicit hook trust. The current unattended shift runner does not drive Codex. This path has less production mileage than Claude Code. |
 | **Models used inside an integrated runtime** | **Inherited from the runtime** | No model-specific Mellions adapter is required when the runtime already exposes the model through the supported integration | Mellions is intentionally not coupled to one model generation. |
 | **Opus 5** | **Runtime-dependent** | When used through Claude Code or another future supported runtime, it inherits that runtime's Mellions integration | This is not a separate direct model integration. |

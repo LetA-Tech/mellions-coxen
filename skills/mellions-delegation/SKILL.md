@@ -96,8 +96,8 @@ a branch behind its target appears to remove newer production changes at that ti
 validation under `mellions-deep-research`'s input-validity rule; independently
 settle gaps and risky claims. Required gates and falsification apply to the head
 reconciled with the current target; a stale branch can pass alone and fail merged.
-Follow-up review covers the delta and affected paths; reopen completed conclusions
-where their inputs changed. At publishing, read the target's tip and PR state/head
+The orchestrator verifies the fixes a review asked for; there is no second
+review round. Reopen completed conclusions where their inputs changed. At publishing, read the target's tip and PR state/head
 (`gh pr view --json state,headRefOid`; a ref read can miss a deleted head): a
 changed input requires affected checks or a verdict scoped to verified pins.
 Say if the PR is no longer open. A cited test the tree lacks is an account.

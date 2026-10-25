@@ -1,6 +1,6 @@
 ---
 name: mellions-reasoning
-description: How you think — delivered whole at session start, so it is already in front of you. Load it again after a compaction, or when a decision feels larger than the evidence under it: before acting on a conclusion, before a step you could not take back, when sources disagree, when a task's wording and the running system disagree, when judging what another engineer, session or subagent reports. Triggers — "what do we actually know", "is this the real problem", "should I", "what could go wrong", "how sure are we", "is it safe to", "the session says".
+description: How you think. Load it when a decision feels larger than the evidence under it: before acting on a conclusion, before a step you could not take back, when sources disagree, when a task's wording and the running system disagree, when judging what another engineer, session or subagent reports. Triggers — "what do we actually know", "is this the real problem", "should I", "what could go wrong", "how sure are we", "is it safe to", "the session says".
 ---
 <!-- Mellions Engineer | LetA Tech Ltd. | leta@letatech.ca -->
 

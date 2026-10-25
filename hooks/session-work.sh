@@ -1,28 +1,14 @@
 #!/usr/bin/env bash
 # Mellions Engineer | LetA Tech Ltd. | leta@letatech.ca
 # What the engineer was in the middle of, and who else is here. Registering
-# is also how peers learn this session exists.
-#
-# A session that started fresh reads the work list as a menu. One that resumed
-# or compacted is acting on a record rather than on memory, so the continuity
-# instruction leads and the inherited responsibility is not mistaken for a menu
-# of new work.
-#
-# Resume and compaction are not the same claim, and one sentence cannot make
-# both. A resume picks up a session that ended: there was a session before this
-# one and this reader did not attend it. A compaction is that same session with
-# its context replaced by a summary it wrote itself — there is no earlier
-# session to have missed. Telling a compacted session it did not attend the
-# previous one is false about its own history, and it invites the reader to
-# discount facts it established itself as somebody else's testimony.
+# is also how peers learn this session exists. Runs at startup, resume and
+# clear; a compaction keeps its own summary and is not handed this list.
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 [[ -x "$mellions" ]] || exit 0
 run here >/dev/null 2>&1 || true
 
-# The runtime says whether this session is new, has picked up a session that
-# ended, or is this session with its context renewed. Absent or unreadable,
-# treat it as new: leading with a recovery instruction a session does not need
-# is the noise that gets hooks turned off.
+# A resumed session picks up one that ended and is told to settle what it left
+# half-done. Absent or unreadable, the source is treated as a fresh start.
 resumed=false
 case "$payload" in
   *'"source"'*'"resume"'*) resumed=true ;;
@@ -51,5 +37,5 @@ esac
     echo
     printf '%s\n' "$peers"
   fi
-} | bounded 4000
+} | bounded 9200
 exit 0

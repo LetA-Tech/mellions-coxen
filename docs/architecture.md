@@ -65,14 +65,13 @@ Four layers remain distinct:
    falsify, coordinate and hand work over. They are instructions, not an
    authorization system.
 3. **Deterministic Mellions safeguards** inspect PreToolUse payloads and can
-   deny four narrow classes: publishing a closing keyword on a pull request
+   deny three narrow classes: publishing a closing keyword on a pull request
    base where GitHub will not resolve it; mutating a configured shared checkout
-   instead of a lane; publishing locally resolvable code citations the body
-   does not quote; and reading credential-bearing files into a transcript.
-   The first three stay silent when their required context cannot be
-   established. The credential detector rejects a read shape it cannot prove
-   non-printing; `MELLIONS_SECRET_CHECK=off` and `MELLIONS_CITE_CHECK=off` are
-   explicit session-environment overrides. These checks do not form a general
+   instead of a lane, a clean fast-forward-only pull or merge excepted; and
+   reading credential-bearing files into a transcript. The first two stay
+   silent when their required context cannot be established. The credential
+   detector rejects a read shape it cannot prove non-printing;
+   `MELLIONS_SECRET_CHECK=off` is an explicit session-environment override. These checks do not form a general
    permission layer.
 4. **Runtime permissions and operator controls** decide which capabilities are
    available at all. Branch protection, scoped GitHub tokens, filesystem and
@@ -93,8 +92,9 @@ runtime policy still applies.
 ## Delivery, not commands
 
 The measurement that shaped this: sessions use what arrives and do not reach
-for what has to be chosen. Identity, the reasoning and research methods, partnership, program, work in
-flight and peers arrive at session start. A peer appearing, or a survey being ready when
+for what has to be chosen. Identity, the owner's working rules, work in flight and peers arrive at
+session start, and the working rules alone after a compaction; methods load when their situation
+arrives. An unattended shift also gets partnership, program and the clock. A peer appearing, or a survey being ready when
 nothing is in flight, arrives on the next prompt, once. The handoff asks the
 learning question at the one moment somebody is there to answer it. The command
 surface is small because most of it is reached through those moments rather

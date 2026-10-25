@@ -46,8 +46,8 @@ import (
 // `skills` in `cmd/mellions/skills.go` matches a query against the WHOLE
 // description (:83), utterance triggers included; `situation` (:204) cuts at
 // `Triggers —` for display only. Deleting a trigger list therefore costs the
-// method its own defining query: with the lists gone from the three Skills the
-// session hooks deliver, `mellions skills "prove a fix holds"` stops returning
+// method its own defining query: with the lists gone from the bearing Skills,
+// `mellions skills "prove a fix holds"` stops returning
 // mellions-falsification alone and returns six, and `"establish what the code
 // actually does"` puts mellions-deep-research third.
 const (

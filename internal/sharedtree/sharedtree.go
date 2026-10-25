@@ -161,10 +161,10 @@ type FileWrite struct {
 // tool at a file inside a guarded checkout, outside every lane and not the
 // memory plugin's ignored state, or nil.
 //
-// The guarded set is the shared checkouts and the load path. The load path is
-// exempt from exactly one Bash verb, the deployment pull, which has no
-// file-tool equivalent: an edit there changes what every later session loads,
-// and Mellions' own changes are made in lanes like any other.
+// The guarded set is the shared checkouts and the load path. The Bash
+// fast-forward exemption has no file-tool equivalent: an edit in the load path
+// changes what every later session loads, and Mellions' own changes are made
+// in lanes like any other.
 func FindFileWrite(tool, path, session, cwd string, e Estate) *FileWrite {
 	if !fileTools[tool] || path == "" || e.Assigned == nil {
 		return nil
@@ -251,9 +251,9 @@ type Write struct {
 	Repo, Checkout string
 	// Instead is the read that answers the same question without writing.
 	Instead string
-	// Deploy marks the one refusal that is not about the wrong tree: the
-	// Mellions deployment pull, aimed at the right tree in the right form,
-	// declined because that tree is dirty.
+	// Deploy marks the one refusal that is not about the wrong tree: a
+	// fast-forward-only pull or merge in the right form, declined because the
+	// tree is dirty.
 	Deploy bool
 }
 
@@ -292,12 +292,12 @@ func Find(command, cwd string, e Estate) *Write {
 		if !ok {
 			continue
 		}
-		if deploysMellions(verb, rest) {
+		if fastForwardUpdate(verb, rest) {
 			if !dirtyTree(at, e) {
 				continue
 			}
-			// The deployment step, declined for one reason and one only, so
-			// the refusal has to say that reason rather than the generic one.
+			// A fast-forward update, declined for one reason only, so the
+			// refusal says that reason rather than the generic one.
 			return &Write{Verb: verb, Dir: at, Repo: repo, Checkout: checkout,
 				Instead: instead, Deploy: true}
 		}
@@ -342,7 +342,7 @@ func (w *Write) Reason(e Estate, session, cwd string) string {
 	return b.String()
 }
 
-// deployReason is what the session is told when the deployment pull is right
+// deployReason is what the session is told when a fast-forward update is right
 // in every way except the state of the tree it lands in.
 //
 // The generic refusal would be wrong here twice over: this IS the sanctioned
@@ -634,32 +634,18 @@ func Reach(command, cwd string, e Estate) *Checkout {
 	return nil
 }
 
-// deploysMellions reports the one write this package allows into a shared
-// checkout: a fast-forward-only pull or merge. Neither can create a commit,
-// rewrite one, or overwrite tracked work git can see; a diverged branch is
-// refused by git, and a dirty tree is refused here (see dirtyTree).
-func deploysMellions(verb string, args []string) bool {
+// fastForwardUpdate reports the one write this package allows into a shared
+// checkout: a fast-forward-only pull or merge with no force, squash, rebase or
+// explicit refspec. A diverged branch is refused by git, and a dirty tree is
+// refused here (see dirtyTree).
+func fastForwardUpdate(verb string, args []string) bool {
 	return (verb == "pull" || verb == "merge") && fastForwardOnly(args)
 }
 
-// dirtyTree reports that the tree this pull would land in carries uncommitted
-// work, which is the one condition that turns the deployment step into a write
-// git will not refuse.
-//
-// `at` rather than `e.LoadPath` because that is the directory the invocation
-// actually runs in, so a registry path that has gone stale probes a missing
-// directory and fails open rather than answering about the wrong tree.
-//
-// Not because `git status` always answers for the load path: where `at` is
-// inside a NESTED repository it answers for that one instead. The pairing still
-// holds — the write lands in the same tree the probe read — but it holds because
-// both sides follow `at`, not because the reading is tree-wide.
-//
-// No probe, or a probe that cannot tell, answers false and the exemption
-// stands. That is this package's rule everywhere else — anything it cannot
-// read is silence — and it is the right way round here too: the cost of
-// guessing dirty is the only sanctioned way to install a fix, including a fix
-// to this function.
+// dirtyTree reports that the tree a fast-forward update would land in carries
+// uncommitted work, which under autostash git would not refuse. It probes
+// `at`, the directory the invocation runs in. No probe, or one that cannot
+// tell, answers false and the exemption stands.
 func dirtyTree(at string, e Estate) bool {
 	return e.Dirty != nil && e.Dirty(at)
 }
@@ -680,13 +666,20 @@ func dirtyTree(at string, e Estate) bool {
 func fastForwardOnly(args []string) bool {
 	ff := false
 	for _, a := range args {
-		switch a {
-		case "--":
+		switch {
+		case a == "--":
 			return ff
-		case "--ff-only":
+		case a == "--ff-only":
 			ff = true
-		case "--ff", "--no-ff":
+		case a == "--ff", a == "--no-ff":
 			ff = false
+		// A forced or "+"-prefixed refspec moves the local branch before the
+		// fast-forward check runs, and --squash stages a diff; neither is a
+		// fast-forward.
+		case a == "--force", a == "-f", a == "--squash", a == "-r",
+			strings.HasPrefix(a, "--rebase"), strings.HasPrefix(a, "+"),
+			!strings.HasPrefix(a, "-") && strings.Contains(a, ":"):
+			return false
 		}
 	}
 	return ff

@@ -1,6 +1,6 @@
 ---
 name: mellions-issue-resolution-proposal
-description: Load this after the issue exists and before the first commit — to write the resolution plan on the issue itself, in the repository's approval model, so the plan survives the session, a reviewer can approve one comment, and closure can later read the acceptance rule it was made under; and again when the premise moved and the plan must be re-made. Triggers — "post the proposal", "write the plan on the issue", "record the plan", "document the proposal on issue NN", "before I start on NN". Not for producing the analysis (mellions-bug-audit), implementing (mellions-issue-remediation) or closing (mellions-issue-closure).
+description: Load this before the first commit of a change to architecture or a cross-service contract, or where the repository requires a proposal — to write the resolution plan on the issue itself, in the repository's approval model, so the plan survives the session, a reviewer can approve one comment, and closure can later read the acceptance rule it was made under; and again when the premise moved and the plan must be re-made. Triggers — "post the proposal", "write the plan on the issue", "record the plan", "document the proposal on issue NN", "before I start on NN". Not for producing the analysis (mellions-bug-audit), implementing (mellions-issue-remediation) or closing (mellions-issue-closure).
 ---
 <!-- Mellions Engineer | LetA Tech Ltd. | leta@letatech.ca -->
 
