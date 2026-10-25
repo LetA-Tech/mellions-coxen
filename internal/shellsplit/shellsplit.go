@@ -57,11 +57,19 @@ func Split(command string) []*Command {
 
 // lex reads simple commands from i and returns the index it stopped at.
 // stopAtParen ends the read at an unquoted ")", which is how a command
-// substitution closes; it is what makes the lexer re-entrant. A ")" closing a
-// subshell this read opened ends that subshell first.
+// substitution closes; it is what makes the lexer re-entrant.
+//
+// Subshells are read only outside a substitution. Inside one the lexer cannot
+// pair every "(" with bash — it reads no comments or backticks — and a ")" it
+// paired wrongly would run the substitution past its end and hide the rest of
+// the line; the commands inside a substitution are not returned anyway.
 func lex(command string, i int, stopAtParen bool) ([]*Command, int) {
 	var out []*Command
-	depth := 0
+	// opens holds len(out) at each open subshell. reopened marks cur as the
+	// last command of a subshell just closed, so a redirect after the ")" is
+	// that command's, and the next boundary does not append it twice.
+	var opens []int
+	reopened := false
 	cur := &Command{}
 	var w strings.Builder
 	hasWord := false
@@ -97,9 +105,10 @@ func lex(command string, i int, stopAtParen bool) ([]*Command, int) {
 	}
 	endCmd := func() {
 		endWord()
-		if len(cur.Words) > 0 || len(cur.Heredocs) > 0 {
+		if !reopened && (len(cur.Words) > 0 || len(cur.Heredocs) > 0) {
 			out = append(out, cur)
 		}
+		reopened = false
 		cur = &Command{}
 	}
 
@@ -114,14 +123,19 @@ func lex(command string, i int, stopAtParen bool) ([]*Command, int) {
 			hasWord = true
 			expands = expands || !read
 
-		case c == '(' && opensSubshell(command, i, hasWord, cur.Words, redirOut || heredocNext != 0):
+		case c == '(' && !stopAtParen &&
+			opensSubshell(command, i, hasWord && (quoted || !leadsCommand[w.String()]), cur.Words, redirOut || heredocNext != 0):
 			endCmd()
-			depth++
+			opens = append(opens, len(out))
 			i++
 
-		case c == ')' && depth > 0:
+		case c == ')' && len(opens) > 0:
 			endCmd()
-			depth--
+			start := opens[len(opens)-1]
+			opens = opens[:len(opens)-1]
+			if len(out) > start {
+				cur, reopened = out[len(out)-1], true
+			}
 			i++
 
 		case stopAtParen && c == ')':
@@ -274,8 +288,9 @@ func lex(command string, i int, stopAtParen bool) ([]*Command, int) {
 
 // opensSubshell reports whether the unquoted "(" at i opens a subshell: it
 // starts a command — nothing before it but reserved words that run the command
-// after them — and is neither a process substitution's nor the first of "((",
-// which bash reads as arithmetic. Elsewhere the lexer keeps it inside the word.
+// after them, the last of which may touch it — and is neither a process
+// substitution's nor the first of "((", which bash reads as arithmetic.
+// Elsewhere the lexer keeps it inside the word.
 func opensSubshell(command string, i int, hasWord bool, words []string, redirecting bool) bool {
 	if hasWord || redirecting || i > 0 && (command[i-1] == '<' || command[i-1] == '>') ||
 		i+1 < len(command) && command[i+1] == '(' {
