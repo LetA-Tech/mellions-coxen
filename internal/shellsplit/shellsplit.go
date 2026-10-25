@@ -57,9 +57,11 @@ func Split(command string) []*Command {
 
 // lex reads simple commands from i and returns the index it stopped at.
 // stopAtParen ends the read at an unquoted ")", which is how a command
-// substitution closes; it is what makes the lexer re-entrant.
+// substitution closes; it is what makes the lexer re-entrant. A ")" closing a
+// subshell this read opened ends that subshell first.
 func lex(command string, i int, stopAtParen bool) ([]*Command, int) {
 	var out []*Command
+	depth := 0
 	cur := &Command{}
 	var w strings.Builder
 	hasWord := false
@@ -111,6 +113,16 @@ func lex(command string, i int, stopAtParen bool) ([]*Command, int) {
 			w.WriteString(text)
 			hasWord = true
 			expands = expands || !read
+
+		case c == '(' && opensSubshell(command, i, hasWord, cur.Words, redirOut || heredocNext != 0):
+			endCmd()
+			depth++
+			i++
+
+		case c == ')' && depth > 0:
+			endCmd()
+			depth--
+			i++
 
 		case stopAtParen && c == ')':
 			endCmd()
@@ -258,6 +270,29 @@ func lex(command string, i int, stopAtParen bool) ([]*Command, int) {
 	}
 	endCmd()
 	return out, i
+}
+
+// opensSubshell reports whether the unquoted "(" at i opens a subshell: it
+// starts a command — nothing before it but reserved words that run the command
+// after them — and is neither a process substitution's nor the first of "((",
+// which bash reads as arithmetic. Elsewhere the lexer keeps it inside the word.
+func opensSubshell(command string, i int, hasWord bool, words []string, redirecting bool) bool {
+	if hasWord || redirecting || i > 0 && (command[i-1] == '<' || command[i-1] == '>') ||
+		i+1 < len(command) && command[i+1] == '(' {
+		return false
+	}
+	for _, w := range words {
+		if !leadsCommand[w] {
+			return false
+		}
+	}
+	return true
+}
+
+// leadsCommand are the reserved words a subshell may follow in one command.
+var leadsCommand = map[string]bool{
+	"!": true, "{": true, "if": true, "then": true, "else": true, "elif": true,
+	"do": true, "while": true, "until": true, "time": true,
 }
 
 // catsStdin reports whether words are a `cat` that prints only its stdin.
