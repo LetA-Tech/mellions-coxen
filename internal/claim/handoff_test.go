@@ -267,13 +267,14 @@ func TestAPastedClaimMarkerIsNotAClaim(t *testing.T) {
 				{ID: "REAL", Body: pasted},
 				{ID: "REVIEWER", Body: "The claim's source, pasted:\n\n" + pasted + "\nI disagree with this lane holding the issue."},
 				{ID: "ENDPASTE", Body: "My objection to this hold, then the claim itself:\n\n" + pasted},
+				{ID: "OPENS", Body: "Claimed by Mellions lane `lane-a` is the wrong holder; its claim:\n\n" + pasted + "\nwhich I dispute."},
 				{ID: "QUOTED", Body: "> " + strings.ReplaceAll(strings.TrimRight(pasted, "\n"), "\n", "\n> ") + "\n"},
 			}}
 			tr := &Tracker{Owner: "example-org", Host: "here", Run: th.run, now: func() time.Time { return at }}
 			if err := tc.act(tr); err != nil {
 				t.Fatal(err)
 			}
-			for _, kept := range []string{"I disagree with this lane", "> Claimed by", "My objection to this hold"} {
+			for _, kept := range []string{"I disagree with this lane", "> Claimed by", "My objection to this hold", "which I dispute"} {
 				if th.countHolding(kept) != 1 {
 					t.Errorf("a comment that is not the lane's claim was deleted (%q):\n%s", kept, strings.Join(th.bodies(), "\n---\n"))
 				}
@@ -321,19 +322,21 @@ func TestAHandoffPastedWithOtherWordsIsNotTheHandoff(t *testing.T) {
 		t.Fatal(err)
 	}
 	posted := th.comments[0].Body
+	quoted := "> " + strings.ReplaceAll(strings.TrimRight(posted, "\n"), "\n", "\n> ") + "\n"
 	th.comments = append(th.comments,
+		ghComment{ID: "QUOTED", Body: quoted},
 		ghComment{ID: "ABOVE", Body: "Reviewer: this handoff overstates the arms.\n\n" + posted},
 		ghComment{ID: "BELOW", Body: posted + "\nReviewer: the arms above are fine."},
 	)
 	if err := tr.Handoff(context.Background(), "mellions-coxen", "PR #51", "lane-a", "second: READY"); err != nil {
 		t.Fatal(err)
 	}
-	for _, kept := range []string{"Reviewer: this handoff overstates", "Reviewer: the arms above are fine", "second: READY"} {
+	for _, kept := range []string{"Reviewer: this handoff overstates", "Reviewer: the arms above are fine", "> first: NOT READY", "second: READY"} {
 		if n := th.countHolding(kept); n != 1 {
 			t.Errorf("want %q on the pull request once, got %d:\n%s", kept, n, strings.Join(th.bodies(), "\n---\n"))
 		}
 	}
-	if len(th.comments) != 3 {
+	if len(th.comments) != 4 {
 		t.Errorf("want the lane's first handoff replaced and both reviewer comments kept, got %d comments:\n%s",
 			len(th.comments), strings.Join(th.bodies(), "\n---\n"))
 	}
