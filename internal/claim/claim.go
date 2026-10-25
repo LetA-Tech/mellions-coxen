@@ -36,6 +36,7 @@ package claim
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -466,12 +467,42 @@ func (t *Tracker) Sweep(ctx context.Context, repo, ref string) ([]Claim, error) 
 	return swept, nil
 }
 
-// Comment posts body on an issue or pull request and touches no claim.
+// handoffMarker opens the lane identity a handoff comment carries, so the
+// lane's next handoff can find and replace it.
+const handoffMarker = "<!-- mellions:handoff "
+
+var handoffPattern = regexp.MustCompile(`<!-- mellions:handoff (\{[^\n]*?\}) -->`)
+
+// handoffLane is what a handoff marker names: one lane on one machine.
+type handoffLane struct {
+	ID   string `json:"id"`
+	Host string `json:"host"`
+}
+
+// ErrHandoffNotReplaced is a handoff that posted while an earlier one by the
+// same lane may still stand beside it on the same item.
+var ErrHandoffNotReplaced = errors.New("the lane's earlier handoff may still stand beside it")
+
+// isHandoffOf reports whether body is a handoff lane id posted from host. A
+// handoff from before the marker is known by its opening line, which names the
+// lane and the host in exactly this form.
+func isHandoffOf(body, id, host string) bool {
+	if m := handoffPattern.FindStringSubmatch(body); m != nil {
+		var l handoffLane
+		return json.Unmarshal([]byte(m[1]), &l) == nil && l.ID == id && l.Host == host
+	}
+	return strings.HasPrefix(body, "**Handoff — Mellions lane `"+id+"` on `"+host+"`, now ")
+}
+
+// Handoff posts body on an issue or pull request as lane id's handoff, then
+// deletes every earlier handoff this lane posted there, and touches no claim.
 //
 // It exists so a lane's handoff can travel to the other host by the only route
-// both machines already read. The assignment store is one machine's disk; the
-// pull request is not.
-func (t *Tracker) Comment(ctx context.Context, repo, ref, body string) error {
+// both machines already read; the assignment store is one machine's disk. A
+// handoff left behind states an older head and verdict under the same header,
+// so the lane keeps one. The new comment goes up before the old ones come down,
+// so a post that fails leaves the previous statement rather than none.
+func (t *Tracker) Handoff(ctx context.Context, repo, ref, id, body string) error {
 	slug, err := t.slug(repo)
 	if err != nil {
 		return err
@@ -483,8 +514,36 @@ func (t *Tracker) Comment(ctx context.Context, repo, ref, body string) error {
 	if strings.TrimSpace(body) == "" {
 		return fmt.Errorf("claim: nothing to say on %s", name(slug, verb, n))
 	}
-	if _, err := t.run(ctx, verb, "comment", strconv.Itoa(n), "--repo", slug, "--body", body); err != nil {
+	if strings.TrimSpace(id) == "" {
+		return fmt.Errorf("claim: a handoff on %s names no lane", name(slug, verb, n))
+	}
+	payload, err := json.Marshal(handoffLane{ID: id, Host: t.Host})
+	if err != nil {
+		return fmt.Errorf("claim: %w", err)
+	}
+	var earlier []string
+	out, readErr := t.run(ctx, verb, "view", strconv.Itoa(n), "--repo", slug, "--json", "comments")
+	if readErr == nil {
+		var got ghIssue
+		if readErr = json.Unmarshal(out, &got); readErr == nil {
+			for _, c := range got.Comments {
+				if c.ID != "" && isHandoffOf(c.Body, id, t.Host) {
+					earlier = append(earlier, c.ID)
+				}
+			}
+		}
+	}
+	full := strings.TrimRight(body, "\n") + "\n\n" + handoffMarker + string(payload) + " -->\n"
+	if _, err := t.run(ctx, verb, "comment", strconv.Itoa(n), "--repo", slug, "--body", full); err != nil {
 		return fmt.Errorf("claim: comment on %s: %w", name(slug, verb, n), err)
+	}
+	if readErr != nil {
+		return fmt.Errorf("claim: %w on %s: reading its comments: %v", ErrHandoffNotReplaced, name(slug, verb, n), readErr)
+	}
+	for _, ref := range earlier {
+		if err := t.deleteComment(ctx, slug, ref); err != nil {
+			return fmt.Errorf("claim: %w on %s: deleting comment %s: %v", ErrHandoffNotReplaced, name(slug, verb, n), ref, err)
+		}
 	}
 	return nil
 }

@@ -1,0 +1,212 @@
+// Mellions Engineer
+// Built and maintained by LetA Tech Ltd.
+// Contact: leta@letatech.ca
+
+package claim
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"strings"
+	"testing"
+	"time"
+)
+
+// thread is a gh that keeps a pull request's conversation: a comment adds one,
+// the GraphQL delete removes one by id, and a view returns what is left.
+type thread struct {
+	comments []ghComment
+	next     int
+	// failView, failComment and failDelete fail that one call kind only.
+	failView, failComment, failDelete error
+}
+
+func (th *thread) run(_ context.Context, args ...string) ([]byte, error) {
+	switch {
+	case len(args) > 1 && args[1] == "view":
+		if th.failView != nil {
+			return nil, th.failView
+		}
+		raw, _ := json.Marshal(struct {
+			Comments []ghComment `json:"comments"`
+		}{th.comments})
+		return raw, nil
+	case len(args) > 1 && args[1] == "comment":
+		if th.failComment != nil {
+			return nil, th.failComment
+		}
+		for i := 0; i+1 < len(args); i++ {
+			if args[i] == "--body" {
+				th.next++
+				th.comments = append(th.comments, ghComment{ID: fmt.Sprintf("IC_%d", th.next), Body: args[i+1]})
+				return nil, nil
+			}
+		}
+		return nil, errors.New("comment without --body")
+	case len(args) > 0 && args[0] == "api":
+		if th.failDelete != nil {
+			return nil, th.failDelete
+		}
+		for _, a := range args {
+			if id, ok := strings.CutPrefix(a, "id="); ok {
+				kept := th.comments[:0]
+				for _, c := range th.comments {
+					if c.ID != id {
+						kept = append(kept, c)
+					}
+				}
+				th.comments = kept
+			}
+		}
+		return nil, nil
+	}
+	return nil, nil
+}
+
+func (th *thread) bodies() []string {
+	var out []string
+	for _, c := range th.comments {
+		out = append(out, c.Body)
+	}
+	return out
+}
+
+// countHolding is how many comments on the thread contain s.
+func (th *thread) countHolding(s string) int {
+	n := 0
+	for _, c := range th.comments {
+		if strings.Contains(c.Body, s) {
+			n++
+		}
+	}
+	return n
+}
+
+func onThread(th *thread, host string) *Tracker {
+	return &Tracker{Owner: "example-org", Host: host, Run: th.run, now: time.Now}
+}
+
+// legacyHandoff is a handoff as posted before it carried a marker: the header
+// line alone names the lane and its host.
+func legacyHandoff(id, host, text string) string {
+	return fmt.Sprintf("**Handoff — Mellions lane `%s` on `%s`, now handed_off.**\n\n"+
+		"This is the lane's own statement of where the work stands. Read it before merging.\n\n"+
+		"## Handoff\n\n%s\n", id, host, text)
+}
+
+// A lane that hands off, takes a review round and hands off again leaves one
+// handoff on its pull request, and it is the second. Every other comment on the
+// thread — another lane's handoff, the same lane id from another machine, a
+// reviewer's prose — is left exactly where it was.
+func TestASecondHandoffReplacesTheLanesFirst(t *testing.T) {
+	th := &thread{}
+	th.comments = []ghComment{
+		{ID: "R1", Body: "Independent read: NOT READY at 0ac472b."},
+	}
+	other := onThread(th, "here")
+	if err := other.Handoff(context.Background(), "mellions-coxen", "PR #51", "lane-b", "lane-b stands at its arms"); err != nil {
+		t.Fatalf("lane-b Handoff: %v", err)
+	}
+	elsewhere := onThread(th, "the-mac")
+	if err := elsewhere.Handoff(context.Background(), "mellions-coxen", "PR #51", "lane-a", "lane-a on the mac"); err != nil {
+		t.Fatalf("lane-a on the mac Handoff: %v", err)
+	}
+
+	tr := onThread(th, "here")
+	if err := tr.Handoff(context.Background(), "mellions-coxen", "PR #51", "lane-a", "first: head 0ac472b, NOT READY"); err != nil {
+		t.Fatalf("first Handoff: %v", err)
+	}
+	if err := tr.Handoff(context.Background(), "mellions-coxen", "PR #51", "lane-a", "second: head b9440dd, PASS"); err != nil {
+		t.Fatalf("second Handoff: %v", err)
+	}
+
+	if n := th.countHolding("first: head 0ac472b"); n != 0 {
+		t.Errorf("the superseded handoff is still on the pull request (%d copies):\n%s", n, strings.Join(th.bodies(), "\n---\n"))
+	}
+	if n := th.countHolding("second: head b9440dd, PASS"); n != 1 {
+		t.Errorf("want the second handoff on the pull request once, got %d:\n%s", n, strings.Join(th.bodies(), "\n---\n"))
+	}
+	for _, kept := range []string{"lane-b stands at its arms", "lane-a on the mac", "Independent read: NOT READY"} {
+		if n := th.countHolding(kept); n != 1 {
+			t.Errorf("a comment that is not this lane's handoff was touched: %q now appears %d times", kept, n)
+		}
+	}
+	if len(th.comments) != 4 {
+		t.Errorf("want 4 comments (reviewer, lane-b, lane-a on the mac, lane-a's second), got %d:\n%s",
+			len(th.comments), strings.Join(th.bodies(), "\n---\n"))
+	}
+}
+
+// Lanes handed off before handoffs carried a marker have their earlier handoff
+// on the pull request already. The next handoff of the same lane replaces it;
+// another lane's stays.
+func TestAHandoffReplacesTheLanesHandoffPostedWithoutAMarker(t *testing.T) {
+	th := &thread{comments: []ghComment{
+		{ID: "L1", Body: legacyHandoff("lane-a", "here", "old: head 4d3c7ff7")},
+		{ID: "L2", Body: legacyHandoff("lane-a2", "here", "a lane whose id extends this one's")},
+		{ID: "L3", Body: legacyHandoff("lane-a", "the-mac", "same id, other machine")},
+		{ID: "Q1", Body: "> " + legacyHandoff("lane-a", "here", "quoted by a reviewer")},
+	}}
+	if err := onThread(th, "here").Handoff(context.Background(), "mellions-coxen", "PR #51", "lane-a", "new: head ae4a74b6"); err != nil {
+		t.Fatalf("Handoff: %v", err)
+	}
+	if th.countHolding("old: head 4d3c7ff7") != 0 {
+		t.Errorf("the lane's handoff posted without a marker survived:\n%s", strings.Join(th.bodies(), "\n---\n"))
+	}
+	for _, kept := range []string{"a lane whose id extends this one's", "same id, other machine", "quoted by a reviewer", "new: head ae4a74b6"} {
+		if n := th.countHolding(kept); n != 1 {
+			t.Errorf("want %q on the pull request once, got %d", kept, n)
+		}
+	}
+}
+
+// The new handoff goes up before the old one comes down: a post that fails
+// leaves the lane's last statement standing rather than none.
+func TestAHandoffThatCannotPostKeepsTheLanesPrevious(t *testing.T) {
+	th := &thread{}
+	tr := onThread(th, "here")
+	if err := tr.Handoff(context.Background(), "mellions-coxen", "PR #51", "lane-a", "first"); err != nil {
+		t.Fatal(err)
+	}
+	th.failComment = errors.New("gh: HTTP 502")
+	err := tr.Handoff(context.Background(), "mellions-coxen", "PR #51", "lane-a", "second")
+	if err == nil {
+		t.Fatal("a handoff that never posted reported success")
+	}
+	if errors.Is(err, ErrHandoffNotReplaced) {
+		t.Errorf("a handoff that never posted is reported as posted with its predecessor left: %v", err)
+	}
+	if th.countHolding("first") != 1 {
+		t.Errorf("the lane's previous handoff was removed although its replacement never posted")
+	}
+}
+
+// A handoff that posted but could not clear its predecessor says so: the stale
+// one is the defect, and silence would leave a merger reading it.
+func TestAHandoffThatCannotClearItsPredecessorSaysSo(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		set  func(*thread)
+	}{
+		{"the thread cannot be read", func(th *thread) { th.failView = errors.New("gh: could not resolve host") }},
+		{"the old comment cannot be deleted", func(th *thread) { th.failDelete = errors.New("gh: HTTP 403") }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			th := &thread{}
+			tr := onThread(th, "here")
+			if err := tr.Handoff(context.Background(), "mellions-coxen", "PR #51", "lane-a", "first"); err != nil {
+				t.Fatal(err)
+			}
+			tc.set(th)
+			err := tr.Handoff(context.Background(), "mellions-coxen", "PR #51", "lane-a", "second")
+			if !errors.Is(err, ErrHandoffNotReplaced) {
+				t.Fatalf("want ErrHandoffNotReplaced, got %v", err)
+			}
+			if th.countHolding("second") != 1 {
+				t.Errorf("the new handoff did not post")
+			}
+		})
+	}
+}

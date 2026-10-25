@@ -239,8 +239,10 @@ type Tracker interface {
 	// PullRequests finds the lane's change set from its branch, for a lane
 	// that never recorded one.
 	PullRequests(ctx context.Context, repo, branch string) ([]claim.PullRequest, error)
-	// Comment posts prose where both hosts read it.
-	Comment(ctx context.Context, repo, ref, body string) error
+	// Handoff posts lane id's handoff where both hosts read it and removes the
+	// handoff that lane posted there before. claim.ErrHandoffNotReplaced is a
+	// handoff that posted with an earlier one possibly still beside it.
+	Handoff(ctx context.Context, repo, ref, id, body string) error
 	// Machine is the host this tracker publishes claims as.
 	Machine() string
 }
@@ -1630,7 +1632,8 @@ func (s *Store) findPullRequest(ctx context.Context, a *Assignment) string {
 // It opens by naming itself, the host and the state, because a reader arriving
 // at a comment column needs to know in one line that this is the lane's own
 // statement of where the work stands and which machine it stands on — that
-// machine's record is not readable from here.
+// machine's record is not readable from here. It replaces the lane's previous
+// handoff there, which would otherwise read as current under the same header.
 //
 // Best effort by design. The handoff is recorded before this runs; a tracker
 // that is down must not cost the session the text it just wrote.
@@ -1646,7 +1649,14 @@ func (s *Store) postHandoff(ctx context.Context, a *Assignment) {
 		"This is the lane's own statement of where the work stands, posted here because the "+
 		"lane's record is on that machine and nothing else can read it. Read it before merging.\n\n"+
 		"## Handoff\n\n%s\n", a.ID, host, a.State, a.Handoff)
-	if err := s.Tracker.Comment(ctx, a.Repo, a.PullRequest, body); err != nil {
+	err := s.Tracker.Handoff(ctx, a.Repo, a.PullRequest, a.ID, body)
+	if errors.Is(err, claim.ErrHandoffNotReplaced) {
+		fmt.Fprintf(os.Stderr, "assignment: %s handed off on %s %s: %v\n"+
+			"A superseded handoff from this lane may still read as current there; delete it by hand.\n",
+			a.ID, a.Repo, a.PullRequest, err)
+		return
+	}
+	if err != nil {
 		fmt.Fprintf(os.Stderr, "assignment: %s handed off, but the handoff did not reach %s %s: %v\n"+
 			"A peer on another host reads this change set as though nothing had been said about it.\n",
 			a.ID, a.Repo, a.PullRequest, err)

@@ -38,6 +38,9 @@ type fakeTracker struct {
 	// is what was posted, keyed by ref — the two halves a handoff travels on.
 	prs      map[string][]claim.PullRequest
 	comments map[string][]string
+	// handoffLanes is the lane id each handoff was posted under, which is what
+	// the tracker replaces a lane's earlier handoff by.
+	handoffLanes []string
 	// labelled is the mellions:claimed label, keyed by ref. It is the half a
 	// peer on another machine actually reads, and it comes off only when no
 	// live claim is left — modelling the comment alone would let a test prove
@@ -148,7 +151,10 @@ func (f *fakeTracker) PullRequests(_ context.Context, _, branch string) ([]claim
 	return append([]claim.PullRequest(nil), f.prs[branch]...), nil
 }
 
-func (f *fakeTracker) Comment(_ context.Context, repo, ref, body string) error {
+// Handoff records what was posted and under which lane. Replacing the lane's
+// earlier handoff is the real tracker's, and is tested against gh in
+// internal/claim.
+func (f *fakeTracker) Handoff(_ context.Context, repo, ref, id, body string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.fail != nil {
@@ -159,6 +165,7 @@ func (f *fakeTracker) Comment(_ context.Context, repo, ref, body string) error {
 	}
 	k := key(repo, ref)
 	f.comments[k] = append(f.comments[k], body)
+	f.handoffLanes = append(f.handoffLanes, id)
 	return nil
 }
 
@@ -665,6 +672,9 @@ func TestHandingOffPutsTheHandoffOnThePullRequest(t *testing.T) {
 	posted := f.comments[key("svc", "PR #178")]
 	if len(posted) != 1 {
 		t.Fatalf("want the handoff posted once on the change set, got %d comments", len(posted))
+	}
+	if len(f.handoffLanes) != 1 || f.handoffLanes[0] != "svc-7" {
+		t.Fatalf("the handoff was not posted as lane svc-7's, so the next one cannot replace it: %q", f.handoffLanes)
 	}
 	// The opening line is what a peer reads first: whose lane, which host, what
 	// state. Without it the comment is prose in a column of prose.
