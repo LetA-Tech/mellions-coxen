@@ -10,7 +10,7 @@ import "testing"
 // merges, so the guard looks up that one rather than standing aside on a
 // selector no lookup can find.
 func TestAMergeInAnUnspacedSubshellNamesItsPullRequest(t *testing.T) {
-	for _, command := range []string{"(gh pr merge 12)", "( gh pr merge 12 )", "(cd x && gh pr merge 12)"} {
+	for _, command := range []string{"(gh pr merge 12)", "( gh pr merge 12 )", "(cd x && gh pr merge 12)", "(case x in a) gh pr merge 12;; esac)", "(case x in (a) gh pr merge 12;; esac)"} {
 		got := Calls(command)
 		if len(got) != 1 || got[0].Selector != "12" {
 			t.Errorf("Calls(%q) = %+v, want one merge of 12", command, got)

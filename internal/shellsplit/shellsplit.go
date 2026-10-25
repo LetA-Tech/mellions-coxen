@@ -66,8 +66,8 @@ func Split(command string) []*Command {
 func lex(command string, i int, stopAtParen bool) ([]*Command, int) {
 	var out []*Command
 	// opens holds len(out) at each open subshell. reopened marks cur as the
-	// last command of a subshell just closed, so a redirect after the ")" is
-	// that command's, and the next boundary does not append it twice.
+	// last command of a subshell just closed: a redirect or heredoc after the
+	// ")" is that command's, a word starts a new one, and it is appended once.
 	var opens []int
 	reopened := false
 	cur := &Command{}
@@ -99,6 +99,9 @@ func lex(command string, i int, stopAtParen bool) ([]*Command, int) {
 			cur.Out = s
 			redirOut = false
 		default:
+			if reopened {
+				cur, reopened = &Command{}, false
+			}
 			cur.Words = append(cur.Words, s)
 			cur.Expands = append(cur.Expands, exp)
 		}

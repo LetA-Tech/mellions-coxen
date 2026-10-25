@@ -36,6 +36,7 @@ func TestASubshellsParenthesesEndTheWordsTheyTouch(t *testing.T) {
 		{"! (pkill -f foo)", [][]string{{"!"}, {"pkill", "-f", "foo"}}},
 		{"{(gh pr merge 12);}", [][]string{{"{"}, {"gh", "pr", "merge", "12"}, {"}"}}},
 		{"!(pkill -f foo)", [][]string{{"!"}, {"pkill", "-f", "foo"}}},
+		{"(case x in a) gh pr merge 12;; esac)", [][]string{{"case", "x", "in", "a"}, {"gh", "pr", "merge", "12"}, {"esac)"}}},
 		{"if(gh pr merge 12);then :;fi", [][]string{{"if"}, {"gh", "pr", "merge", "12"}, {"then", ":"}, {"fi"}}},
 	} {
 		if got := words(c.command); !reflect.DeepEqual(got, c.want) {
