@@ -19,10 +19,11 @@ Three kinds of command, and who types them
                      work needs it — surveying, claiming a lane, recording, handing
                      off. You run it from a terminal when you want to see for
                      yourself: "mellions help" is the whole surface.
-  hooks              automatic. At session start, on every prompt, on every tool call
-                     and before compaction, the plugin's hooks run the CLI and hand the
-                     session its identity, partnership, program, work in flight, peers,
-                     the clock and what needs you. You never run one.
+  hooks              automatic. At session start, on every prompt and before
+                     compaction, the plugin's hooks hand the session its identity, the
+                     working rules, work in flight, peers and what needs you; an
+                     unattended shift also gets partnership, program and the clock.
+                     You never run one.
 
   You type: a requirement, a question, or a slash command. Mellions handles: finding
   and claiming work, investigating, implementing, verifying, the pull request, the

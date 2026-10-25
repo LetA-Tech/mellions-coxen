@@ -387,3 +387,23 @@ func TestWorkingForAnUnregisteredSessionWritesNothing(t *testing.T) {
 		t.Fatalf("all = %+v, want empty", all)
 	}
 }
+
+// TestYouAreSaysWhatTheEnvironmentHolds: the reader is named by what the
+// runtime exported, and an environment that exported nothing says so rather
+// than leaving a peer's id as the only one in sight.
+func TestYouAreSaysWhatTheEnvironmentHolds(t *testing.T) {
+	for _, c := range []struct {
+		runtime, id string
+		pid         int
+		want        string
+	}{
+		{"claude", "ff16449a-b4e5-4c87-b016-e80240a3f75a", 141789, "You are claude session ff16449a (pid 141789)."},
+		{"codex", "0123456789", 0, "You are codex session 01234567."},
+		{"", "", 141789, "You are the claude session on pid 141789; your session id is not in your environment."},
+		{"", "", 0, "Your session id and pid are not in your environment, so no session named here is known not to be you."},
+	} {
+		if got := YouAre(c.runtime, c.id, c.pid); got != c.want {
+			t.Errorf("YouAre(%q, %q, %d) = %q, want %q", c.runtime, c.id, c.pid, got, c.want)
+		}
+	}
+}

@@ -49,8 +49,13 @@
 // What is deliberately not a citation, because a checker that denies on noise
 // gets disabled: a token whose path does not resolve to a file in the tree
 // (a URL's host, an IP and port, a clock time, `issues/656#issuecomment-…`,
-// another repository's path), and a line range, which is honest about being a
-// region rather than a line.
+// another repository's path), and a container image reference, whose tag is
+// not a line (image).
+//
+// A line range is honest about being a region rather than a line, so it owes
+// no quotation. It is still a claim that the region exists, held to the checks
+// that need none: its path resolves as a line's would, it ends no earlier than
+// it starts, and the file reaches its end.
 package cite
 
 import (
@@ -67,11 +72,19 @@ type Citation struct {
 	Raw string
 	// Path is what precedes the colon, repository-relative.
 	Path string
-	// Line is the line number claimed.
+	// Line is the line number claimed, or a range's first line.
 	Line int
+	// End is a range's last line.
+	End int
+	// Ranged: the citation is a range rather than one line. Its own field,
+	// since an end written as 0 is a range too, and an inverted one.
+	Ranged bool
 	// At is the document line the citation is written on, which is what
 	// anchors a quotation to it.
 	At int
+	// tagged: a dotted version or a digest follows the number, which is how an
+	// image tag is written and never a line.
+	tagged bool
 }
 
 // Kind is why a citation does not hold.
@@ -91,6 +104,8 @@ const (
 	// this citation. The author did open the file; the quotation is where a
 	// reader cannot use it.
 	Unanchored
+	// Inverted: a range that ends before it starts, which names no lines.
+	Inverted
 )
 
 // Finding is a citation the document cannot back, with what the line says.
@@ -108,11 +123,16 @@ func (f Finding) Reason() string {
 		return f.Raw + ": no such file in this checkout, though the path names a directory it has. " +
 			"A citation nobody can open is a claim about code that is not there."
 	case Missing:
+		if f.Ranged {
+			return f.Raw + ": no such lines — the file ends before that range does."
+		}
 		return f.Raw + ": no such line — the file is shorter than that."
+	case Inverted:
+		return f.Raw + ": that range ends before it starts, so it names no lines."
 	case Unanchored:
 		return f.Raw + ": that line says " + strconv.Quote(strings.TrimSpace(f.Actual)) +
 			", and the body does quote it — somewhere this citation cannot reach. " +
-			"Backing is anchored: a citation is backed by a span on its own line, or by the block its own paragraph introduces, " +
+			"Backing is anchored: a citation is backed by a span on its own line, or by the first line of the block its own paragraph introduces, " +
 			"and a quotation already spent on an earlier citation is not free to back a second. " +
 			"Put the quotation under this citation, repeating it if another one already uses it."
 	default:
@@ -133,20 +153,61 @@ func (f Finding) Reason() string {
 var citation = regexp.MustCompile(`(^|[^\w/.:-])((?:[\w.+-]*/)*[\w+-]+\.[\w+-]+|(?:[\w.+-]+/)+[\w.+-]+):(\d+)([-–—]\d+)?`)
 
 // continuation is a bare `:N` code span: shorthand for line N of the file the
-// nearest citation before it names. A bare `:N` is also how a port is written,
-// so one counts only where it is unambiguous: in a citation run, or
-// introducing a quotation (introducesQuote).
+// nearest citation before it names. Inside a span with a longer delimiter it is
+// that span's literal content, how a backticked port is shown (inLongerSpan). A
+// bare `:N` is also how a port is written, so one counts only where it is
+// unambiguous: in a citation run, or introducing a quotation (introducesQuote)
+// with no other file named since (namesFile).
 var continuation = regexp.MustCompile("`:(\\d+)`")
+
+// bareLine is the content of a code span that is a bare `:N`.
+var bareLine = regexp.MustCompile(`^:\d+$`)
 
 // joined is the text allowed between members of a citation run:
 // "`a.go:3`, `:5` and `:9`".
 var joined = regexp.MustCompile(`^(?:,\s*|,?\s+(?:and|or)\s+)$`)
 
-// Extract returns every citation a document makes, in the order written.
+// tagged is what follows an image tag and never a line number: a dotted
+// version (`timescale/timescaledb:2.21.3`) or a digest (`img:18@sha256:…`).
+var tagged = regexp.MustCompile(`^(?:\.\d|@[A-Za-z0-9]+:)`)
+
+// registryHost is a first path segment naming a registry: a dotted hostname
+// (`docker.io`, `ghcr.io`, `public.ecr.aws`), never a leading-dot directory.
+var registryHost = regexp.MustCompile(`^(?:localhost|[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?)+)$`)
+
+// repoSegment is one lowercase component of an image repository name.
+var repoSegment = regexp.MustCompile(`^[a-z0-9]+(?:(?:[._]|__|-+)[a-z0-9]+)*$`)
+
+// image reports whether a path is a container image name: a registry host, then
+// lowercase repository components, the last without a file extension.
+func image(path string) bool {
+	segs := strings.Split(path, "/")
+	if strings.Contains(segs[len(segs)-1], ".") || !registryHost.MatchString(segs[0]) {
+		return false
+	}
+	for _, s := range segs[1:] {
+		if !repoSegment.MatchString(s) {
+			return false
+		}
+	}
+	return true
+}
+
+// NotACitation reports whether a token the resolver could not open is an image
+// reference rather than a citation. It is asked only after the read failed and
+// the path does not claim this tree, so a file the checkout has is checked
+// however it is written.
+func NotACitation(c Citation, err error) bool {
+	return err != nil && !errors.Is(err, ErrPathClaimsTree) && (c.tagged || image(c.Path))
+}
+
+// Extract returns every citation to a line a document makes, in the order
+// written.
 //
-// Two things that look like citations are not. A line range names a region,
-// and this package can say nothing about whether the author read any
-// particular line of one. And a path:line inside a fenced block or a
+// Two things that look like line citations are not. A line range names a
+// region, and this package can say nothing about whether the author read any
+// particular line of one; Check holds a range to existence alone. And a
+// path:line inside a fenced block or a
 // blockquote is quotation rather than claim — a `go test` failure or a
 // `go vet` line pasted as evidence carries a real file and a real number that
 // the author is reporting, not citing, and denying on those would deny the
@@ -156,8 +217,9 @@ var joined = regexp.MustCompile(`^(?:,\s*|,?\s+(?:and|or)\s+)$`)
 func Extract(doc string) []Citation {
 	var out []Citation
 	seen := map[string]bool{}
-	for _, c := range occurrences(doc) {
-		if seen[c.Raw] {
+	graded, _ := occurrences(doc)
+	for _, c := range graded {
+		if c.Ranged || seen[c.Raw] {
 			continue
 		}
 		seen[c.Raw] = true
@@ -166,11 +228,39 @@ func Extract(doc string) []Citation {
 	return out
 }
 
+// Ranges returns every line range a document cites, in the order written: the
+// citations Check holds to existence alone, so a caller reporting a clean
+// result can say they were checked.
+func Ranges(doc string) []Citation {
+	var out []Citation
+	seen := map[string]bool{}
+	graded, _ := occurrences(doc)
+	for _, c := range graded {
+		if !c.Ranged || seen[c.Raw] {
+			continue
+		}
+		seen[c.Raw] = true
+		out = append(out, c)
+	}
+	return out
+}
+
+// Ungraded returns every quote-introducing bare `:N` Check leaves ungraded
+// because a file was named between it and the citation before it, in the order
+// written. Raw is the `:N` as written and Path is empty: which file it means is
+// not known, so it is neither a finding nor checked, and a caller states it so a
+// clean result says what it covered.
+func Ungraded(doc string) []Citation {
+	_, ungraded := occurrences(doc)
+	return ungraded
+}
+
 // occurrences is every citation token as written, each carrying the document
 // line it sits on. The same citation written twice is two occurrences here
 // where Extract reports one: backing is anchored, so which of the two places
-// it was written in decides whether the document backs it.
-func occurrences(doc string) []Citation {
+// it was written in decides whether the document backs it. The continuations
+// it declines to attribute to a file come back separately, as ungraded.
+func occurrences(doc string) (graded, ungraded []Citation) {
 	type found struct {
 		pos, end int
 		c        Citation
@@ -184,42 +274,46 @@ func occurrences(doc string) []Citation {
 		if err != nil || n < 1 {
 			continue
 		}
-		// A range still names its file for a continuation after it.
 		end := m[1]
 		if end < len(claimed) && claimed[end] == '`' {
 			end++
 		}
-		all = append(all, found{m[4], end, Citation{
+		c := Citation{
 			Raw:  path + ":" + strconv.Itoa(n),
 			Path: path,
 			Line: n,
 			// From the path, not from the match, whose first group eats the
 			// newline before a citation that opens a line.
-			At: strings.Count(claimed[:m[4]], "\n"),
-		}})
-		if m[8] >= 0 {
-			all[len(all)-1].c.Line = 0
+			At:     strings.Count(claimed[:m[4]], "\n"),
+			tagged: tagged.MatchString(claimed[m[1]:]),
 		}
+		if m[8] >= 0 {
+			// Raw as written, dash included, so a finding names what the
+			// author wrote. An end too long for an int parses as the largest
+			// one, which no file reaches.
+			c.End, _ = strconv.Atoi(strings.TrimLeft(claimed[m[8]:m[9]], "-–—"))
+			c.Ranged = true
+			c.Raw = claimed[m[4]:m[9]]
+		}
+		all = append(all, found{m[4], end, c})
 	}
+	cs := codeSpans(claimed)
 	for _, m := range continuation.FindAllStringSubmatchIndex(claimed, -1) {
 		n, err := strconv.Atoi(claimed[m[2]:m[3]])
-		if err != nil || n < 1 {
+		if err != nil || n < 1 || inLongerSpan(cs, m[0], m[1]) {
 			continue
 		}
 		all = append(all, found{m[0], m[1], Citation{Line: n, At: strings.Count(claimed[:m[0]], "\n")}})
 	}
 	sort.SliceStable(all, func(i, j int) bool { return all[i].pos < all[j].pos })
 
-	var out []Citation
 	path := ""
 	prevEnd := -1
 	for _, f := range all {
 		if f.c.Path != "" {
 			path = f.c.Path
 			prevEnd = f.end
-			if f.c.Line > 0 {
-				out = append(out, f.c)
-			}
+			graded = append(graded, f.c)
 			continue
 		}
 		// A continuation with no citation before it names no file.
@@ -227,12 +321,34 @@ func occurrences(doc string) []Citation {
 		if path == "" || !(inRun || introducesQuote(claimed[f.end:], lines, f.c.At)) {
 			continue
 		}
+		// A file named since the citation, with no line of its own, is the file
+		// the continuation most plausibly means: it is left ungraded rather than
+		// charged to the citation's file, and returned so it is said.
+		if !inRun && namesFile(claimed[prevEnd:f.pos]) {
+			f.c.Raw = ":" + strconv.Itoa(f.c.Line)
+			ungraded = append(ungraded, f.c)
+			continue
+		}
 		prevEnd = f.end
 		f.c.Path = path
 		f.c.Raw = path + ":" + strconv.Itoa(f.c.Line)
-		out = append(out, f.c)
+		graded = append(graded, f.c)
 	}
-	return out
+	return graded, ungraded
+}
+
+// fileSpan is an inline code span holding a path with no line: `a/b.sh`.
+var fileSpan = regexp.MustCompile("`((?:[\\w.+-]*/)*[\\w+-]+\\.[\\w+-]+|(?:[\\w.+-]+/)+[\\w.+-]+)`")
+
+// namesFile reports whether the text since the last graded citation or
+// continuation names another file. A span opening the text, after an optional
+// colon, is that token's own inline quotation (`a.go:3`: `cfg.Port`), not a file.
+func namesFile(between string) bool {
+	rest := strings.TrimLeft(strings.TrimPrefix(strings.TrimLeft(between, " "), ":"), " ")
+	if sp := codeSpans(rest); len(sp) > 0 && sp[0].open == 0 {
+		rest = rest[sp[0].close:]
+	}
+	return fileSpan.MatchString(rest)
 }
 
 // introducesQuote reports whether a bare `:N` presents a quotation: an inline
@@ -245,8 +361,11 @@ func introducesQuote(after string, lines []string, at int) bool {
 	}
 	rest = strings.TrimSpace(rest)
 	if q := strings.TrimPrefix(strings.TrimPrefix(rest, ":"), " "); strings.HasPrefix(q, "`") {
-		// Another bare `:N` beside it is a second port, not a quotation.
-		return !continuation.MatchString(q[:min(len(q), strings.IndexByte(q[1:], '`')+2)])
+		// A span holding another bare `:N`, however delimited, is a second
+		// port, not a quotation.
+		sp := codeSpans(q)
+		return len(sp) == 0 || sp[0].open != 0 ||
+			!bareLine.MatchString(strings.TrimSpace(q[sp[0].start:sp[0].end]))
 	}
 	if rest != ":" {
 		return false
@@ -294,12 +413,16 @@ func Check(doc string, read func(path string) ([]string, error)) ([]Finding, []C
 			first[f.Raw] = f
 		}
 	}
-	for _, c := range occurrences(doc) {
+	graded, _ := occurrences(doc)
+	for _, c := range graded {
 		if backed[c.Raw] {
 			continue
 		}
 		lines, err := read(c.Path)
 		if err != nil {
+			if NotACitation(c, err) {
+				continue
+			}
 			if _, seen := seenUnresolved[c.Raw]; !seen && !errors.Is(err, ErrPathClaimsTree) {
 				seenUnresolved[c.Raw] = struct{}{}
 				unresolved = append(unresolved, c)
@@ -316,6 +439,19 @@ func Check(doc string, read func(path string) ([]string, error)) ([]Finding, []C
 		}
 		if _, seen := first[c.Raw]; !seen {
 			order = append(order, c.Raw)
+		}
+		if c.Ranged {
+			// A range owes no quotation, and takes none another citation
+			// needs; existence is all it is held to.
+			switch {
+			case c.End < c.Line:
+				note(Finding{Citation: c, Kind: Inverted})
+			case c.End > len(lines):
+				note(Finding{Citation: c, Kind: Missing})
+			default:
+				backed[c.Raw] = true
+			}
+			continue
 		}
 		if c.Line > len(lines) {
 			note(Finding{Citation: c, Kind: Missing})
@@ -387,6 +523,9 @@ type quoted struct {
 	// and as the text after its path:N: prefix, since either may be what
 	// the file's line holds.
 	texts []string
+	// rest are the readings of a block's lines after its first. They back
+	// nothing: they let a refusal say the line is in the body, misplaced.
+	rest []string
 	// block is true where this is a quoted block rather than a span on a
 	// prose line, which decides how a citation reaches it.
 	block bool
@@ -405,10 +544,15 @@ func quotations(doc string) *quotedText {
 	q := &quotedText{lines: strings.Split(doc, "\n")}
 	fence := ""
 	open := -1
-	// head records a block's first non-blank line and nothing after it: a
-	// citation names one line, and the block under it starts there.
+	// head records a block's first non-blank line as what the block quotes,
+	// and each later line as present but backing nothing: a citation names
+	// one line, and the block under it starts there.
 	head := func(s string) {
-		if open < 0 || len(q.all[open].texts) > 0 {
+		if open < 0 {
+			return
+		}
+		if len(q.all[open].texts) > 0 {
+			q.all[open].rest = append(q.all[open].rest, readings(s)...)
 			return
 		}
 		q.all[open].texts = readings(s)
@@ -434,7 +578,18 @@ func quotations(doc string) *quotedText {
 			if open < 0 {
 				start(i)
 			}
-			head(strings.TrimPrefix(trimmed, ">"))
+			quote := strings.TrimPrefix(trimmed, ">")
+			fresh := len(q.all[open].texts) == 0
+			head(quote)
+			// A block line written as one inline code span quotes the span's
+			// text: the backticks are Markdown, not the line.
+			if k := normalize(wholeSpan(quote)); k != "" {
+				if fresh {
+					q.all[open].texts = append(q.all[open].texts, k)
+				} else {
+					q.all[open].rest = append(q.all[open].rest, k)
+				}
+			}
 		case strings.HasPrefix(line, "    "), strings.HasPrefix(line, "\t"):
 			// an indented code block
 			if open < 0 {
@@ -489,6 +644,11 @@ func (q *quotedText) exhibits(want string) bool {
 	}
 	for i := range q.all {
 		for _, t := range q.all[i].texts {
+			if t == want {
+				return true
+			}
+		}
+		for _, t := range q.all[i].rest {
 			if t == want {
 				return true
 			}
@@ -570,21 +730,70 @@ func runLen(s string) int {
 // style, and a span is where that lands.
 func spans(line string) []string {
 	var out []string
-	for {
-		i := strings.IndexByte(line, '`')
-		if i < 0 {
-			return out
-		}
-		n := runLen(line[i:])
-		delim := line[i : i+n]
-		rest := line[i+n:]
-		j := strings.Index(rest, delim)
-		if j < 0 {
-			return out
-		}
-		out = append(out, rest[:j])
-		line = rest[j+n:]
+	for _, s := range codeSpans(line) {
+		out = append(out, line[s.start:s.end])
 	}
+	return out
+}
+
+// inLongerSpan reports whether text[from:to] lies inside a code span delimited
+// by two or more backticks. Only that exclusion rests on the span scan: a
+// one-line scan can misread a span that wraps a line or an escaped backtick,
+// and a continuation it misread must still be found.
+func inLongerSpan(cs []codeSpan, from, to int) bool {
+	for _, s := range cs {
+		if s.start-s.open >= 2 && s.open <= from && to <= s.close {
+			return true
+		}
+	}
+	return false
+}
+
+// codeSpan is one inline code span, as byte offsets: its opening delimiter at
+// open, its content in [start, end), and its closing delimiter ending at close.
+type codeSpan struct{ open, start, end, close int }
+
+// codeSpans returns every inline code span in text, as CommonMark reads them on
+// a line: a run of n backticks opens a span the next run of exactly n closes,
+// and a run nothing closes before the line ends is literal text.
+func codeSpans(text string) []codeSpan {
+	var out []codeSpan
+	for i := 0; i < len(text); {
+		if text[i] != '`' {
+			i++
+			continue
+		}
+		n := runLen(text[i:])
+		j := i + n
+		for j < len(text) && text[j] != '\n' && (text[j] != '`' || runLen(text[j:]) != n) {
+			if text[j] == '`' {
+				j += runLen(text[j:])
+			} else {
+				j++
+			}
+		}
+		if j >= len(text) || text[j] == '\n' {
+			i += n
+			continue
+		}
+		out = append(out, codeSpan{i, i + n, j, j + n})
+		i = j + n
+	}
+	return out
+}
+
+// wholeSpan is the text of the one inline code span s consists of, or "" when
+// s is anything else.
+func wholeSpan(s string) string {
+	t := strings.TrimSpace(s)
+	if t == "" || t[0] != '`' {
+		return ""
+	}
+	sp := spans(t)
+	if len(sp) != 1 || len(t) != 2*runLen(t)+len(sp[0]) {
+		return ""
+	}
+	return sp[0]
 }
 
 // grep is one line of `grep -n` output: a path, a line number, and the line's

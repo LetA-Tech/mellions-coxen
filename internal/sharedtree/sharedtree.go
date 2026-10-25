@@ -2,8 +2,10 @@
 // Built and maintained by LetA Tech Ltd.
 // Contact: leta@letatech.ca
 
-// Package sharedtree decides whether a Bash tool call runs a tree-mutating git
-// command inside a checkout that is not the session's own lane.
+// Package sharedtree decides whether a tool call writes a checkout that is not
+// the session's own lane: a Bash call that runs a tree-mutating git command
+// there, or an Edit, Write, MultiEdit or NotebookEdit call, made by a session
+// that holds an assignment, whose target file is there.
 //
 // Every lane on a host is a worktree cut from one long-lived checkout per
 // repository, and that checkout is nobody's lane. Its working tree carries
@@ -22,9 +24,9 @@
 // its verb writes the working tree, the index or the stash. A search over the
 // raw string answers none of those, so all four are parsed here.
 //
-// A lane worktree is refused nothing, and neither is a checkout this
-// installation names explicitly rather than surveying — Mellions' own source
-// among them, which the partnership says the engineer works in.
+// A lane worktree is refused nothing. A checkout this installation names
+// explicitly rather than surveying is not guarded, except the load path, which
+// a file-writing tool is refused like a shared checkout.
 package sharedtree
 
 import (
@@ -50,31 +52,6 @@ type Estate struct {
 	Home string
 	// LoadPath is the checkout the runtime reads this installation's hooks,
 	// Skills, commands and agent from, or "" where it is not known.
-	//
-	// It is exempt from ONE verb and one form of it: `git pull --ff-only`,
-	// aimed at this tree by any of its names or from anywhere inside it, and
-	// only while that tree is clean. That is the deployment step for Mellions
-	// itself — merged is not landed, and nothing reaches a session until this
-	// tree moves — so refusing it outright leaves the guard blocking the only
-	// sanctioned way to install a fix, including a fix to this guard.
-	//
-	// Most of what makes it safe is git: a diverged branch is refused, and
-	// `--ff-only` survives `pull.rebase`, so no local commit is rewritten.
-	// Measured on git 2.53.0, diverged local branch, with and without
-	// `pull.rebase` and with and without autostash: `fatal: Not possible to
-	// fast-forward, aborting`, exit 128, HEAD unmoved.
-	//
-	// One case git does not catch, which is why cleanliness is a condition
-	// here rather than a remark. Under `rebase.autoStash` or `merge.autoStash`,
-	// a pull that CAN fast-forward stashes the dirty tree first, fast-forwards,
-	// and then fails to reapply the stash — and exits 0 while doing it. Same
-	// measurement: `Created autostash`, `Applying autostash resulted in
-	// conflicts`, exit 0, the file left at `UU` with conflict markers in it.
-	// A zero exit is what the session and `scripts/shifts.sh` both read as
-	// landed, and the next step builds out of that tree. So the tree being
-	// clean is the precondition, and it costs the deployment nothing it could
-	// have had: with autostash off git refuses a dirty tree anyway, and with
-	// nothing to stash autostash cannot fire.
 	LoadPath string
 	// Dirty reports that the tree at dir carries uncommitted work, or nil
 	// where this installation cannot ask.
@@ -100,6 +77,33 @@ type Estate struct {
 	// its worktrees to live inside the checkout, and a write there reaches
 	// neither the checkout's index nor its files.
 	OtherTree func(dir, checkout string) bool
+	// Assigned reports that the session holds an open assignment, so it has a
+	// lane of its own and a file it writes belongs there. Nil is the same as
+	// no.
+	//
+	// A file-writing tool is refused only for such a session. An Edit is
+	// ordinary work, and a session the owner drives in a checkout directly,
+	// holding no lane, is doing what he chose; a lane session editing the tree
+	// every lane is cut from is the failure this guard exists for.
+	Assigned func(session, cwd string) bool
+	// Ignored reports that git ignores path in the checkout, or false where it
+	// cannot tell. Nil is the same as false.
+	//
+	// It narrows one exemption and grants nothing on its own: a file under
+	// `.remember/` at the checkout's root, where the memory plugin keeps a
+	// project's buffer, is written by that plugin through these tools, and is
+	// let through only while git ignores it there. Every other ignored file —
+	// `.claude/settings.local.json`, `.env`, build output — has no index or
+	// object copy and stays refused.
+	Ignored func(path, checkout string) bool
+	// LoadAliases are other names of the tree this installation is loaded
+	// from — the registry's answer where the runtime's differs, and symlink
+	// targets — guarded for file tools like LoadPath, and exempt from nothing.
+	LoadAliases []string
+	// LoadRepo names the repository the load path is a checkout of, so a
+	// refusal can name the session's lane for it; "" names it by the last
+	// element of LoadPath.
+	LoadRepo string
 }
 
 // Deny returns the reason to refuse a PreToolUse payload, or "" to stay
@@ -111,10 +115,26 @@ func Deny(payload []byte, e Estate) string {
 		Cwd      string `json:"cwd"`
 		Session  string `json:"session_id"`
 		Input    struct {
-			Command string `json:"command"`
+			Command      string `json:"command"`
+			FilePath     string `json:"file_path"`
+			NotebookPath string `json:"notebook_path"`
 		} `json:"tool_input"`
 	}
-	if json.Unmarshal(payload, &ev) != nil || ev.ToolName != "Bash" {
+	if json.Unmarshal(payload, &ev) != nil {
+		return ""
+	}
+	if fileTools[ev.ToolName] {
+		target := ev.Input.FilePath
+		if target == "" {
+			target = ev.Input.NotebookPath
+		}
+		fw := FindFileWrite(ev.ToolName, target, ev.Session, ev.Cwd, e)
+		if fw == nil {
+			return ""
+		}
+		return fw.Reason(e, ev.Session, ev.Cwd)
+	}
+	if ev.ToolName != "Bash" {
 		return ""
 	}
 	f := Find(ev.Input.Command, ev.Cwd, e)
@@ -122,6 +142,98 @@ func Deny(payload []byte, e Estate) string {
 		return ""
 	}
 	return f.Reason(e, ev.Session, ev.Cwd)
+}
+
+// fileTools are the tools that write a file named in their input rather than
+// through a command line.
+var fileTools = map[string]bool{"Edit": true, "Write": true, "MultiEdit": true, "NotebookEdit": true}
+
+// FileWrite is one file-writing tool call aimed at a tree the session does not
+// own.
+type FileWrite struct {
+	// Tool is the tool name, and Path the file it writes, absolute.
+	Tool, Path string
+	// Repo and Checkout are the guarded checkout Path is inside.
+	Repo, Checkout string
+}
+
+// FindFileWrite returns the write when a session holding an assignment aims
+// tool at a file inside a guarded checkout, outside every lane and not the
+// memory plugin's ignored state, or nil.
+//
+// The guarded set is the shared checkouts and the load path. The Bash
+// fast-forward exemption has no file-tool equivalent: an edit in the load path
+// changes what every later session loads, and Mellions' own changes are made
+// in lanes like any other.
+func FindFileWrite(tool, path, session, cwd string, e Estate) *FileWrite {
+	if !fileTools[tool] || path == "" || e.Assigned == nil {
+		return nil
+	}
+	// A tool's path is a literal, never shell text, so it is joined rather
+	// than read through abs, which gives up on a `$` or a glob character.
+	target := filepath.Clean(path)
+	if !filepath.IsAbs(target) {
+		if !filepath.IsAbs(cwd) {
+			return nil
+		}
+		target = filepath.Join(cwd, target)
+	}
+	guarded := e
+	guarded.Shared = append([]Checkout(nil), e.Shared...)
+	loadRepo := e.LoadRepo
+	if loadRepo == "" && e.LoadPath != "" {
+		loadRepo = filepath.Base(filepath.Clean(e.LoadPath))
+	}
+	for _, dir := range append([]string{e.LoadPath}, e.LoadAliases...) {
+		if dir != "" {
+			guarded.Shared = append(guarded.Shared, Checkout{Repo: loadRepo, Dir: dir})
+		}
+	}
+	repo, checkout, ok := shared(filepath.Dir(target), guarded)
+	if !ok || memoryState(target, checkout, e) {
+		return nil
+	}
+	// Asked last: it reads the assignment store, and most writes land in no
+	// guarded tree at all.
+	if !e.Assigned(session, cwd) {
+		return nil
+	}
+	return &FileWrite{Tool: tool, Path: target, Repo: repo, Checkout: checkout}
+}
+
+// Reason says which tree the file is in and why that tree is not the
+// session's, what the write costs there, and where the same file is in the
+// session's own lane.
+func (w *FileWrite) Reason(e Estate, session, cwd string) string {
+	var b strings.Builder
+	b.WriteString("`" + w.Tool + "` writes " + w.Path + ", which is inside " + w.Checkout +
+		", the " + w.Repo + " checkout every lane on this host is cut from, not your worktree.\n\n" +
+		"It carries whatever the owner or another session has not committed, and this write " +
+		"lands on top of that in place: no reflog entry, no stash, and nothing that reports what was there.\n\n")
+	if lane := laneFor(e, w.Repo, session, cwd); lane != "" {
+		rel, err := filepath.Rel(w.Checkout, w.Path)
+		if err == nil && !strings.HasPrefix(rel, "..") {
+			b.WriteString("Your lane for " + w.Repo + " is " + lane + ", and the same file there is:\n" +
+				indent(filepath.Join(lane, rel)) + "\n")
+		} else {
+			b.WriteString("Your lane for " + w.Repo + " is " + lane + ", and it is a worktree of your own.\n")
+		}
+	} else {
+		b.WriteString("To change " + w.Repo + ", work in a lane of your own:\n" +
+			"    mellions assign open -id <id> -repo " + w.Repo + " -objective \"...\" -because \"...\"\n")
+	}
+	b.WriteString("\nmellions-territory carries the rule this enforces: never delete, move or revert " +
+		"what another session may hold.")
+	return b.String()
+}
+
+// memoryState reports that target is the memory plugin's own state in the
+// checkout: under `.remember/` at its root, and ignored by git there.
+func memoryState(target, checkout string, e Estate) bool {
+	if e.Ignored == nil || !under(target, filepath.Join(checkout, ".remember")) {
+		return false
+	}
+	return e.Ignored(target, checkout)
 }
 
 // Checkout is one long-lived tree lanes are cut from.
@@ -139,9 +251,9 @@ type Write struct {
 	Repo, Checkout string
 	// Instead is the read that answers the same question without writing.
 	Instead string
-	// Deploy marks the one refusal that is not about the wrong tree: the
-	// Mellions deployment pull, aimed at the right tree in the right form,
-	// declined because that tree is dirty.
+	// Deploy marks the one refusal that is not about the wrong tree: a
+	// fast-forward-only pull or merge in the right form, declined because the
+	// tree is dirty.
 	Deploy bool
 }
 
@@ -180,12 +292,12 @@ func Find(command, cwd string, e Estate) *Write {
 		if !ok {
 			continue
 		}
-		if deploysMellions(verb, rest, at, e) {
+		if fastForwardUpdate(verb, rest) {
 			if !dirtyTree(at, e) {
 				continue
 			}
-			// The deployment step, declined for one reason and one only, so
-			// the refusal has to say that reason rather than the generic one.
+			// A fast-forward update, declined for one reason only, so the
+			// refusal says that reason rather than the generic one.
 			return &Write{Verb: verb, Dir: at, Repo: repo, Checkout: checkout,
 				Instead: instead, Deploy: true}
 		}
@@ -230,7 +342,7 @@ func (w *Write) Reason(e Estate, session, cwd string) string {
 	return b.String()
 }
 
-// deployReason is what the session is told when the deployment pull is right
+// deployReason is what the session is told when a fast-forward update is right
 // in every way except the state of the tree it lands in.
 //
 // The generic refusal would be wrong here twice over: this IS the sanctioned
@@ -240,11 +352,11 @@ func (w *Write) Reason(e Estate, session, cwd string) string {
 // and leaves the session a way forward, because the deployment still has to
 // happen.
 func (w *Write) deployReason() string {
-	return "`git pull --ff-only` is the right command and " + w.Checkout +
+	return "`git " + w.Verb + " --ff-only` is the right command and " + w.Checkout +
 		" is the right tree, but that tree has uncommitted changes in it.\n\n" +
 		"Under `rebase.autoStash` or `merge.autoStash` this would not fail. It stashes, " +
 		"fast-forwards, fails to reapply the stash, and exits 0 — leaving conflict markers " +
-		"in the working tree of the checkout this host loads Mellions from, while reporting " +
+		"in the working tree of a checkout other sessions cut their lanes from, while reporting " +
 		"success.\n\n" +
 		"See what is there, and whose it is:\n" +
 		indent("git -C "+w.Checkout+" status --porcelain\ngit -C "+w.Checkout+" diff\n"+
@@ -522,35 +634,18 @@ func Reach(command, cwd string, e Estate) *Checkout {
 	return nil
 }
 
-// deploysMellions reports the one write this package allows into a shared
-// checkout: a fast-forward-only pull of the load path.
-//
-// Scoped to that tree and that flag deliberately. Any other shared checkout,
-// and any pull that could merge, is refused as before — the exemption is for
-// the deployment step, not for pulling in general, and a session that wants a
-// different tree updated still has to say so.
-func deploysMellions(verb string, args []string, at string, e Estate) bool {
-	return verb == "pull" && e.LoadPath != "" && isLoadPath(at, e) && fastForwardOnly(args)
+// fastForwardUpdate reports the one write this package allows into a shared
+// checkout: a fast-forward-only pull or merge with no force, squash, rebase or
+// explicit refspec. A diverged branch is refused by git, and a dirty tree is
+// refused here (see dirtyTree).
+func fastForwardUpdate(verb string, args []string) bool {
+	return (verb == "pull" || verb == "merge") && fastForwardOnly(args)
 }
 
-// dirtyTree reports that the tree this pull would land in carries uncommitted
-// work, which is the one condition that turns the deployment step into a write
-// git will not refuse.
-//
-// `at` rather than `e.LoadPath` because that is the directory the invocation
-// actually runs in, so a registry path that has gone stale probes a missing
-// directory and fails open rather than answering about the wrong tree.
-//
-// Not because `git status` always answers for the load path: where `at` is
-// inside a NESTED repository it answers for that one instead. The pairing still
-// holds — the write lands in the same tree the probe read — but it holds because
-// both sides follow `at`, not because the reading is tree-wide.
-//
-// No probe, or a probe that cannot tell, answers false and the exemption
-// stands. That is this package's rule everywhere else — anything it cannot
-// read is silence — and it is the right way round here too: the cost of
-// guessing dirty is the only sanctioned way to install a fix, including a fix
-// to this function.
+// dirtyTree reports that the tree a fast-forward update would land in carries
+// uncommitted work, which under autostash git would not refuse. It probes
+// `at`, the directory the invocation runs in. No probe, or one that cannot
+// tell, answers false and the exemption stands.
 func dirtyTree(at string, e Estate) bool {
 	return e.Dirty != nil && e.Dirty(at)
 }
@@ -571,53 +666,21 @@ func dirtyTree(at string, e Estate) bool {
 func fastForwardOnly(args []string) bool {
 	ff := false
 	for _, a := range args {
-		switch a {
-		case "--":
+		switch {
+		case a == "--":
 			return ff
-		case "--ff-only":
+		case a == "--ff-only":
 			ff = true
-		case "--ff", "--no-ff":
+		case a == "--ff", a == "--no-ff":
 			ff = false
+		// A forced or "+"-prefixed refspec moves the local branch before the
+		// fast-forward check runs, and --squash stages a diff; neither is a
+		// fast-forward.
+		case a == "--force", a == "-f", a == "--squash", a == "-r",
+			strings.HasPrefix(a, "--rebase"), strings.HasPrefix(a, "+"),
+			!strings.HasPrefix(a, "-") && strings.Contains(a, ":"):
+			return false
 		}
 	}
 	return ff
-}
-
-// isLoadPath reports that a pull aimed at this directory pulls the checkout the
-// runtime loads from.
-//
-// It has to answer with the same reach as the refusal it cancels, and that
-// refusal is decided twice over by containment: `shared` matches any directory
-// under a checkout, and `sharedEstate` lists a checkout under every path that
-// reaches it, so one tree can hold two roots. An exemption decided by string
-// equality is narrower than both. It misses the pull run one directory in —
-// `git pull` operates on the repository, not on the directory it is typed in,
-// so that is the same deployment step — and it misses the tree's other name,
-// which is the one a session that walked in through a symlinked work root is
-// standing at. Either miss refuses the only sanctioned way to install a fix,
-// which is the defect the exemption exists to close.
-//
-// So the question is which repository the pull writes, and `shared` already
-// answers it for both sides: two names for one tree is what a repeated Repo in
-// Shared means, and the longest match is what a nested checkout answers with.
-// That reads the equivalence off the estate rather than the filesystem, so this
-// package still decides from the command line and the configuration alone.
-//
-// Deliberately not `under(at, e.LoadPath)`, which looks like the same test and
-// is wider: a shared checkout that merely lives inside the load-path directory
-// would be pulled under the exemption, and that is another repository's tree.
-// The exemption is only ever needed where a deny would otherwise fire, and a
-// deny only fires where `at` is inside a shared checkout.
-// The load path has to BE a checkout root, not merely sit inside one. A
-// plugin loaded from a directory nested in some other repository resolves, by
-// longest match, to that repository's name — and the exemption would then
-// cover that whole foreign tree, which is the widening this function exists to
-// avoid, arriving from the other side.
-func isLoadPath(at string, e Estate) bool {
-	repo, root, ok := shared(e.LoadPath, e)
-	if !ok || repo == "" || filepath.Clean(e.LoadPath) != filepath.Clean(root) {
-		return false
-	}
-	other, _, ok := shared(at, e)
-	return ok && other == repo
 }

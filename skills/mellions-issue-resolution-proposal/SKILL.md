@@ -1,6 +1,6 @@
 ---
 name: mellions-issue-resolution-proposal
-description: Load this after the issue exists and before the first commit — to write the resolution plan on the issue itself, in the repository's approval model, so the plan survives the session, a reviewer can approve one comment, and closure can later read the acceptance rule it was made under; and again when the premise moved and the plan must be re-made. Triggers — "post the proposal", "write the plan on the issue", "record the plan", "document the proposal on issue NN", "before I start on NN". Not for producing the analysis (mellions-bug-audit), implementing (mellions-issue-remediation) or closing (mellions-issue-closure).
+description: Load this before the first commit of a change to architecture or a cross-service contract, or where the repository requires a proposal — to write the resolution plan on the issue itself, in the repository's approval model, so the plan survives the session, a reviewer can approve one comment, and closure can later read the acceptance rule it was made under; and again when the premise moved and the plan must be re-made. Triggers — "post the proposal", "write the plan on the issue", "record the plan", "document the proposal on issue NN", "before I start on NN". Not for producing the analysis (mellions-bug-audit), implementing (mellions-issue-remediation) or closing (mellions-issue-closure).
 ---
 <!-- Mellions Engineer | LetA Tech Ltd. | leta@letatech.ca -->
 
@@ -10,8 +10,9 @@ A plan that lived only in a session is lost with the session, and the issue
 then has no trace of what was intended, what was approved, or what "done" was
 supposed to mean. Before implementation, the issue must carry a current contract
 that a reviewer can judge, an implementer can follow and closure can read the
-acceptance rule from. A sufficient issue body or existing plan needs no duplicate
-proposal; add a concise comment for missing decisions or material changes. Use a
+acceptance rule from. A proposal is owed only for a change to architecture or a
+cross-service contract, or where the repository requires one; otherwise a
+one-line plan on the issue is the record, and a sufficient body needs nothing. Use a
 separate proposal and its prescribed schema wherever the repository requires one.
 
 ## The repository's approval model decides what the comment is

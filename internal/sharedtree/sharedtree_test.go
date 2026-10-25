@@ -327,7 +327,7 @@ func TestTheRefusalNamesRepairAsADecisionRatherThanACommand(t *testing.T) {
 // Safe on a clean tree, which is what this estate has: no Dirty probe, so
 // nothing here reports uncommitted work. The dirty case is its own test,
 // because git does NOT refuse it under autostash.
-func TestFastForwardPullOfTheLoadPathIsTheOneAllowedWrite(t *testing.T) {
+func TestFastForwardOnlyIsTheOneAllowedWrite(t *testing.T) {
 	e := sharedtree.Estate{
 		Shared: []sharedtree.Checkout{
 			{Repo: "mellions-coxen", Dir: "/home/you/leta/mellions-coxen"},
@@ -362,10 +362,30 @@ func TestFastForwardPullOfTheLoadPathIsTheOneAllowedWrite(t *testing.T) {
 			"git pull", "/home/you/leta/mellions-coxen", true},
 		{"a rebasing pull is still refused",
 			"git pull --rebase origin main", "/home/you/leta/mellions-coxen", true},
-		// Scoped to the load path. Another shared checkout gains nothing: the
-		// exemption is for the deployment step, not for pulling in general.
-		{"ff-only pull of another shared checkout is refused",
-			"git pull --ff-only", "/home/you/workspace/data-service", true},
+		// Any clean shared checkout may fast-forward: it creates no commit and
+		// overwrites nothing git can see.
+		{"ff-only pull of another shared checkout is allowed",
+			"git pull --ff-only", "/home/you/workspace/data-service", false},
+		{"ff-only merge of a shared checkout is allowed",
+			"git merge --ff-only origin/dev", "/home/you/workspace/data-service", false},
+		{"a merge that could create a commit is refused",
+			"git merge origin/dev", "/home/you/workspace/data-service", true},
+		{"--no-ff after --ff-only is a merging merge",
+			"git merge --ff-only --no-ff origin/dev", "/home/you/workspace/data-service", true},
+		{"a forced refspec moves the branch before the ff check",
+			"git pull --ff-only origin +dev:dev", "/home/you/workspace/data-service", true},
+		{"--force with a refspec moves the branch before the ff check",
+			"git pull --ff-only --force origin dev:dev", "/home/you/workspace/data-service", true},
+		{"an explicit dst refspec is not a plain fast-forward",
+			"git pull --ff-only origin dev:dev", "/home/you/workspace/data-service", true},
+		{"a forced refspec via -C is refused too",
+			"git -C /home/you/workspace/data-service pull --ff-only origin +dev:dev", "/tmp", true},
+		{"--squash stages a diff",
+			"git merge --ff-only --squash origin/dev", "/home/you/workspace/data-service", true},
+		{"--rebase with --ff-only is refused",
+			"git pull --ff-only --rebase origin dev", "/home/you/workspace/data-service", true},
+		{"a plain remote and branch fast-forward",
+			"git pull --ff-only origin dev", "/home/you/workspace/data-service", false},
 		// Every other verb is unchanged, or the exemption widened past a pull.
 		{"the load path is not otherwise writable",
 			"git checkout main", "/home/you/leta/mellions-coxen", true},
@@ -377,14 +397,10 @@ func TestFastForwardPullOfTheLoadPathIsTheOneAllowedWrite(t *testing.T) {
 			"git pull", "/home/you/leta/mellions-coxen/hooks", true},
 		{"checkout inside the load path is still refused",
 			"git checkout main", "/home/you/leta/mellions-coxen/hooks", true},
-		// A path that only shares the load path's prefix is a different tree.
-		{"a checkout beside the load path gains nothing",
-			"git pull --ff-only", "/home/you/leta/mellions-coxen-fork", true},
-		// And so is one that lives inside it. Being under the load path is not
-		// the question — which repository the pull writes is, and a nested
-		// checkout answers with its own.
-		{"a checkout nested inside the load path gains nothing",
-			"git pull --ff-only", "/home/you/leta/mellions-coxen/vendor/data-service", true},
+		{"a checkout beside the load path fast-forwards too",
+			"git pull --ff-only", "/home/you/leta/mellions-coxen-fork", false},
+		{"a checkout nested inside the load path fast-forwards too",
+			"git pull --ff-only", "/home/you/leta/mellions-coxen/vendor/data-service", false},
 		// git reads --ff, --no-ff and --ff-only as one setting, so the last of
 		// them is the one in force. `--ff-only --no-ff` creates a merge commit,
 		// and merging into a tree nobody looked at is what this must not admit.
@@ -407,42 +423,6 @@ func TestFastForwardPullOfTheLoadPathIsTheOneAllowedWrite(t *testing.T) {
 					tc.command, tc.cwd, got.Verb)
 			}
 		})
-	}
-}
-
-// A load path that sits INSIDE some other repository's checkout resolves, by
-// longest match, to that repository — and an exemption keyed on the name alone
-// would then cover that whole foreign tree. Found by a session that reviewed
-// this change without having written it, against a version that admitted both
-// rows below.
-func TestALoadPathNestedInAnotherCheckoutExemptsNothing(t *testing.T) {
-	e := sharedtree.Estate{
-		Shared: []sharedtree.Checkout{
-			{Repo: "mcfo-finsys", Dir: "/home/you/workspace/mcfo-finsys"},
-		},
-		Home:     "/home/you",
-		LoadPath: "/home/you/workspace/mcfo-finsys/tools/mellions-coxen",
-	}
-	for _, cwd := range []string{
-		"/home/you/workspace/mcfo-finsys",
-		"/home/you/workspace/mcfo-finsys/internal/ledger",
-		"/home/you/workspace/mcfo-finsys/tools/mellions-coxen",
-	} {
-		if sharedtree.Find("git pull --ff-only", cwd, e) == nil {
-			t.Errorf("a load path nested in mcfo-finsys exempted %s, which is mcfo-finsys' tree", cwd)
-		}
-	}
-}
-
-// With no load path known, nothing is exempt. An installation that cannot say
-// where it loads from must not have the exemption applied to an arbitrary tree.
-func TestNoLoadPathExemptsNothing(t *testing.T) {
-	e := sharedtree.Estate{
-		Shared: []sharedtree.Checkout{{Repo: "mellions-coxen", Dir: "/home/you/leta/mellions-coxen"}},
-		Home:   "/home/you",
-	}
-	if sharedtree.Find("git pull --ff-only", "/home/you/leta/mellions-coxen", e) == nil {
-		t.Fatal("an empty LoadPath exempted a shared checkout")
 	}
 }
 
@@ -482,8 +462,8 @@ func TestTheLoadPathReachedByItsOtherNameIsStillTheLoadPath(t *testing.T) {
 			"git pull", "/home/you/leta/mellions-coxen", true},
 		{"reset by the other name is still refused",
 			"git reset --hard origin/dev", "/home/you/leta/mellions-coxen", true},
-		{"another repository is untouched by any of it",
-			"git pull --ff-only", "/home/you/workspace/data-service", true},
+		{"another repository fast-forwards as well",
+			"git pull --ff-only", "/home/you/workspace/data-service", false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			got := sharedtree.Find(tc.command, tc.cwd, e)
@@ -620,15 +600,14 @@ func TestTheDirtyProbeIsAskedOnlyWhereTheExemptionWouldApply(t *testing.T) {
 		t.Fatalf("the probe was asked about %v, not about the directory the pull runs in", seen)
 	}
 
-	// Another shared checkout is refused on the tree, before any exemption is
-	// considered, so nothing is asked.
+	// Another shared checkout is asked about the same way.
 	seen = nil
 	if sharedtree.Find("git pull --ff-only", "/home/you/workspace/data-service",
-		coxenEstate(asks(&seen, false))) == nil {
-		t.Fatal("a pull of a checkout that is not the load path was allowed")
+		coxenEstate(asks(&seen, false))) != nil {
+		t.Fatal("a clean ff-only pull of another shared checkout was refused")
 	}
-	if len(seen) != 0 {
-		t.Fatalf("the probe ran for a refusal already decided: %v", seen)
+	if len(seen) != 1 {
+		t.Fatalf("the probe was asked %v times for another shared checkout, want 1", seen)
 	}
 
 	// A merging pull of the load path is refused on its form, so likewise.

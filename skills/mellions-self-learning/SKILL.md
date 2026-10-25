@@ -86,9 +86,9 @@ the binary from its install path; nothing moves either until you do. Land it:
 `git pull --ff-only` in that checkout, and when `cmd/` or `internal/` changed,
 `make build` and the binary installed by rename. The binary and hook scripts
 take effect at once; what SessionStart delivers and `hooks.json` reach the
-next session; `scripts/shifts.sh` reaches the runner only when the runner is
-restarted — say so in the handoff; another host gets it when its checkout is
-next pulled, which its runner does before each shift.
+next session; a runner execs a changed `scripts/shifts.sh` at its next
+pull — one predating that needs a restart, say so; another host gets it all
+when its runner next pulls, before a shift.
 Done, for a change to yourself, quotes two lines: `mellions doctor` showing
 the load path at your merge, and a later session doing what the change was
 for — the motivating case, observed after the install.

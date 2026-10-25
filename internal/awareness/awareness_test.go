@@ -215,3 +215,27 @@ func TestReachingNowhereSaysNothing(t *testing.T) {
 		t.Errorf("got %d notes, want 0: %+v", len(n), n)
 	}
 }
+
+// TestEveryPeerNoteNamesTheReader: a peer's id with no other id beside it reads
+// as the reader's own whenever the two started together.
+func TestEveryPeerNoteNamesTheReader(t *testing.T) {
+	const self = "You are claude session ff16449a (pid 141789)."
+	notes := awareness.Notes(awareness.Observation{
+		Tree: "/w/a", Repo: "r", Branch: "b", Self: self,
+		Others:    []awareness.Peer{{Describe: "claude session 8eb893f9 on r (b)"}},
+		Elsewhere: []awareness.Peer{{Describe: "claude session cd34 on r (c)"}},
+	})
+	var peerNotes int
+	for _, n := range notes {
+		if !strings.Contains(n.Because, "8eb893f9") && !strings.Contains(n.Because, "cd34") {
+			continue
+		}
+		peerNotes++
+		if !strings.Contains(n.Because, self) {
+			t.Errorf("a note naming a peer does not name the reader: %q", n.Because)
+		}
+	}
+	if peerNotes != 2 {
+		t.Fatalf("positive control: %d notes name a peer, want the same-tree and same-repo notes; got %+v", peerNotes, notes)
+	}
+}

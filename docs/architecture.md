@@ -24,13 +24,13 @@ can be checked mechanically.
 | Identity | who it is — temperament, standards, what is the owner's | `agents/mellions.md`, loaded by the session-start hook; also the `mellions` agent for headless runs |
 | Partnership | how one person wants to be worked with and what they have delegated, in their words | `~/mellions/partners/<name>.md`, drafted from `mellions partner establish` |
 | Program | what the work is for: map, relationships, constraints, purpose, correctness, priorities | `~/mellions/programs/<slug>.md`, drafted from `mellions program discover` |
-| Survey | what needs attention across the estate, collected and never ranked: open work, changes under review, failing checks, work waiting on the owner, recent change, stale premises (an issue whose citations no longer match the tree; an open assignment whose branch left the remote) — rendered one line per signal with a drill-down, so it can be read at the moment it exists for | `mellions survey`; `internal/signal`, `survey`, `sources/*` |
+| Survey | what needs attention across the estate, collected and never ranked: open work, changes under review, failing checks, work waiting on the owner, recent change, stale premises (an issue whose citations no longer match its repository's working branch, fetched and read at the remote; an open assignment whose branch left the remote) — rendered one line per signal with a drill-down, so it can be read at the moment it exists for | `mellions survey`; `internal/signal`, `survey`, `sources/*` |
 | Assignment | one piece of work: worktree, branch, why chosen, findings, handoff, the sessions that worked it | `mellions assign`; `internal/assignment` |
 | Continuity | after a break: what was recorded next to what the world says now | `mellions continue`; `internal/continuity` |
 | Presence | which sessions are on which tree, repository and assignment | `mellions who`, `mellions here`; `internal/presence` |
-| Awareness | what a working session is told once, unasked, at its next prompt or its next tool call: a peer on its tree or repository, a survey ready when nothing is in flight | `hooks/awareness.sh` and `hooks/awareness-tool.sh` → `mellions state`; `internal/awareness` |
+| Awareness | what a working session is told once, unasked, at its next prompt: a peer on its tree or repository, a survey ready when nothing is in flight | `hooks/awareness.sh` → `mellions state`; `internal/awareness` |
 | Report | what the owner reads instead of the session | `mellions report`; a Markdown file |
-| Skills | how it engineers: four bearing methods — reasoning, deep research and falsification, delivered whole at session start; self-learning, loaded at the handoff — and twelve situational methods shown in a catalog at session start and loaded when the situation arrives | `skills/`; `hooks/session-reasoning.sh`, `hooks/session-research.sh`, `hooks/session-falsification.sh`, `hooks/session-skills.sh` |
+| Skills | how it engineers: sixteen methods, each loaded when its situation arrives; the owner's working rules (effort split, flow, delegation, the guardrails that stay) are delivered at session start and after every compaction | `skills/`; `config/session-workflow.md` via `hooks/session-workflow.sh` |
 | Attended ↔ unattended | which state the owner put this host in: `mellions away` and `mellions back` write one marker, and the sessions, the runner and the digest read it. Unattended is entered and left, never inferred from how a session was started | `cmd/mellions/away.go`, `$MELLIONS_HOME/owner` |
 | Unattended shift | the same engineer, headless, with the runtime's deny list; a runner starts the next shift when one ends, while the host is away | `scripts/shift.sh`, `scripts/shifts.sh`, `deploy/` |
 
@@ -65,14 +65,13 @@ Four layers remain distinct:
    falsify, coordinate and hand work over. They are instructions, not an
    authorization system.
 3. **Deterministic Mellions safeguards** inspect PreToolUse payloads and can
-   deny four narrow classes: publishing a closing keyword on a pull request
+   deny three narrow classes: publishing a closing keyword on a pull request
    base where GitHub will not resolve it; mutating a configured shared checkout
-   instead of a lane; publishing locally resolvable code citations the body
-   does not quote; and reading credential-bearing files into a transcript.
-   The first three stay silent when their required context cannot be
-   established. The credential detector rejects a read shape it cannot prove
-   non-printing; `MELLIONS_SECRET_CHECK=off` and `MELLIONS_CITE_CHECK=off` are
-   explicit session-environment overrides. These checks do not form a general
+   instead of a lane, a clean fast-forward-only pull or merge excepted; and
+   reading credential-bearing files into a transcript. The first two stay
+   silent when their required context cannot be established. The credential
+   detector rejects a read shape it cannot prove non-printing;
+   `MELLIONS_SECRET_CHECK=off` is an explicit session-environment override. These checks do not form a general
    permission layer.
 4. **Runtime permissions and operator controls** decide which capabilities are
    available at all. Branch protection, scoped GitHub tokens, filesystem and
@@ -93,8 +92,9 @@ runtime policy still applies.
 ## Delivery, not commands
 
 The measurement that shaped this: sessions use what arrives and do not reach
-for what has to be chosen. Identity, the reasoning and research methods, partnership, program, work in
-flight and peers arrive at session start. A peer appearing, or a survey being ready when
+for what has to be chosen. Identity, the owner's working rules, work in flight and peers arrive at
+session start, and the working rules alone after a compaction; methods load when their situation
+arrives. An unattended shift also gets partnership, program and the clock. A peer appearing, or a survey being ready when
 nothing is in flight, arrives on the next prompt, once. The handoff asks the
 learning question at the one moment somebody is there to answer it. The command
 surface is small because most of it is reached through those moments rather

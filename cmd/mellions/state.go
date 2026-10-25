@@ -117,7 +117,7 @@ func observe(cfg *Config, here, me, runtime string) awareness.Observation {
 	mine := presence.SelfPID()
 	live := cfg.presences().Live()
 	here, _ = workingIn(live, me, mine, treeOf(here))
-	o := awareness.Observation{Tree: here, Repo: repoOf(here)}
+	o := awareness.Observation{Tree: here, Repo: repoOf(here), Self: presence.YouAre(runtime, me, mine)}
 	o.Branch = strings.TrimSpace(gitOut(here, "rev-parse", "--abbrev-ref", "HEAD"))
 	if o.Repo != "" && here != "" {
 		if src, err := cfg.checkout(o.Repo); err == nil && sameTree(src, here) {

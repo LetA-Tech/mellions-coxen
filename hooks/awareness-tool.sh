@@ -5,6 +5,9 @@
 # tool call rather than at its next prompt, which for an autonomous session may
 # be hours away or never. Each thing is still said once per session; when there
 # is nothing new the hook prints nothing.
+# Unattended shifts only: scripts/shift.sh exports MELLIONS_DEADLINE and nothing
+# else sets it, so an interactive session pays nothing for this hook.
+[[ -n "${MELLIONS_DEADLINE:-}" ]] || exit 0
 set -uo pipefail
 
 MELLIONS="${MELLIONS_BIN:-$(command -v mellions || true)}"

@@ -7,6 +7,9 @@ package assignment
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -74,8 +77,14 @@ func (f *fakeTracker) relabel(k string) {
 	delete(f.labelled, k)
 }
 
+// key addresses an item by number, as the real tracker does: "PR #12" and
+// "#12" read the same comments.
 func key(repo, issue string) string {
-	return strings.ToLower(strings.TrimSpace(repo)) + "#" + strings.TrimPrefix(strings.TrimSpace(issue), "#")
+	ref := strings.TrimPrefix(strings.TrimSpace(issue), "#")
+	if n, err := claim.Item(issue); err == nil {
+		ref = strconv.Itoa(n)
+	}
+	return strings.ToLower(strings.TrimSpace(repo)) + "#" + ref
 }
 
 func (f *fakeTracker) Claims(_ context.Context, repo, issue string) ([]claim.Claim, error) {
@@ -153,6 +162,8 @@ func (f *fakeTracker) Comment(_ context.Context, repo, ref, body string) error {
 	return nil
 }
 
+func (f *fakeTracker) Machine() string { return f.host }
+
 func (f *fakeTracker) Sweep(_ context.Context, repo, issue string) ([]claim.Claim, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -227,6 +238,94 @@ func TestALaneIsRefusedWhenAnotherMachineHoldsTheIssue(t *testing.T) {
 	}
 	if _, err := s.Get("payments-new"); err == nil {
 		t.Error("the refused lane left a record behind")
+	}
+}
+
+// A claim this machine published is not on another machine. Its record is
+// read from this store when the store has it, and a refusal that says
+// otherwise sends the session to the summary instead of the record.
+func TestATrackerClaimFromThisMachineIsReadHere(t *testing.T) {
+	src := gitFixture(t)
+	s, err := newStoreT(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	f := trackerOf(t, s)
+	if _, err := s.Open(OpenOptions{
+		ID: "local-lane", Repo: "svc", Issue: "#9", Source: src, Objective: "o", Because: "b",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	f.claims[key("svc", "#43")] = []claim.Claim{{
+		ID: "local-lane", Host: f.host, State: "handed_off", At: time.Now().Add(-time.Hour),
+	}}
+	f.claims[key("svc", "#44")] = []claim.Claim{{
+		ID: "gone-lane", Host: f.host, State: "active", At: time.Now().Add(-time.Hour),
+	}}
+	f.claims[key("svc", "#45")] = []claim.Claim{{
+		ID: "far-lane", Host: "build-host", State: "active", At: time.Now().Add(-time.Hour),
+	}}
+
+	open := func(id, issue string) error {
+		_, err := s.Open(OpenOptions{ID: id, Repo: "svc", Issue: issue, Source: src, Objective: "o", Because: "b"})
+		if err == nil {
+			t.Fatalf("a lane opened on %s, which a live claim holds", issue)
+		}
+		return err
+	}
+
+	err = open("new-43", "#43")
+	if strings.Contains(err.Error(), "another machine") {
+		t.Errorf("a claim this machine published is reported on another machine: %v", err)
+	}
+	if !strings.Contains(err.Error(), "mellions assign get local-lane") {
+		t.Errorf("refusal does not point at the record this store holds: %v", err)
+	}
+
+	err = open("new-44", "#44")
+	if strings.Contains(err.Error(), "another machine") {
+		t.Errorf("a claim this machine published is reported on another machine: %v", err)
+	}
+	if !strings.Contains(err.Error(), "no record of gone-lane") {
+		t.Errorf("refusal does not say this store has no record behind the claim: %v", err)
+	}
+
+	err = open("new-45", "#45")
+	if !strings.Contains(err.Error(), "another machine") {
+		t.Errorf("a claim another host published is no longer reported as elsewhere: %v", err)
+	}
+
+	// A claim's id is whatever a tracker comment says, so one naming a path
+	// outside the store is never read from it.
+	outside := filepath.Join(s.Root, "..", "escape")
+	if err := os.MkdirAll(outside, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(outside, "assignment.json"),
+		[]byte(`{"id":"escape","state":"planted"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	f.claims[key("svc", "#46")] = []claim.Claim{{
+		ID: "../escape", Host: f.host, State: "active", At: time.Now().Add(-time.Hour),
+	}}
+	err = open("new-46", "#46")
+	if strings.Contains(err.Error(), "planted") || !strings.Contains(err.Error(), "no record of ../escape") {
+		t.Errorf("a claim id naming a path outside the store was read from it: %v", err)
+	}
+
+	// A record this store holds but cannot read is damaged, not absent.
+	if err := os.MkdirAll(filepath.Join(s.Root, "dmg"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(s.Root, "dmg", "assignment.json"), []byte(`{"id":"dm`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	f.claims[key("svc", "#47")] = []claim.Claim{{
+		ID: "dmg", Host: f.host, State: "active", At: time.Now().Add(-time.Hour),
+	}}
+	err = open("new-47", "#47")
+	if !strings.Contains(err.Error(), "record of dmg is damaged") || strings.Contains(err.Error(), "outlived") {
+		t.Errorf("a damaged record behind this host's claim is not reported as damaged: %v", err)
 	}
 }
 

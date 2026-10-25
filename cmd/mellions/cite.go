@@ -59,7 +59,8 @@ func cmdCite(ctx context.Context, args []string) error {
 	if err := requireRef(ctx, root, *commit); err != nil {
 		return err
 	}
-	findings, unresolved := cite.Check(doc, resolverAt(ctx, root, *commit))
+	read := resolverAt(ctx, root, *commit)
+	findings, unresolved := cite.Check(doc, read)
 
 	// Say which tree answered, always. A citation is graded against whatever
 	// checkout the check happened to read, and a shared checkout sitting behind
@@ -69,9 +70,27 @@ func cmdCite(ctx context.Context, args []string) error {
 	// about the tree is what lets that green read as verified.
 	fmt.Printf("cite: resolved against %s at %s\n", root, treeRef(ctx, root, *commit))
 	reportUnresolved(unresolved)
+	if ungraded := cite.Ungraded(doc); len(ungraded) > 0 {
+		fmt.Println("  " + ungradedLine(ungraded))
+	}
 
 	if len(findings) == 0 {
-		fmt.Printf("cite: every citation this checkout can resolve is quoted in the body (%d cited).\n", len(cite.Extract(doc)))
+		cited := 0
+		for _, c := range cite.Extract(doc) {
+			if _, err := read(c.Path); !cite.NotACitation(c, err) {
+				cited++
+			}
+		}
+		fmt.Printf("cite: every citation this checkout can resolve is quoted in the body (%d cited).\n", cited)
+		ranges := 0
+		for _, c := range cite.Ranges(doc) {
+			if _, err := read(c.Path); err == nil {
+				ranges++
+			}
+		}
+		if ranges > 0 {
+			fmt.Printf("cite: %d line range(s) lie within their files; a range owes no quotation.\n", ranges)
+		}
 		return nil
 	}
 	for _, f := range findings {
@@ -124,6 +143,8 @@ func cmdCiteCheck(ctx context.Context, args []string) error {
 		cwd = "."
 	}
 	var reasons []string
+	// where names a redirected tree; it is kept apart so the cap below never cuts it.
+	var where []string
 	// unchecked carries what nothing denied but nothing verified either.
 	var unchecked []string
 	for _, call := range calls {
@@ -132,12 +153,25 @@ func cmdCiteCheck(ctx context.Context, args []string) error {
 		// with `cd <worktree> && gh pr create`, so the body describes the
 		// worktree while the checker read the session's checkout — and one
 		// command line can publish from two different trees.
-		dir := citeDir(call.Dir, cwd)
+		from := citeDir(call.Dir, cwd)
+		dir := laneCheckout(ctx, from)
 		read := resolver(ctx, dir, "")
+		// A redirected read is named, so the session checks the same tree the
+		// verdict came from rather than the directory it published from.
+		mapped := ""
+		if dir != from {
+			mapped = "  resolved against " + dir + ", the lane tree for " + from +
+				"; `mellions cite check -file <body> -dir " + dir + "` reads the same tree"
+		}
 		for _, body := range call.Bodies {
 			findings, unresolved := cite.Check(body, read)
 			for _, f := range findings {
 				reasons = append(reasons, "  "+f.Reason())
+			}
+			if mapped != "" && len(findings) > 0 {
+				where = append(where, mapped)
+			} else if mapped != "" && len(unresolved) > 0 {
+				unchecked = append(unchecked, mapped)
 			}
 			// Named whether or not anything else denies. Denying a body for
 			// citing another repository would refuse exactly the bodies
@@ -149,6 +183,14 @@ func cmdCiteCheck(ctx context.Context, args []string) error {
 			// something else is wrong, and as context when nothing is.
 			if len(unresolved) > 0 {
 				line := "  " + unresolvedLine(unresolved, dir)
+				if len(findings) > 0 {
+					reasons = append(reasons, line)
+				} else {
+					unchecked = append(unchecked, line)
+				}
+			}
+			if ungraded := cite.Ungraded(body); len(ungraded) > 0 {
+				line := "  " + ungradedLine(ungraded)
 				if len(findings) > 0 {
 					reasons = append(reasons, line)
 				} else {
@@ -167,6 +209,7 @@ func cmdCiteCheck(ctx context.Context, args []string) error {
 	if n := len(reasons); n > 8 {
 		reasons = append(reasons[:8], "  … and "+strconv.Itoa(n-8)+" more.")
 	}
+	reasons = append(dedupe(where), reasons...)
 	var d decision
 	d.Output.Event = preToolUseEvent
 	d.Output.Decide = "deny"
@@ -204,6 +247,38 @@ func citeDir(dir, cwd string) string {
 		return cwd
 	}
 	return dir
+}
+
+// laneCheckout is the checkout a directory inside an assignment record stands
+// for. The record root and its scratch are no work tree, so a body published
+// from them would resolve against nothing; the lane's tree beside them is the
+// subject. A directory already in a work tree is its own subject and is kept.
+func laneCheckout(ctx context.Context, dir string) string {
+	if inWorkTree(ctx, dir) {
+		return dir
+	}
+	abs, err := filepath.Abs(dir)
+	if err != nil {
+		return dir
+	}
+	for d := abs; ; {
+		if info, err := os.Stat(filepath.Join(d, "assignment.json")); err == nil && info.Mode().IsRegular() {
+			if tree := filepath.Join(d, "tree"); inWorkTree(ctx, tree) {
+				return tree
+			}
+			return dir
+		}
+		parent := filepath.Dir(d)
+		if parent == d {
+			return dir
+		}
+		d = parent
+	}
+}
+
+func inWorkTree(ctx context.Context, dir string) bool {
+	out, err := exec.CommandContext(ctx, "git", "-C", dir, "rev-parse", "--is-inside-work-tree").Output()
+	return err == nil && strings.TrimSpace(string(out)) == "true"
 }
 
 func dedupe(in []string) []string {
@@ -355,6 +430,28 @@ func unresolvedLine(unresolved []cite.Citation, dir string) string {
 		len(unresolved), where, strings.Join(shown, ", "), suffix)
 }
 
+// ungradedLine names the bare `:N` continuations the check did not grade: a
+// file was named between each and the citation before it, so which file it
+// means is not known. Reported and never refused: charged to a file the author
+// did not mean, it refuses a correct body.
+func ungradedLine(ungraded []cite.Citation) string {
+	const show = 6
+	names := make([]string, 0, len(ungraded))
+	for _, c := range ungraded {
+		names = append(names, fmt.Sprintf("`%s` (line %d)", c.Raw, c.At+1))
+	}
+	shown := names
+	suffix := ""
+	if len(shown) > show {
+		shown = shown[:show]
+		suffix = fmt.Sprintf(" and %d more", len(names)-show)
+	}
+	return fmt.Sprintf("%d continuation(s) left ungraded, because a file is named between each and "+
+		"the citation before it, so which file it means is not known and nothing here checked it: "+
+		"%s%s — write it as path:line to have it checked.",
+		len(ungraded), strings.Join(shown, ", "), suffix)
+}
+
 // claimsTree reports whether a path asserts it belongs to this checkout: its
 // leading segment names a directory the checkout has.
 //
@@ -437,7 +534,7 @@ const preToolUseEvent = "PreToolUse"
 // channel. It was wrong, and it foreclosed the remedy for whoever read it next.
 // It is not capped the way the deny path is, and the reason is a different
 // shape rather than a smaller number: `reasons` grows one entry per FINDING, so
-// a body wrong throughout produces a wall; `unchecked` grows at most one line
+// a body wrong throughout produces a wall; `unchecked` grows at most three lines
 // per (call, body), and each line already caps the names it prints at six
 // unconditionally. Its length is bounded by how many bodies one command
 // publishes — one to three in practice.
@@ -453,12 +550,12 @@ func emitUnchecked(unchecked []string) error {
 		} `json:"hookSpecificOutput"`
 	}
 	c.Output.Event = preToolUseEvent
-	c.Output.Context = "This body publishes citations this checkout could not open:\n\n" +
+	c.Output.Context = "This body publishes citations nothing here checked:\n\n" +
 		strings.Join(unchecked, "\n") + "\n\n" +
-		"Nothing is wrong with citing another repository — deep-research asks for it — but " +
-		"nothing here verified those lines, and the body reads to a reader exactly like one " +
-		"whose citations were all checked. Open them, or say in the body that they are " +
-		"unverified from here."
+		"Nothing here verified those lines, and the body reads to a reader exactly like one " +
+		"whose citations were all checked. Citing another repository is fine — deep-research " +
+		"asks for it — so open those lines, or say in the body that they are unverified from " +
+		"here. A continuation left ungraded is checked once it is written as path:line."
 	enc := json.NewEncoder(os.Stdout)
 	enc.SetEscapeHTML(false)
 	return enc.Encode(c)

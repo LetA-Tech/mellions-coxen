@@ -110,6 +110,9 @@ func TestWorkingNotesAreRenderedAsHistory(t *testing.T) {
 		t.Fatal(err)
 	}
 	got, _ := s.Get(a.ID)
+	// Read by a later session: the one that worked the lane is not told to
+	// resume itself.
+	t.Setenv("CLAUDE_CODE_SESSION_ID", "s-2")
 	text := got.Text(time.Now().Add(3 * time.Hour))
 
 	for _, want := range []string{

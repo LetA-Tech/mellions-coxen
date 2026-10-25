@@ -163,6 +163,9 @@ type Observation struct {
 	Owner *OwnerPresence
 	// Tree is the working tree the session is in, empty outside a repository.
 	Tree string
+	// Self is the sentence naming the reading session, said beside every peer
+	// it is told about.
+	Self string
 	// Documents are the governing documents this session was handed, as they
 	// stand now. Only the ones a delivery was recorded for are here.
 	Documents []Document
@@ -241,6 +244,7 @@ func Notes(o Observation) []Note {
 		for _, p := range o.Others {
 			fmt.Fprintf(&b, " %s.", p.Describe)
 		}
+		selfClause(&b, o.Self)
 		out = append(out, Note{
 			Because: b.String(),
 			Do: "Coordinate before switching branch, merging, rebasing or removing files here: " +
@@ -257,6 +261,7 @@ func Notes(o Observation) []Note {
 		for _, p := range o.Elsewhere {
 			fmt.Fprintf(&b, " %s.", p.Describe)
 		}
+		selfClause(&b, o.Self)
 		out = append(out, Note{
 			Because: b.String(),
 			Do: "Open the conversation now, not when it is needed: `ListAgents` names them, then " +
@@ -538,6 +543,14 @@ func resumeHint(peers []Peer) string {
 		}
 	}
 	return "."
+}
+
+// selfClause appends the sentence naming the reader after the peers it was
+// told about, so a peer's id is never the only session id in the note.
+func selfClause(b *strings.Builder, self string) {
+	if self != "" {
+		fmt.Fprintf(b, " %s", self)
+	}
 }
 
 func plural(n int, one, many string) string {

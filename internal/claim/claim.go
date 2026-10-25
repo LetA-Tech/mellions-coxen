@@ -52,7 +52,8 @@ const Label = "mellions:claimed"
 // StaleAfter is how long a claim stands without being restated.
 //
 // A lane being worked writes to its record — a finding, a handoff, a state
-// change — and every one of those restates the claim. A lane that has said
+// change — and every one of those restates the claim; a note from another
+// lane's tree by a session that never worked this one does not. A lane that has said
 // nothing for a day is not evidence of work in flight; it is evidence of a
 // session that ended without releasing, which is the case this has to survive.
 const StaleAfter = 24 * time.Hour
@@ -150,6 +151,10 @@ func NewTracker(owner string) *Tracker {
 	return &Tracker{Owner: owner, Host: host, Run: execRunner, now: time.Now}
 }
 
+// Machine is the host this tracker publishes claims as, for telling a claim
+// made on this machine from one made on another.
+func (t *Tracker) Machine() string { return t.Host }
+
 func (t *Tracker) clock() time.Time {
 	if t.now == nil {
 		return time.Now()
@@ -215,6 +220,14 @@ func parseRef(ref string) (verb string, n int, err error) {
 func Addressable(ref string) bool {
 	_, _, err := parseRef(ref)
 	return err == nil
+}
+
+// Item is the number a reference addresses, whichever kind it names. Issues and
+// pull requests share one number space per repository, so "#12", "12" and
+// "PR #12" are one tracker item.
+func Item(ref string) (int, error) {
+	_, n, err := parseRef(ref)
+	return n, err
 }
 
 // PullRequestRef is the canonical spelling of a pull request reference: the one

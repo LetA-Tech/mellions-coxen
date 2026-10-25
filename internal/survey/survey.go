@@ -142,10 +142,50 @@ func (r *Runner) Run(ctx context.Context, scope signal.Scope) Result {
 		all = append(all, batch...)
 	}
 
-	res.Signals = signal.Dedupe(all)
+	res.Signals = markHeld(signal.Dedupe(all), started)
 	res.Failures = failures
 	res.Elapsed = time.Since(started)
 	return res
+}
+
+// markHeld names, on each change set, the lane on this host that holds its
+// branch: an assignment signal's holds_branch matched to a change set's branch
+// in the same repository. The claim label is the cross-host signal and a lane
+// can fail to apply it; the branch is what this host knows without it. The
+// lane's last record is printed with it because a lane left active by a dead
+// session holds nothing, and only its age shows that. The source's attribute
+// map is copied, never written.
+func markHeld(sigs []signal.Signal, now time.Time) []signal.Signal {
+	type key struct{ repo, branch string }
+	holders := map[key][]string{}
+	for _, s := range sigs {
+		if s.Kind != signal.KindAssignment || s.Attrs[signal.AttrHoldsBranch] == "" {
+			continue
+		}
+		k := key{s.Repo, s.Attrs[signal.AttrHoldsBranch]}
+		where := s.Attrs["state"] + " on this host"
+		if age := s.Age(now); age > 0 {
+			where += ", last recorded " + humanAge(age) + " ago"
+		}
+		holders[k] = append(holders[k], s.ID+" ("+where+")")
+	}
+	if len(holders) == 0 {
+		return sigs
+	}
+	for i := range sigs {
+		s := &sigs[i]
+		if s.Kind != signal.KindChangeSet || s.Attrs[signal.AttrBranch] == "" {
+			continue
+		}
+		lanes := holders[key{s.Repo, s.Attrs[signal.AttrBranch]}]
+		if len(lanes) == 0 {
+			continue
+		}
+		attrs := maps.Clone(s.Attrs)
+		attrs[signal.AttrHeldBy] = strings.Join(slices.Sorted(slices.Values(lanes)), ", ")
+		s.Attrs = attrs
+	}
+	return sigs
 }
 
 // Detail chooses how much of each signal a render prints.
@@ -447,6 +487,9 @@ func briefReadiness(s signal.Signal) string {
 	// is invisible to the one reader it was built for.
 	if s.Attrs["claimed"] != "" {
 		parts = append(parts, "CLAIMED")
+	}
+	if h := s.Attrs[signal.AttrHeldBy]; h != "" {
+		parts = append(parts, "HELD by lane "+h)
 	}
 	if len(parts) == 0 {
 		return ""

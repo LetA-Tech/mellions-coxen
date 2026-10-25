@@ -28,6 +28,7 @@ cleanup() {
     p=$(cat "$tmp/stub/hang.pid"); pkill -P "$p" 2>/dev/null; kill "$p" 2>/dev/null
   fi
   [ "${sleeper:-0}" -gt 0 ] && kill "$sleeper" 2>/dev/null
+  chmod -R u+rwx "$tmp" 2>/dev/null
   rm -rf "$tmp"
 }
 trap cleanup EXIT INT TERM HUP
@@ -47,7 +48,11 @@ export STUB_RESET_24 STUB_RESET_12
 cat > "$STUB_DIR/claude" <<'STUB'
 #!/usr/bin/env bash
 cat > /dev/null
-[ -e "$STUB_DIR/fail" ] && exit 1
+# The Nth session is held while $STUB_DIR/pin.N exists and fails while
+# $STUB_DIR/fail.N exists. One runner's shifts never overlap, so the count needs no lock.
+n=$(( $(cat "$STUB_DIR/n" 2>/dev/null || echo 0) + 1 )); echo "$n" > "$STUB_DIR/n"
+while [ -e "$STUB_DIR/pin.$n" ]; do sleep 0.1; done
+[ -e "$STUB_DIR/fail.$n" ] && exit 1
 # A runtime usage-limit refusal carries a session id, reset time and non-zero exit.
 if [ -e "$STUB_DIR/limit" ]; then
   printf '{"type":"system","session_id":"aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"}\n'
@@ -160,6 +165,11 @@ start_runner() {  # start_runner <home> ["VAR=v VAR=v"]; leaves the pid in $pid
 
 # ---- A. one runner's life ----------------------------------------------------
 home="$tmp/a"; mkdir -p "$home"; log="$home/shifts/runner.log"
+# The runner reads pause and stop only between shifts, so each is placed while
+# the shift before it is held: shift 2 holds for the pause, shift 6 for the
+# stop. Shifts 4 and 5 fail by number. No outcome below depends on this
+# script's pace against the cooldown.
+rm -f "$STUB_DIR/n"; touch "$STUB_DIR/pin.2" "$STUB_DIR/fail.4" "$STUB_DIR/fail.5" "$STUB_DIR/pin.6"
 start_runner "$home"; a=$pid
 wait_for 5 'runner start' "$log" || bad "A: the runner never started"
 
@@ -172,8 +182,20 @@ if wait_gone 5 "$second"; then
 else
   kill -KILL "$second" 2>/dev/null; bad "A: a second runner was not refused — it is still running"
 fi
-[ "$(count 'runner start' "$log")" -eq 1 ] || bad "A: the refused runner wrote to the log"
+# runner.lock is a label: with it removed under the live runner, as an
+# age-based cleanup of shifts/ removes it, a third runner is still refused.
+rm -f "$home/shifts/runner.lock"
+MELLIONS_HOME="$home" "$runner" > "$home.third" 2>&1 & third=$!
+if wait_gone 5 "$third"; then
+  wait "$third"; rc=$?
+  { [ "$rc" -eq 0 ] && grep -q "already alive here" "$home.third"; } || bad "A: with runner.lock removed, a third runner was not refused (rc=$rc): $(cat "$home.third")"
+else
+  kill -KILL "$third" 2>/dev/null; bad "A: with runner.lock removed, a third runner was not refused — it is still running"
+fi
+[ "$(count 'runner start' "$log")" -eq 1 ] || bad "A: a refused runner wrote to the log"
 
+wait_count 20 2 'starting' "$log" || bad "A: the second shift did not start: $(tail -5 "$log")"
+touch "$home/pause"; rm "$STUB_DIR/pin.2"
 wait_count 20 2 'ended rc=0' "$log" || bad "A: two shifts did not complete: $(tail -5 "$log")"
 first=$(ls "$home"/shifts/*.prompt.md | sed -n 1p); second=$(ls "$home"/shifts/*.prompt.md | sed -n 2p)
 grep -q 'THE PREVIOUS SHIFT SAID' "$first" && bad "A: the first prompt carries a previous reply that cannot exist"
@@ -182,35 +204,28 @@ grep -q 'the stub shift replied' "$second" || bad "A: the previous reply's text 
 grep -q '^# stub survey: survey -save$' "$first" || bad "A: an ordinary shift's survey got extra arguments"
 grep -q 'cooldown 1s' "$log" || bad "A: a good shift did not log the cooldown"
 
-touch "$home/pause"
 wait_for 5 'paused:' "$log" || bad "A: pause was not noticed"
 before=$(count 'starting' "$log"); sleep 3
+[ "$before" -eq 2 ] || bad "A: expected the pause after shift 2, it came after $before: $(tail -5 "$log")"
 [ "$(count 'starting' "$log")" -eq "$before" ] || bad "A: a shift started while paused"
 [ "$(count 'paused:' "$log")" -eq 1 ] || bad "A: paused was logged more than once"
 rm "$home/pause"
 wait_for 5 'resumed:' "$log" || bad "A: resume was not noticed"
 wait_count 10 $((before + 1)) 'starting' "$log" || bad "A: no shift started after resume"
-# The shift resume just started has to actually finish before the fail switch
-# below is flipped. Touching the switch right after "starting" races that
-# shift's own (backgrounded) claude call against this script: whichever
-# reaches the switch first decides whether the shift counts as good or as a
-# third failure, which is why the count below used to read 3 or 4 good shifts
-# on different runs of the same code (#180) with nothing to notice either way.
 wait_count 15 3 'ended rc=0' "$log" || bad "A: the shift after resume did not complete: $(tail -3 "$log")"
 
-touch "$STUB_DIR/fail"
 wait_for 15 'rc=1 (empty reply); backoff 2s' "$log" || bad "A: the first failed shift did not back off to 2s: $(tail -3 "$log")"
 wait_for 15 'backoff 4s' "$log" || bad "A: the second failed shift did not double to 4s"
-rm "$STUB_DIR/fail"
+wait_count 25 6 'starting' "$log" || bad "A: no shift started after the failures: $(tail -3 "$log")"
 ok=$(count 'ended rc=0' "$log")
 [ "$ok" -eq 3 ] || bad "A: expected 3 good shifts before the forced failures, got $ok: $(tail -10 "$log")"
+touch "$home/stop"; rm "$STUB_DIR/pin.6"
 wait_count 25 $((ok + 1)) 'ended rc=0' "$log" || bad "A: no good shift after the failures"
 [ "$(count 'cooldown 1s' "$log")" -ge $((ok + 1)) ] || bad "A: a good shift did not reset the delay to the cooldown"
 
 grep -q 'shift 4 of 50 today starting — method shift: survey -repos mellions-coxen' "$log" || bad "A: the fourth shift was not the method shift"
 grep -lq 'stub survey: survey -save -repos mellions-coxen' "$home"/shifts/*.prompt.md || bad "A: no prompt carries the scoped survey"
 
-touch "$home/stop"
 wait_for 20 'runner stop:' "$log" || bad "A: the stop file did not end the loop"
 wait_gone 5 "$a" || bad "A: the runner is still alive after stop"
 [ -e "$home/shifts/runner.lock" ] && bad "A: the lock survived the stop"
@@ -219,12 +234,22 @@ good=$(count 'ended rc=0' "$log"); failed=$(count 'rc=1' "$log")
 [ "$good" -eq 4 ] || bad "A: expected 4 good shifts total, got $good: $(tail -10 "$log")"
 [ "$failed" -eq 2 ] || bad "A: expected 2 failed shifts total, got $failed: $(tail -10 "$log")"
 note "A: $good good shifts, $failed failed, one pause, one stop"
+rm -f "$STUB_DIR"/pin.* "$STUB_DIR"/fail.*
 
 # ---- B. the daily cap, counted from the files ----------------------------------
 home="$tmp/b"; mkdir -p "$home/shifts"; log="$home/shifts/runner.log"
 day=$(date -u +%Y%m%d); : > "$home/shifts/$day-000001.log"; : > "$home/shifts/$day-000002.log"
-start_runner "$home" "MELLIONS_SHIFTS_PER_DAY=2"; b=$pid
+start_runner "$home" "MELLIONS_SHIFTS_PER_DAY=2 MELLIONS_FLOCK=python3"; b=$pid
 wait_for 5 'cap reached: 2 of 2' "$log" || bad "B: the cap was not noticed"
+# The same through python3's fcntl, the path a host without flock(1) takes.
+rm -f "$home/shifts/runner.lock"
+MELLIONS_FLOCK=python3 MELLIONS_HOME="$home" "$runner" > "$home.second" 2>&1 & second=$!
+if wait_gone 5 "$second"; then
+  wait "$second"; rc=$?
+  { [ "$rc" -eq 0 ] && grep -q "already alive here" "$home.second"; } || bad "B: with runner.lock removed, a python3-locked runner did not refuse a second (rc=$rc): $(cat "$home.second")"
+else
+  kill -KILL "$second" 2>/dev/null; bad "B: with runner.lock removed, a second runner was not refused — it is still running"
+fi
 sleep 2
 grep -q 'starting' "$log" && bad "B: a shift started over the cap"
 kill -TERM "$b"
@@ -252,6 +277,30 @@ grep -q 'runner stop: signal' "$log" || bad "C: the signal stop was not logged"
 # Whatever the verdict, nothing of the hung session outlives this test.
 kill "$sleeper" "$hung" 2>/dev/null
 rm -f "$STUB_DIR/hang"
+
+# ---- C3. a python3 that is only an installer stub is "cannot flock", not "held" --
+home="$tmp/c3"; mkdir -p "$home" "$tmp/stubpy"; log="$home/shifts/runner.log"
+printf '#!/bin/sh\necho "xcode-select: note: No developer tools were found" >&2\nexit 1\n' > "$tmp/stubpy/python3"; chmod +x "$tmp/stubpy/python3"
+start_runner "$home" "MELLIONS_FLOCK=$tmp/stubpy/python3 MELLIONS_SHIFTS_PER_DAY=0"; c3=$pid
+wait_for 5 'runner start' "$log" || bad "C3: a failing python3 was read as a held lock and the only runner refused: $(cat "$home.out")"
+grep -q 'cannot flock' "$home.out" || bad "C3: the fallback to runner.lock was not said: $(cat "$home.out")"
+kill -TERM "$c3"; wait_gone 5 "$c3" || bad "C3: the runner did not stop on SIGTERM"
+
+# ---- C2. a session that outlives a killed runner does not keep its flock --------
+home="$tmp/c2"; mkdir -p "$home"; log="$home/shifts/runner.log"
+rm -f "$STUB_DIR/hang.pid"; touch "$STUB_DIR/hang"
+start_runner "$home"; c2=$pid
+end=$(( $(date +%s) + 10 ))
+while [ ! -s "$STUB_DIR/hang.pid" ] && [ "$(date +%s)" -lt "$end" ]; do sleep 0.2; done
+[ -s "$STUB_DIR/hang.pid" ] || bad "C2: the hung session never started"
+hung=$(cat "$STUB_DIR/hang.pid" 2>/dev/null || echo 0)
+kill -KILL "$c2"; wait_gone 5 "$c2" || bad "C2: the runner survived SIGKILL"
+rm -f "$STUB_DIR/hang"
+kill -0 "$hung" 2>/dev/null || bad "C2: the session did not outlive its runner, so this case proves nothing"
+start_runner "$home"; c2b=$pid
+wait_count 5 2 'runner start' "$log" || bad "C2: a session left by a killed runner kept the flock and refused the next runner: $(cat "$home.out")"
+kill -TERM "$c2b"; wait_gone 10 "$c2b" || bad "C2: the second runner did not stop on SIGTERM"
+pkill -P "$hung" 2>/dev/null; kill "$hung" 2>/dev/null
 
 # ---- D. an update that fails never blocks the shift ------------------------------
 home="$tmp/d"; mkdir -p "$home"; log="$home/shifts/runner.log"
@@ -325,6 +374,85 @@ g2 checkout -- note.md; : > "$co/stray.tmp"
 wait_for 30 "update ok: $sha2" "$log" || bad "E2: a clean checkout carrying only an untracked file was refused: $(tail -5 "$log")"
 [ -e "$co/stray.tmp" ] || bad "E2: the update removed an untracked file"
 touch "$home/stop"; wait_gone 10 "$e2" || bad "E2: the runner did not stop"
+
+# ---- E3. an update that changes the runner's own file runs the new copy ----------
+# bash executes the copy it opened and a pull replaces the inode, so without a
+# re-exec a runner started before a fix to itself runs the old code for good.
+home="$tmp/e3"; mkdir -p "$home"; log="$home/shifts/runner.log"
+origin="$tmp/origin3.git"; git init -q --bare "$origin"
+co="$tmp/co3"; git clone -q "$origin" "$co" 2>/dev/null
+g3() { git -C "$1" -c user.name=t -c user.email=t@t "${@:2}"; }
+printf 'build:\n\t@mkdir -p bin && cp "$$STUB_DIR/mellions" bin/mellions\ncheck:\n\t@echo checked\n' > "$co/Makefile"
+mkdir -p "$co/scripts"; cp "$runner" "$co/scripts/shifts.sh"
+g3 "$co" add Makefile scripts/shifts.sh; g3 "$co" commit -q -m one; g3 "$co" push -q -u origin HEAD 2>/dev/null
+mkdir -p "$tmp/bin3"; cp "$STUB_DIR/mellions" "$tmp/bin3/mellions"; record "$co"
+env MELLIONS_AUTOUPDATE=1 MELLIONS_BIN="$tmp/bin3/mellions" MELLIONS_SHIFT="$root/scripts/shift.sh" MELLIONS_HOME="$home" \
+  "$co/scripts/shifts.sh" > "$home.out" 2>&1 &
+e3=$!; runners="$runners $e3"
+wait_for 15 'ended rc=0' "$log" || bad "E3: no shift ran before the change: $(tail -3 "$log")"
+up="$tmp/up3"; git clone -q "$origin" "$up" 2>/dev/null
+sed 's/runner start: pid/runner start (v2): pid/' "$runner" > "$up/scripts/shifts.sh"
+g3 "$up" commit -q -am two; g3 "$up" push -q 2>/dev/null
+wait_for 30 "runner start (v2): pid $e3" "$log" || bad "E3: the runner did not run its updated copy: $(tail -5 "$log")"
+grep -q "runner re-exec: $co/scripts/shifts.sh changed on disk since pid $e3" "$log" || bad "E3: the re-exec was not logged"
+[ "$(cat "$home/shifts/runner.lock" 2>/dev/null)" = "$e3" ] || bad "E3: the re-executed runner does not hold the lock"
+grep -q 'already alive here' "$home.out" && bad "E3: the re-executed runner refused itself as a second runner"
+n=$(count 'ended rc=0' "$log")
+wait_count 20 $((n + 1)) 'ended rc=0' "$log" || bad "E3: no shift ran after the re-exec: $(tail -3 "$log")"
+[ "$(count 'runner re-exec' "$log")" -eq 1 ] || bad "E3: one change was re-executed more than once"
+# A copy that does not parse is never exec'd: the runner would die with no runner left.
+g3 "$up" pull -q 2>/dev/null; f="$up/scripts/shifts.sh"
+{ head -1 "$f"; echo 'if then fi'; tail -n +2 "$f"; } > "$f.new" && mv "$f.new" "$f"
+g3 "$up" commit -q -am three; g3 "$up" push -q 2>/dev/null
+wait_for 30 "runner: $co/scripts/shifts.sh changed on disk and does not parse" "$log" || bad "E3: a copy that does not parse was not refused by name: $(tail -5 "$log")"
+n=$(count 'ended rc=0' "$log")
+wait_count 20 $((n + 1)) 'ended rc=0' "$log" || bad "E3: no shift ran after an unparseable copy landed: $(tail -3 "$log")"
+kill -0 "$e3" 2>/dev/null || bad "E3: the runner died on an unparseable copy of itself"
+[ "$(count 'runner re-exec' "$log")" -eq 1 ] || bad "E3: an unparseable copy was exec'd"
+[ "$(count 'does not parse' "$log")" -eq 1 ] || bad "E3: one unparseable change was refused more than once"
+touch "$home/stop"; wait_gone 10 "$e3" || bad "E3: the re-executed runner did not stop"
+
+# ---- E5. a stop signalled during an update is not lost to a re-exec ---------------
+# The signal lives only in the process; exec'ing a changed copy would forget it
+# and run shifts on, and even without a change no further shift may start.
+home="$tmp/e5"; mkdir -p "$home"; log="$home/shifts/runner.log"
+origin="$tmp/origin5.git"; git init -q --bare "$origin"
+co="$tmp/co5"; git clone -q "$origin" "$co" 2>/dev/null
+printf 'build:\n\t@touch "$$E5_MARK"; sleep 3; mkdir -p bin && cp "$$STUB_DIR/mellions" bin/mellions\ncheck:\n\t@echo checked\n' > "$co/Makefile"
+mkdir -p "$co/scripts"; cp "$runner" "$co/scripts/shifts.sh"
+g3 "$co" add Makefile scripts/shifts.sh; g3 "$co" commit -q -m one; g3 "$co" push -q -u origin HEAD 2>/dev/null
+up="$tmp/up5"; git clone -q "$origin" "$up" 2>/dev/null
+sed 's/runner start: pid/runner start (v2): pid/' "$runner" > "$up/scripts/shifts.sh"
+g3 "$up" commit -q -am two; g3 "$up" push -q 2>/dev/null
+mkdir -p "$tmp/bin5"; cp "$STUB_DIR/mellions" "$tmp/bin5/mellions"; record "$co"
+env E5_MARK="$tmp/e5.building" MELLIONS_AUTOUPDATE=1 MELLIONS_BIN="$tmp/bin5/mellions" MELLIONS_SHIFT="$root/scripts/shift.sh" MELLIONS_HOME="$home" \
+  "$co/scripts/shifts.sh" > "$home.out" 2>&1 &
+e5=$!; runners="$runners $e5"
+i=0; while [ ! -e "$tmp/e5.building" ] && [ $i -lt 150 ]; do sleep 0.1; i=$((i + 1)); done
+[ -e "$tmp/e5.building" ] || bad "E5: the update never started: $(tail -3 "$log")"
+kill -TERM "$e5"
+wait_gone 15 "$e5" || { bad "E5: a runner signalled during its update is still alive: $(tail -3 "$log")"; touch "$home/stop"; wait_gone 20 "$e5"; }
+[ "$(count 'runner re-exec' "$log")" -eq 0 ] || bad "E5: the runner exec'd its changed copy after a stop was signalled"
+[ "$(count 'starting' "$log")" -eq 0 ] || bad "E5: a shift started after a stop was signalled during the update"
+
+# ---- E4. the binary installed is the one PATH resolves at the update -------------
+# A copy that appears earlier on PATH after the runner started is what every
+# session runs; installing to the path resolved at start leaves it stale for good.
+home="$tmp/e4"; mkdir -p "$home"; log="$home/shifts/runner.log"
+origin="$tmp/origin4.git"; git init -q --bare "$origin"
+co="$tmp/co4"; git clone -q "$origin" "$co" 2>/dev/null
+printf 'build:\n\t@mkdir -p bin && cp "$$STUB_DIR/mellions" bin/mellions\ncheck:\n\t@echo checked\n' > "$co/Makefile"
+g3 "$co" add Makefile; g3 "$co" commit -q -m one; g3 "$co" push -q -u origin HEAD 2>/dev/null
+sha=$(git -C "$co" rev-parse --short HEAD)
+mkdir -p "$tmp/p1" "$tmp/p2"; cp "$STUB_DIR/mellions" "$tmp/p2/mellions"; record "$co"
+start_runner "$home" "MELLIONS_AUTOUPDATE=1 MELLIONS_CHECKOUT=$co MELLIONS_BIN= PATH=$tmp/p1:$tmp/p2:$PATH"; e4=$pid
+wait_for 15 "update ok: $sha pulled, built and checked; the binary is at $tmp/p2/mellions" "$log" || bad "E4: the first install did not go to the only copy on PATH: $(tail -3 "$log")"
+{ cat "$STUB_DIR/mellions"; echo '# an older build'; } > "$tmp/p1/mellions"; chmod +x "$tmp/p1/mellions"
+wait_for 30 "the binary is at $tmp/p1/mellions" "$log" || bad "E4: the runner kept its start-time path while PATH resolves $tmp/p1/mellions: $(tail -3 "$log")"
+cmp -s "$co/bin/mellions" "$tmp/p1/mellions" || bad "E4: the copy PATH resolves is not the checkout's build"
+n=$(count "update: $sha is what runs already" "$log")
+wait_count 20 $((n + 1)) "update: $sha is what runs already" "$log" || bad "E4: an installed copy was built again: $(tail -3 "$log")"
+touch "$home/stop"; wait_gone 10 "$e4" || bad "E4: the runner did not stop"
 
 # ---- F. a lock left by a dead runner is taken over -------------------------------
 home="$tmp/f"; mkdir -p "$home/shifts"; log="$home/shifts/runner.log"; record "$root"
@@ -621,7 +749,10 @@ start_runner "$k4home" "MELLIONS_SHIFTS_PER_DAY=1"; k4=$pid
 log="$k4home.out"
 wait_for 25 'ended rc=0' "$log" \
   || bad "K4: a day whose one shift the account refused was counted as spent: $(tail -5 "$log")"
-grep -q 'cap reached' "$log" && bad "K4: the refused shift was charged to the cap: $(tail -3 "$log")"
+# The shift K4 lets run is itself counted, so the runner says 'cap reached'
+# a cooldown after it ends; only a line before it charges the refused shift.
+awk '/ended rc=0/{exit} /cap reached/{f=1} END{exit !f}' "$log" \
+  && bad "K4: the refused shift was charged to the cap: $(tail -3 "$log")"
 kill -TERM "$k4" 2>/dev/null; wait_gone 10 "$k4"
 
 # The control for K4: the same day, the same cap, a shift that actually ran.
@@ -660,6 +791,8 @@ start_runner "$k7home" "MELLIONS_SHIFTS_PER_DAY=9"; k7=$pid
 log="$k7home.out"
 wait_for 25 'further off than a usage window runs' "$log" \
   || bad "K7: an 8h window was honoured whole: $(tail -5 "$log")"
+wait_for 25 'no shift starts for [0-9]' "$log" \
+  || bad "K7: the runner never said how long it waits: $(tail -5 "$log")"
 w=$(grep -oE 'no shift starts for [0-9]+s' "$log" | head -1 | grep -oE '[0-9]+')
 { [ "${w:-0}" -le 21600 ] && [ "${w:-0}" -gt 21000 ]; } \
   || bad "K7: the honoured wait was ${w:-none}s, not clamped to the 6h ceiling"
@@ -722,18 +855,49 @@ run_l "$lhome"
 [ -d "$lhome/tmp/go" ] || bad "L1: $lhome/tmp/go was never created, so Go falls back to /tmp"
 
 # L2: what earlier shifts left there is collected, and only that. A live build
-# holds a directory whose mtime is now, so age is what separates them.
-mkdir -p "$lhome/tmp/go/go-build-old" "$lhome/tmp/go/go-build-fresh" "$lhome/tmp/go/keep-me"
-touch "$lhome/tmp/go/go-build-old/f"
-touch -d '2 days ago' "$lhome/tmp/go/go-build-old" 2>/dev/null \
-  || touch -t "$(date -u -v-2d '+%Y%m%d%H%M')" "$lhome/tmp/go/go-build-old"
+# holds a directory whose mtime is now, so age is what separates them. A test
+# killed without an exit leaves its t.TempDir() parent, named as Go's testing
+# package names it, beside the work directories. The directories that are not
+# Go's are as old as the abandoned ones, so only their names can keep them.
+l_age() { touch -d '2 days ago' "$1" 2>/dev/null || touch -t "$(date -u -v-2d '+%Y%m%d%H%M')" "$1"; }
+lgo="$lhome/tmp/go"
+mkdir -p "$lgo/go-build-old" "$lgo/go-build-fresh" "$lgo/keep-me" "$lgo/keep-me-2" "$lgo/Test-notes" \
+  "$lgo/TestEveryConcurrentFindingSurvives999133963/001" "$lgo/BenchmarkSweep42/001" \
+  "$lgo/FuzzSweepcorpus7/001" "$lgo/TestALiveOne3175345655/001"
+touch "$lgo/go-build-old/f" "$lgo/TestEveryConcurrentFindingSurvives999133963/001/f"
+mkdir -p "$lgo/TestFilledAModCache8675309/001/pkg/mod/m@v1"
+touch "$lgo/TestFilledAModCache8675309/001/pkg/mod/m@v1/go.mod"
+chmod 555 "$lgo/TestFilledAModCache8675309/001/pkg/mod/m@v1" "$lgo/TestFilledAModCache8675309/001/pkg/mod"
+mkdir -p "$lgo/TestARefusedRead4242/001/locked"
+touch "$lgo/TestARefusedRead4242/001/locked/f"
+chmod 000 "$lgo/TestARefusedRead4242/001/locked"
+for d in go-build-old keep-me keep-me-2 Test-notes TestEveryConcurrentFindingSurvives999133963 \
+         BenchmarkSweep42 FuzzSweepcorpus7 TestFilledAModCache8675309 TestARefusedRead4242; do
+  l_age "$lgo/$d"
+done
 run_l "$lhome"
-[ -e "$lhome/tmp/go/go-build-old" ] \
+[ -e "$lgo/go-build-old" ] \
   && bad "L2: a work directory two days old survived the shift, so the scratch only ever grows"
-[ -d "$lhome/tmp/go/go-build-fresh" ] \
+[ -d "$lgo/go-build-fresh" ] \
   || bad "L2: a work directory written this minute was collected — that is a live build losing its scratch"
-[ -d "$lhome/tmp/go/keep-me" ] \
-  || bad "L2: the sweep removed a directory that is not a Go work directory"
+[ -e "$lgo/TestEveryConcurrentFindingSurvives999133963" ] \
+  && bad "L2: a test's TempDir two days old survived the shift — a test killed without an exit leaks into the scratch forever"
+[ -e "$lgo/TestFilledAModCache8675309" ] \
+  && bad "L2: a test's TempDir holding a read-only tree, as a module cache is, survived the shift — rm -rf cannot empty a directory it cannot write"
+[ -e "$lgo/TestARefusedRead4242" ] \
+  && bad "L2: a test's TempDir holding a directory mode 000, as a permission test leaves, survived the shift"
+[ -e "$lgo/BenchmarkSweep42" ] \
+  && bad "L2: a benchmark's TempDir two days old survived the shift"
+[ -e "$lgo/FuzzSweepcorpus7" ] \
+  && bad "L2: a fuzz target's TempDir two days old survived the shift"
+[ -d "$lgo/TestALiveOne3175345655/001" ] \
+  || bad "L2: a test's TempDir made this minute was collected — that is a live test losing its files"
+[ -d "$lgo/keep-me" ] \
+  || bad "L2: the sweep removed an old directory that is not Go's"
+[ -d "$lgo/keep-me-2" ] \
+  || bad "L2: the sweep removed an old directory that ends in digits but carries none of the prefixes Go's testing package gives a TempDir"
+[ -d "$lgo/Test-notes" ] \
+  || bad "L2: the sweep removed an old directory named Test… that Go's testing package cannot have made: its names end in the digits MkdirTemp appends"
 
 # L3: an explicit choice is not overridden. A lane that points Go somewhere
 # with room, or at a filesystem it needs, keeps what it set.
@@ -768,7 +932,43 @@ grep -qF "$l5/tmp/go" "$tmp/l.out" \
 [ -s "$STUB_DIR/l.gotmpdir" ] \
   || bad "L5: the shift refused rather than running on Go's default, which is degraded and not broken"
 
-note "L: the session's builds scratch on disk under the home, what earlier shifts left is collected and nothing younger is, an explicit GOTMPDIR stands, it does not switch the collector off, and a scratch directory that cannot be made is said rather than swallowed"
+# L6-L8: t.TempDir() lives under the scratch, and a test that refuses a
+# writable ancestor (a deploy reader does) fails on the runner's directory
+# rather than on the tree. Run under the host's group-write umask.
+other_writable() { find "$1" -prune \( -perm -020 -o -perm -002 \) | grep -q .; }
+umask_was=$(umask); umask 002
+l6="$tmp/l6/state"; mkdir -p "$l6"; chmod 755 "$l6"
+run_l "$l6"
+for d in "$l6/tmp" "$l6/tmp/go"; do
+  other_writable "$d" \
+    && bad "L6: the shift created $d as $(ls -ld "$d" | cut -c1-10), so every test under its t.TempDir() sits below a directory another identity can write"
+done
+[ "$saw" = "$l6/tmp/go" ] || bad "L6: the session was handed GOTMPDIR=$saw"
+
+l7="$tmp/l7/state"; mkdir -p "$l7/tmp/go"; chmod 775 "$l7/tmp" "$l7/tmp/go"
+run_l "$l7"
+for d in "$l7/tmp" "$l7/tmp/go"; do
+  other_writable "$d" \
+    && bad "L7: $d was left $(ls -ld "$d" | cut -c1-10) by an earlier shift and this one did not correct it"
+done
+
+l8="$tmp/l8/mine"; mkdir -p "$l8" "$tmp/l8/state"; chmod 775 "$l8"
+run_l "$tmp/l8/state" GOTMPDIR="$l8"
+other_writable "$l8" \
+  || bad "L8: an explicit GOTMPDIR had its mode changed to $(ls -ld "$l8" | cut -c1-10); whoever set it chose it as it is"
+
+# L9: a mode that cannot be corrected is said, and the shift still runs.
+l9="$tmp/l9/state"; mkdir -p "$l9" "$tmp/l9/bin"
+printf '#!/bin/sh\necho "chmod: refused by the stub" >&2\nexit 1\n' > "$tmp/l9/bin/chmod"
+chmod +x "$tmp/l9/bin/chmod"
+run_l "$l9" PATH="$tmp/l9/bin:$PATH"
+grep -qF "refused by the stub" "$tmp/l.out" \
+  || bad "L9: the scratch's mode could not be corrected and the shift did not say so: $(tail -3 "$tmp/l.out")"
+[ "$saw" = "$l9/tmp/go" ] \
+  || bad "L9: an uncorrectable mode cost the session its scratch directory (GOTMPDIR=$saw)"
+umask "$umask_was"
+
+note "L: the session's builds scratch on disk under the home, what earlier shifts left — work directories and the TempDirs of killed tests — is collected and nothing younger or not Go's is, an explicit GOTMPDIR stands, it does not switch the collector off, a scratch directory that cannot be made is said rather than swallowed, and the scratch and its parent are never writable by another identity"
 
 # ---- M. the user bus a shift's session is handed -----------------------------
 # The DB harness bounds each test with `systemd-run --user`, which refuses
@@ -858,6 +1058,138 @@ case ":$saw:" in *":$tmp/n/absent/bin:"*) bad "N3: a directory that does not exi
 [ -n "$saw" ] || bad "N3: the session never started: $(tail -3 "$tmp/n.out")"
 
 note "N: the session's PATH carries the Go install directory (GOBIN, else the first GOPATH entry's bin) when it exists, once, and nothing that does not exist"
+
+# ---- O. the shell the session's Bash tool runs under -------------------------
+# The runtime runs the tool under $SHELL where that names bash or zsh and picks
+# one itself otherwise; cron's SHELL is /bin/sh. Asserted on the SHELL the
+# session was handed, read out of the stub it was started as.
+mkdir -p "$tmp/o/bin" "$tmp/o/nox" "$tmp/o/bashes" "$tmp/o/h1" "$tmp/o/h2" "$tmp/o/h3" "$tmp/o/h4" "$tmp/o/h5" "$tmp/o/h6" "$tmp/o/h7" "$tmp/o/h8" "$tmp/o/h9" "$tmp/o/h10"
+# A fish whose path, not its name, carries "bash": a substring test takes it for one.
+for s in bin/bash bin/zsh bashes/fish; do printf '#!/bin/sh\n' > "$tmp/o/$s"; chmod +x "$tmp/o/$s"; done
+for s in bash zsh; do printf '#!/bin/sh\n' > "$tmp/o/nox/$s"; chmod -x "$tmp/o/nox/$s"; done
+# A python3 whose account lookup fails and which is python3 for everything else.
+cat > "$tmp/o/py" <<'STUB'
+#!/usr/bin/env bash
+case "$*" in *pw_shell*) exit 1 ;; esac
+exec python3 "$@"
+STUB
+chmod +x "$tmp/o/py"
+cat > "$STUB_DIR/claude-o" <<'STUB'
+#!/usr/bin/env bash
+cat > /dev/null
+printenv SHELL > "$STUB_DIR/o.env" || echo '<unset>' > "$STUB_DIR/o.env"
+printf '%s|%s\n' "$(printenv USER || echo '<unset>')" "$(printenv LOGNAME || echo '<unset>')" > "$STUB_DIR/o.user"
+printf '{"type":"result","result":"ready — the stub shift replied"}\n'
+STUB
+chmod +x "$STUB_DIR/claude-o"
+run_o() {   # run_o <home> [env options and assignments...]
+  local home="$1"; shift
+  : > "$STUB_DIR/o.env"; : > "$STUB_DIR/o.user"
+  env "$@" MELLIONS_HOME="$home" MELLIONS_BIN="$STUB_DIR/mellions" \
+      CLAUDE_BIN="$STUB_DIR/claude-o" MELLIONS_PROMPT="$tmp/l-task.md" \
+      "$root/scripts/shift.sh" > "$tmp/o.out" 2>&1
+  saw=$(cat "$STUB_DIR/o.env")
+  user_saw=$(cat "$STUB_DIR/o.user")
+}
+
+# O1: cron's /bin/sh is replaced by the login shell.
+run_o "$tmp/o/h1" SHELL=/bin/sh MELLIONS_LOGIN_SHELL="$tmp/o/bin/bash"
+[ "$saw" = "$tmp/o/bin/bash" ] \
+  || bad "O1: started with SHELL=/bin/sh the session was handed SHELL='$saw', so the runtime picks the tool's shell and a bash user's shift runs zsh: $(tail -3 "$tmp/o.out")"
+
+# O2: no SHELL at all is the same case.
+run_o "$tmp/o/h2" -u SHELL MELLIONS_LOGIN_SHELL="$tmp/o/bin/zsh"
+[ "$saw" = "$tmp/o/bin/zsh" ] || bad "O2: started with no SHELL the session was handed '$saw': $(tail -3 "$tmp/o.out")"
+
+# O3: an inherited bash or zsh stands, whatever the login shell is.
+run_o "$tmp/o/h3" SHELL="$tmp/o/bin/zsh" MELLIONS_LOGIN_SHELL="$tmp/o/bin/bash"
+[ "$saw" = "$tmp/o/bin/zsh" ] || bad "O3: an inherited zsh was replaced: '$saw'"
+run_o "$tmp/o/h4" SHELL="$tmp/o/bin/bash" MELLIONS_LOGIN_SHELL="$tmp/o/bin/zsh"
+[ "$saw" = "$tmp/o/bin/bash" ] || bad "O3: an inherited bash was replaced: '$saw'"
+
+# O4: a login shell that is neither is not handed over, and the shift says so.
+run_o "$tmp/o/h5" SHELL=/bin/sh MELLIONS_LOGIN_SHELL="$tmp/o/bashes/fish"
+[ "$saw" = /bin/sh ] || bad "O4: a login shell the runtime does not run was handed over: '$saw'"
+grep -qF "login shell $tmp/o/bashes/fish is neither bash nor zsh" "$tmp/o.out" \
+  || bad "O4: the runtime picks this shift's shell and the shift did not say so: $(tail -3 "$tmp/o.out")"
+
+# O5: nor is one that cannot be executed.
+run_o "$tmp/o/h6" SHELL=/bin/sh MELLIONS_LOGIN_SHELL="$tmp/o/nox/bash"
+[ "$saw" = /bin/sh ] || bad "O5: a login shell that is not executable was handed over: '$saw'"
+grep -qF "login shell $tmp/o/nox/bash is not executable" "$tmp/o.out" \
+  || bad "O5: a login shell that cannot run and the shift did not say so: $(tail -3 "$tmp/o.out")"
+
+# O6: with nothing naming it, the login shell is the account's, read here from
+# the account database by a different tool than the shift uses.
+o_login=$(getent passwd "$(id -u)" 2>/dev/null | cut -d: -f7)
+[ -n "$o_login" ] || o_login=$(dscl . -read "/Users/$(id -un)" UserShell 2>/dev/null | awk '{print $2}')
+case "$o_login" in
+  */bash|*/zsh)
+    run_o "$tmp/o/h7" SHELL=/bin/sh
+    [ "$saw" = "$o_login" ] || bad "O6: this account logs in with $o_login and the session was handed '$saw': $(tail -3 "$tmp/o.out")"
+    ;;
+  *) note "O6 not run: this account's login shell is '${o_login:-unknown}', neither bash nor zsh" ;;
+esac
+
+# O7: an inherited zsh that cannot be executed does not stand.
+run_o "$tmp/o/h8" SHELL="$tmp/o/nox/zsh" MELLIONS_LOGIN_SHELL="$tmp/o/bin/bash"
+[ "$saw" = "$tmp/o/bin/bash" ] || bad "O7: an inherited zsh that is not executable stood, so the runtime picks: '$saw'"
+
+# O8: nor does an inherited shell that is bash only somewhere in its path.
+run_o "$tmp/o/h9" SHELL="$tmp/o/bashes/fish" MELLIONS_LOGIN_SHELL="$tmp/o/bin/zsh"
+[ "$saw" = "$tmp/o/bin/zsh" ] || bad "O8: a fish under a directory named for bash was taken for bash: '$saw'"
+
+# O9: an account lookup that fails is said as that, and the shift still runs.
+run_o "$tmp/o/h10" SHELL=/bin/sh MELLIONS_PYTHON="$tmp/o/py"
+[ "$saw" = /bin/sh ] || bad "O9: with no login shell read the session was handed '$saw': $(tail -3 "$tmp/o.out")"
+grep -qF "could not be read" "$tmp/o.out" \
+  || bad "O9: the login shell could not be read and the shift did not say so: $(tail -3 "$tmp/o.out")"
+
+note "O: started with cron's /bin/sh or no SHELL the session is handed the login shell, an inherited bash or zsh stands unless it cannot run or is one only by its path, and a login shell that is neither, cannot run or cannot be read is said rather than handed over"
+
+# ---- U. the account name the session is handed ------------------------------
+# cron starts a job with LOGNAME but no USER, and pgrep -u "$USER" with USER
+# empty prints its usage and matches nothing, so a footprint count reads 0.
+# The expected name is read by a different tool than the shift uses.
+mkdir -p "$tmp/u/h1" "$tmp/u/h2" "$tmp/u/h3" "$tmp/u/h4" "$tmp/u/h5" "$tmp/u/h6" "$tmp/u/idbin"
+u_name=$(whoami)
+[ -n "$u_name" ] || bad "U: whoami named no account, so nothing below can be compared"
+# An id that cannot name the account and is id for everything else.
+cat > "$tmp/u/idbin/id" <<STUB
+#!/bin/sh
+case "\$*" in *-un*|*-nu*) exit 1 ;; esac
+exec $(command -v id) "\$@"
+STUB
+chmod +x "$tmp/u/idbin/id"
+
+# U1: cron's environment, USER absent, is handed the account's name.
+run_o "$tmp/u/h1" -u USER LOGNAME="$u_name" SHELL=/bin/sh
+[ "$user_saw" = "$u_name|$u_name" ] \
+  || bad "U1: started with no USER the session was handed USER|LOGNAME='$user_saw', so pgrep -u \"\$USER\" in it matches nothing: $(tail -3 "$tmp/o.out")"
+
+# U2: an empty USER is the same case.
+run_o "$tmp/u/h2" USER= LOGNAME="$u_name" SHELL=/bin/sh
+[ "$user_saw" = "$u_name|$u_name" ] || bad "U2: started with USER empty the session was handed '$user_saw'"
+
+# U3: LOGNAME absent is handed the same way, and an inherited USER stands.
+run_o "$tmp/u/h3" -u LOGNAME USER=someone-else SHELL=/bin/sh
+[ "$user_saw" = "someone-else|$u_name" ] || bad "U3: with USER=someone-else and no LOGNAME the session was handed '$user_saw'"
+
+# U3b: an empty LOGNAME is handed over like an absent one.
+run_o "$tmp/u/h6" USER=someone-else LOGNAME= SHELL=/bin/sh
+[ "$user_saw" = "someone-else|$u_name" ] || bad "U3b: with LOGNAME empty the session was handed '$user_saw'"
+
+# U4: both inherited, both stand.
+run_o "$tmp/u/h4" USER=someone-else LOGNAME=another SHELL=/bin/sh
+[ "$user_saw" = "someone-else|another" ] || bad "U4: inherited USER and LOGNAME were replaced: '$user_saw'"
+
+# U5: an account id cannot name is said as that, and the shift still runs.
+run_o "$tmp/u/h5" -u USER -u LOGNAME SHELL=/bin/sh PATH="$tmp/u/idbin:$PATH"
+[ "$user_saw" = "<unset>|<unset>" ] || bad "U5: with no name from id the session was handed '$user_saw'"
+grep -qF "cannot name the account" "$tmp/o.out" \
+  || bad "U5: the account name could not be read and the shift did not say so: $(tail -3 "$tmp/o.out")"
+
+note "U: a session started without USER or LOGNAME, or with either empty, is handed the account's name in it; an inherited one stands; a name id cannot give is said"
 
 # make check has to run this, or everything above is about a file nothing invokes.
 grep -q 'scripts/test-\*.sh' "$root/Makefile" || bad "the Makefile does not run scripts/test-*.sh"

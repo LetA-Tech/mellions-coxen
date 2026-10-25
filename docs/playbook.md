@@ -113,9 +113,10 @@ An adopted tree is never removed by Mellions.
 
 ## What Mellions supplies automatically
 
-- The engineer identity and bearing methods arrive at session start.
-- Relevant program and partnership sections arrive with their provenance:
-  `DISCOVERED`, `DECLARED`, `INFERRED` or `UNKNOWN`.
+- The engineer identity and the owner's working rules arrive at session start;
+  the working rules alone after a compaction.
+- Unattended shifts also get the program and partnership sections, with their
+  provenance: `DISCOVERED`, `DECLARED`, `INFERRED` or `UNKNOWN`.
 - Open assignments and same-repository peers are surfaced without requiring a
   command to be remembered.
 - UserPromptSubmit and PreToolUse awareness says once when relevant state
@@ -199,6 +200,12 @@ changes to their `DECLARED` sections.
 These files can contain private repository names, organizational facts and
 working preferences. Keep the configured program and partner directories out
 of source repositories unless you intentionally mean to publish them.
+
+An operator's standing preference for allocating high-stakes reasoning,
+implementation, and independent review across models belongs in the partnership
+and the native runtime, not a Mellions model router. For a concrete optional
+Opus/Sonnet example, see [Claude Code model delegation](claude-code-model-delegation.md).
+The example is not automatically installed or enabled.
 
 ## Attended and unattended operation
 

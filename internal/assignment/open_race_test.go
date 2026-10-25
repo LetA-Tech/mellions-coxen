@@ -78,7 +78,8 @@ func TestAFailedOpenLeavesNoBranchBehind(t *testing.T) {
 
 	// Reach the state that actually strands an id: the ref written, the working
 	// tree not registered. Occupying the destination with a non-empty directory
-	// makes worktree-add fail at exactly that point.
+	// makes worktree-add fail at exactly that point; Open now refuses that
+	// destination before it cuts anything, so no ref is written at all.
 	occupied := filepath.Join(root, "x", "tree")
 	if err := os.MkdirAll(occupied, 0o755); err != nil {
 		t.Fatal(err)

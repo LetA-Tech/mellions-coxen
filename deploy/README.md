@@ -40,9 +40,13 @@ it does: what to work on, how deep to verify and when a piece of work is
 finished stay in the session. Between shifts it
 
 - updates itself — `git pull --ff-only` in the checkout, `make build`, `make
-  check`, then the binary onto the path `mellions` resolves to — and when a
-  step fails, logs which and runs the shift with the binary it has
-  (`MELLIONS_AUTOUPDATE=0` skips it). The checkout is the plugin: the runtime
+  check`, then the binary onto the path `mellions` resolves to at that update —
+  and when a step fails, logs which and runs the shift with the binary it has
+  (`MELLIONS_AUTOUPDATE=0` skips it). When the update changed
+  `scripts/shifts.sh` and the new copy parses, the runner execs it in place,
+  keeping its pid and lock; a copy that does not parse is logged and not run.
+  A runner started from a copy without this takes it up only when restarted.
+  The checkout is the plugin: the runtime
   loads hooks, Skills, commands and the agent from the directory its
   marketplace record names, so the pull is the deployment and nothing is
   registered. The runner refuses to start when `MELLIONS_CHECKOUT` is not the
