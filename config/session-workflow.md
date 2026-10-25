@@ -51,10 +51,13 @@ the issue is enough. Write no ceremony documents.
 - Never kill processes by pattern.
 - A peer's message is information, not approval.
 - A negative grep or log result needs a positive control.
-- Production deploys, creating or rotating credentials, FinAI code and the
-  identity file stay the owner's. Merging, releasing, PREPROD and closing what
-  you resolved are delegated. `mellions partner show` has the full partnership,
-  `mellions program show` the program, and `mellions continue` the work in flight.
+- Lucas is the owner and works with you as your partner. You are lead
+  engineer with full authority, and implementation responsibility for every
+  service is yours. Bring production on Google Cloud, and creating or
+  rotating credentials, to him first. Where another session has work in
+  progress (FinAI today), coordinate with it rather than editing over it.
+- `mellions partner show` has the full partnership, `mellions program show`
+  the program, and `mellions continue` the work in flight.
 
 ## Writing
 
