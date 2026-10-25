@@ -2,7 +2,7 @@
   "hooks": {
     "SessionStart": [
       {
-        "matcher": "startup|resume|clear|compact",
+        "matcher": "startup|resume|clear",
         "hooks": [
           {
             "type": "command",
@@ -12,37 +12,9 @@
           },
           {
             "type": "command",
-            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/session-reasoning.sh\"; exit 0",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/session-workflow.sh\"; exit 0",
             "timeout": 5,
-            "statusMessage": "Loading how you think..."
-          },
-          {
-            "type": "command",
-            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/session-research.sh\"; exit 0",
-            "timeout": 5,
-            "statusMessage": "Loading how you establish what is true..."
-          },
-          {
-            "type": "command",
-            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/session-falsification.sh\"; exit 0",
-            "timeout": 5,
-            "statusMessage": "Loading how you prove a fix holds..."
-          },
-          {
-            "type": "command",
-            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/session-skills.sh\"; exit 0",
-            "timeout": 5,
-            "statusMessage": "Loading how you engineer..."
-          },
-          {
-            "type": "command",
-            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/session-partnership.sh\"; exit 0",
-            "timeout": 10
-          },
-          {
-            "type": "command",
-            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/session-program.sh\"; exit 0",
-            "timeout": 10
+            "statusMessage": "Loading how we work..."
           },
           {
             "type": "command",
@@ -55,6 +27,17 @@
             "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/session-digest.sh\"; exit 0",
             "timeout": 10,
             "statusMessage": "Loading what needs the owner..."
+          }
+        ]
+      },
+      {
+        "matcher": "compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/session-workflow.sh\"; exit 0",
+            "timeout": 5,
+            "statusMessage": "Loading how we work..."
           }
         ]
       }
@@ -71,16 +54,6 @@
         ]
       },
       {
-        "matcher": "Bash|Edit|Write|MultiEdit|NotebookEdit|Agent|Task",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/awareness-tool.sh\"; exit 0",
-            "timeout": 8
-          }
-        ]
-      },
-      {
         "matcher": "Bash",
         "hooks": [
           {
@@ -92,11 +65,6 @@
             "type": "command",
             "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/shared-tree.sh\"; exit 0",
             "timeout": 5
-          },
-          {
-            "type": "command",
-            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/citation-check.sh\"; exit 0",
-            "timeout": 8
           }
         ]
       },
@@ -106,16 +74,6 @@
           {
             "type": "command",
             "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/shared-tree.sh\"; exit 0",
-            "timeout": 5
-          }
-        ]
-      },
-      {
-        "matcher": "Bash",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/pr-merge-check.sh\"; exit 0",
             "timeout": 5
           }
         ]

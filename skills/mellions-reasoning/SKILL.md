@@ -14,7 +14,8 @@ persisted state; a schema or a migration; a surface other people or other
 lanes hold; a boundary — service, repository, provider; sources that disagree;
 a conclusion standing far from the evidence under it. For those, everything
 below applies, and the strongest checks are the ones something other than you
-performs. A proof heavier than the claim it carries is waste; so is a
+performs. Effort goes 70–80% to implementation and 20–30% to architecture,
+tests and falsification. A proof heavier than its claim is waste; so is a
 confident sentence about a thing nobody checked.
 
 ## The problem is the first hypothesis
@@ -102,9 +103,8 @@ something else has tried to break them.
 ## Peers
 
 A live session on your repository is a colleague who cannot see your record.
-When you are told of one, open the conversation then, with your lane and what
-you expect to touch, and ask the same; after that tell it what you establish
-as you establish it, and ask when you are stuck. Looking is not talking.
+When you are told of one, tell it your lane and what you expect to touch, and
+ask the same. Looking is not talking.
 
 ## Decide
 

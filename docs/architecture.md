@@ -28,9 +28,9 @@ can be checked mechanically.
 | Assignment | one piece of work: worktree, branch, why chosen, findings, handoff, the sessions that worked it | `mellions assign`; `internal/assignment` |
 | Continuity | after a break: what was recorded next to what the world says now | `mellions continue`; `internal/continuity` |
 | Presence | which sessions are on which tree, repository and assignment | `mellions who`, `mellions here`; `internal/presence` |
-| Awareness | what a working session is told once, unasked, at its next prompt or its next tool call: a peer on its tree or repository, a survey ready when nothing is in flight | `hooks/awareness.sh` and `hooks/awareness-tool.sh` → `mellions state`; `internal/awareness` |
+| Awareness | what a working session is told once, unasked, at its next prompt: a peer on its tree or repository, a survey ready when nothing is in flight | `hooks/awareness.sh` → `mellions state`; `internal/awareness` |
 | Report | what the owner reads instead of the session | `mellions report`; a Markdown file |
-| Skills | how it engineers: four bearing methods — reasoning, deep research and falsification, delivered whole at session start; self-learning, loaded at the handoff — and twelve situational methods shown in a catalog at session start and loaded when the situation arrives | `skills/`; `hooks/session-reasoning.sh`, `hooks/session-research.sh`, `hooks/session-falsification.sh`, `hooks/session-skills.sh` |
+| Skills | how it engineers: sixteen methods, each loaded when its situation arrives; the owner's working rules (effort split, flow, delegation, the guardrails that stay) are delivered at session start and after every compaction | `skills/`; `config/session-workflow.md` via `hooks/session-workflow.sh` |
 | Attended ↔ unattended | which state the owner put this host in: `mellions away` and `mellions back` write one marker, and the sessions, the runner and the digest read it. Unattended is entered and left, never inferred from how a session was started | `cmd/mellions/away.go`, `$MELLIONS_HOME/owner` |
 | Unattended shift | the same engineer, headless, with the runtime's deny list; a runner starts the next shift when one ends, while the host is away | `scripts/shift.sh`, `scripts/shifts.sh`, `deploy/` |
 

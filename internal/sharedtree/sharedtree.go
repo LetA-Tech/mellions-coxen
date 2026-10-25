@@ -52,31 +52,6 @@ type Estate struct {
 	Home string
 	// LoadPath is the checkout the runtime reads this installation's hooks,
 	// Skills, commands and agent from, or "" where it is not known.
-	//
-	// It is exempt from ONE verb and one form of it: `git pull --ff-only`,
-	// aimed at this tree by any of its names or from anywhere inside it, and
-	// only while that tree is clean. That is the deployment step for Mellions
-	// itself — merged is not landed, and nothing reaches a session until this
-	// tree moves — so refusing it outright leaves the guard blocking the only
-	// sanctioned way to install a fix, including a fix to this guard.
-	//
-	// Most of what makes it safe is git: a diverged branch is refused, and
-	// `--ff-only` survives `pull.rebase`, so no local commit is rewritten.
-	// Measured on git 2.53.0, diverged local branch, with and without
-	// `pull.rebase` and with and without autostash: `fatal: Not possible to
-	// fast-forward, aborting`, exit 128, HEAD unmoved.
-	//
-	// One case git does not catch, which is why cleanliness is a condition
-	// here rather than a remark. Under `rebase.autoStash` or `merge.autoStash`,
-	// a pull that CAN fast-forward stashes the dirty tree first, fast-forwards,
-	// and then fails to reapply the stash — and exits 0 while doing it. Same
-	// measurement: `Created autostash`, `Applying autostash resulted in
-	// conflicts`, exit 0, the file left at `UU` with conflict markers in it.
-	// A zero exit is what the session and `scripts/shifts.sh` both read as
-	// landed, and the next step builds out of that tree. So the tree being
-	// clean is the precondition, and it costs the deployment nothing it could
-	// have had: with autostash off git refuses a dirty tree anyway, and with
-	// nothing to stash autostash cannot fire.
 	LoadPath string
 	// Dirty reports that the tree at dir carries uncommitted work, or nil
 	// where this installation cannot ask.
@@ -317,7 +292,7 @@ func Find(command, cwd string, e Estate) *Write {
 		if !ok {
 			continue
 		}
-		if deploysMellions(verb, rest, at, e) {
+		if deploysMellions(verb, rest) {
 			if !dirtyTree(at, e) {
 				continue
 			}
@@ -377,11 +352,11 @@ func (w *Write) Reason(e Estate, session, cwd string) string {
 // and leaves the session a way forward, because the deployment still has to
 // happen.
 func (w *Write) deployReason() string {
-	return "`git pull --ff-only` is the right command and " + w.Checkout +
+	return "`git " + w.Verb + " --ff-only` is the right command and " + w.Checkout +
 		" is the right tree, but that tree has uncommitted changes in it.\n\n" +
 		"Under `rebase.autoStash` or `merge.autoStash` this would not fail. It stashes, " +
 		"fast-forwards, fails to reapply the stash, and exits 0 — leaving conflict markers " +
-		"in the working tree of the checkout this host loads Mellions from, while reporting " +
+		"in the working tree of a checkout other sessions cut their lanes from, while reporting " +
 		"success.\n\n" +
 		"See what is there, and whose it is:\n" +
 		indent("git -C "+w.Checkout+" status --porcelain\ngit -C "+w.Checkout+" diff\n"+
@@ -660,14 +635,11 @@ func Reach(command, cwd string, e Estate) *Checkout {
 }
 
 // deploysMellions reports the one write this package allows into a shared
-// checkout: a fast-forward-only pull of the load path.
-//
-// Scoped to that tree and that flag deliberately. Any other shared checkout,
-// and any pull that could merge, is refused as before — the exemption is for
-// the deployment step, not for pulling in general, and a session that wants a
-// different tree updated still has to say so.
-func deploysMellions(verb string, args []string, at string, e Estate) bool {
-	return verb == "pull" && e.LoadPath != "" && isLoadPath(at, e) && fastForwardOnly(args)
+// checkout: a fast-forward-only pull or merge. Neither can create a commit,
+// rewrite one, or overwrite tracked work git can see; a diverged branch is
+// refused by git, and a dirty tree is refused here (see dirtyTree).
+func deploysMellions(verb string, args []string) bool {
+	return (verb == "pull" || verb == "merge") && fastForwardOnly(args)
 }
 
 // dirtyTree reports that the tree this pull would land in carries uncommitted
@@ -718,43 +690,4 @@ func fastForwardOnly(args []string) bool {
 		}
 	}
 	return ff
-}
-
-// isLoadPath reports that a pull aimed at this directory pulls the checkout the
-// runtime loads from.
-//
-// It has to answer with the same reach as the refusal it cancels, and that
-// refusal is decided twice over by containment: `shared` matches any directory
-// under a checkout, and `sharedEstate` lists a checkout under every path that
-// reaches it, so one tree can hold two roots. An exemption decided by string
-// equality is narrower than both. It misses the pull run one directory in —
-// `git pull` operates on the repository, not on the directory it is typed in,
-// so that is the same deployment step — and it misses the tree's other name,
-// which is the one a session that walked in through a symlinked work root is
-// standing at. Either miss refuses the only sanctioned way to install a fix,
-// which is the defect the exemption exists to close.
-//
-// So the question is which repository the pull writes, and `shared` already
-// answers it for both sides: two names for one tree is what a repeated Repo in
-// Shared means, and the longest match is what a nested checkout answers with.
-// That reads the equivalence off the estate rather than the filesystem, so this
-// package still decides from the command line and the configuration alone.
-//
-// Deliberately not `under(at, e.LoadPath)`, which looks like the same test and
-// is wider: a shared checkout that merely lives inside the load-path directory
-// would be pulled under the exemption, and that is another repository's tree.
-// The exemption is only ever needed where a deny would otherwise fire, and a
-// deny only fires where `at` is inside a shared checkout.
-// The load path has to BE a checkout root, not merely sit inside one. A
-// plugin loaded from a directory nested in some other repository resolves, by
-// longest match, to that repository's name — and the exemption would then
-// cover that whole foreign tree, which is the widening this function exists to
-// avoid, arriving from the other side.
-func isLoadPath(at string, e Estate) bool {
-	repo, root, ok := shared(e.LoadPath, e)
-	if !ok || repo == "" || filepath.Clean(e.LoadPath) != filepath.Clean(root) {
-		return false
-	}
-	other, _, ok := shared(at, e)
-	return ok && other == repo
 }

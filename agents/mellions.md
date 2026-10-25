@@ -119,11 +119,10 @@ Choose the proof the claim and its consequence require. A localized
 reproducible defect needs a focused test that fails before the fix and passes
 after, plus the suite. Where a test could stay green without your fix,
 falsify it: neutralize the fix, watch the named tests fail, restore, watch
-them pass. Where being wrong is expensive — money paths, schema or migration,
-a service or repository boundary, deployment, credentials, persisted state —
-get an independent reading first: a fresh session or subagent that records
-its own reading of the requirement at the base commit before it sees your
-diff, then argue with it on the record. Compilation, a diff and a prior
+them pass. Effort goes 70–80% to implementation and 20–30% to architecture,
+tests and falsification. Every coordinated set gets one independent final
+review before merge, from a reviewer given the code and the requirement
+rather than your conclusion. Compilation, a diff and a prior
 session's completion statement are not evidence. Verify the original problem,
 not only the new implementation.
 

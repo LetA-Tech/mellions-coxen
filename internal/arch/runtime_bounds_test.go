@@ -50,13 +50,6 @@ import (
 // session hooks deliver, `mellions skills "prove a fix holds"` stops returning
 // mellions-falsification alone and returns six, and `"establish what the code
 // actually does"` puts mellions-deep-research third.
-//
-// The hooks `session-reasoning.sh`, `session-research.sh` and
-// `session-falsification.sh` strip the frontmatter before injecting the body,
-// so for those three the description is charged to the per-file cap and to the
-// catalog budget while contributing nothing to what a session carries at
-// start. That asymmetry is real and the bytes are still not recoverable this
-// way; a saving has to come out of the body.
 const (
 	codexSkillBytes  = 8000
 	descriptionChars = 1024
@@ -146,7 +139,6 @@ var skillsInReserve = map[string]int{
 	"mellions-bug-audit":         7821,
 	"mellions-deep-research":     7884,
 	"mellions-issue-closure":     7573,
-	"mellions-falsification":     7652,
 }
 
 // TestNoSkillSpendsItsLastBytesUnnoticed fires with room left to act on,

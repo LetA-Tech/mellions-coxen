@@ -7,7 +7,9 @@ description: Load this before a test, a mutation, a revert arm or a green run is
 # Establishing that a fix holds
 
 A green run is a claim about the harness until something shows it could have
-been red.
+been red. Arms are owed where being wrong is expensive: money, schema and
+migrations, persisted state, concurrency, security and authority, resource
+bounds. An obvious diff gets its focused test and the suite, and no arms.
 
 ## The copy you falsify in
 
@@ -116,14 +118,6 @@ transaction; read `references/placement-arms.md`.
 Where the fix is to persisted state — a store, a table, a cache, a file — a
 reading taken the moment a new binary is in place measures state nothing has
 touched: drive the write path the system drives, then read.
-
-Where what you measure is emitted once — a note said once per session, an
-at-most-once delivery, a lock taken by whoever asks first — the measurement is a
-consumable: a consumer you did not account for takes it, and your instrument
-records nothing. Read the durable record
-the emission leaves (the ledger, the offset, the holder), not the stream
-somebody else may have drained; a second reader on that stream is the same
-defect, now yours.
 
 ## Writing it down
 

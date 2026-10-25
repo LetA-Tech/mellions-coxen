@@ -10,8 +10,9 @@ A plan that lived only in a session is lost with the session, and the issue
 then has no trace of what was intended, what was approved, or what "done" was
 supposed to mean. Before implementation, the issue must carry a current contract
 that a reviewer can judge, an implementer can follow and closure can read the
-acceptance rule from. A sufficient issue body or existing plan needs no duplicate
-proposal; add a concise comment for missing decisions or material changes. Use a
+acceptance rule from. A proposal is owed only for a change to architecture or a
+cross-service contract, or where the repository requires one; otherwise a
+one-line plan on the issue is the record, and a sufficient body needs nothing. Use a
 separate proposal and its prescribed schema wherever the repository requires one.
 
 ## The repository's approval model decides what the comment is

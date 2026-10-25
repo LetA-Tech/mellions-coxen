@@ -16,7 +16,8 @@ contract nobody can satisfy.
 
 Honor the repository's mandated issue schema, approval records and acceptance
 requirements. A shared template never overrides an explicit repository rule.
-Where none is mandated, use the concise contract in the assets beside this Skill:
+Where none is mandated, the body is the title, the problem, the acceptance test
+and a link to the proof; the assets beside this Skill hold the longer form:
 
 - `assets/github-issue-template.md` — title, body and material evidence detail.
 - `assets/github-issue-taxonomy.md` — labels, evidence tiers and decision work.
@@ -64,11 +65,8 @@ them twice is one of them going stale.
 ## The labels
 
 Read `gh label list --repo <repo>` **before** choosing, not after a rejected
-`gh issue create`. The taxonomy's ten families are the target; the registry is
-what exists. Apply every family the registry carries, use its own value where
-it names one this taxonomy does not, and record a family it lacks in the one
-`Labels unavailable` line the taxonomy permits. Invent no label, and drop no
-family silently — taxonomy §5 is the whole rule.
+`gh issue create`. Apply the labels the registry carries that fit; invent
+none, and a family it lacks is no blocker.
 
 `risk:` is read off the taxonomy's matrix for the `probability:` and `impact:`
 chosen independently. Nothing downstream re-checks it, so it is right here or
