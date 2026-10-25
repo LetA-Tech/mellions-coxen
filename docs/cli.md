@@ -150,10 +150,13 @@ reads it from stdin. The lane becomes `handed_off`.
 Where the lane has a pull request — the one `claim` recorded, or the single
 open one on its branch — the handoff is also posted there as a comment, opening
 with the lane, the host and the state, and the claim is restated on it. The
+comment replaces the lane's previous handoff there, so a pull request carries
+one handoff per lane, the current one; other lanes' handoffs are untouched. The
 record lives on one machine's disk; the peer deciding whether the draft is
 ready is on the other one, and the pull request is the only surface both read.
 A tracker that cannot take the comment does not cost the session the handoff:
-it is on the record first, and the failure is printed.
+it is on the record first, and the failure is printed — as is a previous
+handoff the tracker could not remove.
 
 **`reopen`** — take handed-off or blocked work back up (a review came back);
 the worktree is re-cut from the branch if it was cleaned up.
