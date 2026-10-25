@@ -19,8 +19,10 @@ import (
 type thread struct {
 	comments []ghComment
 	next     int
-	// failView, failComment and failDelete fail that one call kind only.
+	// failView, failComment and failDelete fail that one call kind only;
+	// failDeleteID fails the delete of that one comment.
 	failView, failComment, failDelete error
+	failDeleteID                      string
 }
 
 func (th *thread) run(_ context.Context, args ...string) ([]byte, error) {
@@ -51,6 +53,9 @@ func (th *thread) run(_ context.Context, args ...string) ([]byte, error) {
 		}
 		for _, a := range args {
 			if id, ok := strings.CutPrefix(a, "id="); ok {
+				if id == th.failDeleteID {
+					return nil, errors.New("gh: HTTP 502")
+				}
 				kept := th.comments[:0]
 				for _, c := range th.comments {
 					if c.ID != id {
@@ -239,9 +244,9 @@ func TestAHandoffThatCannotClearItsPredecessorSaysSo(t *testing.T) {
 	}
 }
 
-// A claim's marker is the line Publish writes last. A reviewer comment that
-// carries a pasted claim — even the current one, so the same instant — is not
-// that lane's claim, and the lane restating or releasing never deletes it.
+// A claim opens with the line naming its lane and ends with its marker. A
+// comment that carries a claim pasted among other words — even the current one,
+// so the same instant — is not a claim, and no restate, release or sweep deletes it.
 func TestAPastedClaimMarkerIsNotAClaim(t *testing.T) {
 	at := time.Date(2026, 10, 25, 2, 0, 0, 0, time.UTC)
 	pasted := body("lane-a", "here", "active", at.Add(-time.Hour))
@@ -261,13 +266,14 @@ func TestAPastedClaimMarkerIsNotAClaim(t *testing.T) {
 			th := &thread{comments: []ghComment{
 				{ID: "REAL", Body: pasted},
 				{ID: "REVIEWER", Body: "The claim's source, pasted:\n\n" + pasted + "\nI disagree with this lane holding the issue."},
+				{ID: "ENDPASTE", Body: "My objection to this hold, then the claim itself:\n\n" + pasted},
 				{ID: "QUOTED", Body: "> " + strings.ReplaceAll(strings.TrimRight(pasted, "\n"), "\n", "\n> ") + "\n"},
 			}}
 			tr := &Tracker{Owner: "example-org", Host: "here", Run: th.run, now: func() time.Time { return at }}
 			if err := tc.act(tr); err != nil {
 				t.Fatal(err)
 			}
-			for _, kept := range []string{"I disagree with this lane", "> Claimed by"} {
+			for _, kept := range []string{"I disagree with this lane", "> Claimed by", "My objection to this hold"} {
 				if th.countHolding(kept) != 1 {
 					t.Errorf("a comment that is not the lane's claim was deleted (%q):\n%s", kept, strings.Join(th.bodies(), "\n---\n"))
 				}
@@ -278,5 +284,70 @@ func TestAPastedClaimMarkerIsNotAClaim(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// A stale claim is swept, and a comment that merely carries one pasted is not
+// a claim at all, however old the paste.
+func TestASweepLeavesAPastedClaim(t *testing.T) {
+	at := time.Date(2026, 10, 25, 2, 0, 0, 0, time.UTC)
+	old := body("lane-a", "elsewhere", "active", at.Add(-StaleAfter-time.Hour))
+	th := &thread{comments: []ghComment{
+		{ID: "STALE", Body: old},
+		{ID: "ENDPASTE", Body: "Why was this held so long?\n\n" + old},
+	}}
+	tr := &Tracker{Owner: "example-org", Host: "here", Run: th.run, now: func() time.Time { return at }}
+	swept, err := tr.Sweep(context.Background(), "mellions-coxen", "#40")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(swept) != 1 || swept[0].Ref != "STALE" {
+		t.Errorf("want exactly the stale claim swept, got %+v", swept)
+	}
+	if len(th.comments) != 1 || th.comments[0].ID != "ENDPASTE" {
+		t.Errorf("want only the comment quoting the claim left, got:\n%s", strings.Join(th.bodies(), "\n---\n"))
+	}
+}
+
+// A handoff opens and ends with the lane's marker. A comment that pastes the
+// handoff word for word above or below somebody's own words is not that handoff.
+func TestAHandoffPastedWithOtherWordsIsNotTheHandoff(t *testing.T) {
+	th := &thread{}
+	tr := onThread(th, "here")
+	if err := tr.Handoff(context.Background(), "mellions-coxen", "PR #51", "lane-a", "first: NOT READY"); err != nil {
+		t.Fatal(err)
+	}
+	posted := th.comments[0].Body
+	th.comments = append(th.comments,
+		ghComment{ID: "ABOVE", Body: "Reviewer: this handoff overstates the arms.\n\n" + posted},
+		ghComment{ID: "BELOW", Body: posted + "\nReviewer: the arms above are fine."},
+	)
+	if err := tr.Handoff(context.Background(), "mellions-coxen", "PR #51", "lane-a", "second: READY"); err != nil {
+		t.Fatal(err)
+	}
+	for _, kept := range []string{"Reviewer: this handoff overstates", "Reviewer: the arms above are fine", "second: READY"} {
+		if n := th.countHolding(kept); n != 1 {
+			t.Errorf("want %q on the pull request once, got %d:\n%s", kept, n, strings.Join(th.bodies(), "\n---\n"))
+		}
+	}
+	if len(th.comments) != 3 {
+		t.Errorf("want the lane's first handoff replaced and both reviewer comments kept, got %d comments:\n%s",
+			len(th.comments), strings.Join(th.bodies(), "\n---\n"))
+	}
+}
+
+// One delete that fails does not stop the rest: every earlier handoff that can
+// come down does, and the one that could not is reported.
+func TestAFailedDeleteDoesNotStopTheRest(t *testing.T) {
+	th := &thread{comments: []ghComment{
+		{ID: "L1", Body: legacyHandoff("lane-a", "here", "oldest")},
+		{ID: "L2", Body: legacyHandoff("lane-a", "here", "older")},
+	}, failDeleteID: "L1"}
+	err := onThread(th, "here").Handoff(context.Background(), "mellions-coxen", "PR #51", "lane-a", "newest")
+	if !errors.Is(err, ErrHandoffNotReplaced) {
+		t.Fatalf("want ErrHandoffNotReplaced, got %v", err)
+	}
+	if th.countHolding("older") != 0 {
+		t.Errorf("a failed delete stopped the next one:\n%s", strings.Join(th.bodies(), "\n---\n"))
 	}
 }

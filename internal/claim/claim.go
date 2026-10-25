@@ -301,6 +301,9 @@ func (t *Tracker) Claims(ctx context.Context, repo, ref string) ([]Claim, error)
 		if err := json.Unmarshal([]byte(m[1]), &parsed); err != nil {
 			continue // a payload we cannot read is not a claim we can honour
 		}
+		if !strings.HasPrefix(c.Body, "Claimed by Mellions lane `"+parsed.ID+"` on `"+parsed.Host+"` (") {
+			continue // a pasted or quoted claim is somebody's text, not a hold
+		}
 		parsed.Ref = c.ID
 		key := parsed.Host + "\x00" + parsed.ID
 		if prev, ok := byLane[key]; ok && prev.At.After(parsed.At) {
@@ -483,32 +486,44 @@ type handoffLane struct {
 // same lane may still stand beside it on the same item.
 var ErrHandoffNotReplaced = errors.New("the lane's earlier handoff may still stand beside it")
 
-// lastLine is a comment's final non-blank line, the only place Publish and
-// Handoff write their marker; a marker anywhere else is quoted or pasted text.
+// openingLine and lastLine are a comment's outer non-blank lines, where Publish
+// and Handoff write what identifies them; text between them is anyone's.
+func openingLine(body string) string {
+	trimmed := strings.TrimLeft(body, " \t\r\n")
+	if i := strings.IndexByte(trimmed, '\n'); i >= 0 {
+		trimmed = trimmed[:i]
+	}
+	return strings.TrimRight(trimmed, " \t\r")
+}
+
 func lastLine(body string) string {
 	trimmed := strings.TrimRight(body, " \t\r\n")
 	return trimmed[strings.LastIndexByte(trimmed, '\n')+1:]
 }
 
-// isHandoffOf reports whether body is a handoff lane id posted from host, by
-// its last-line marker, or for a handoff from before the marker by its exact
-// opening line.
+// isHandoffOf reports whether body is lane id's handoff from host: its first and
+// last lines are both that lane's marker, or, carrying no marker at all, it
+// opens with the header handoffs were posted under before the marker.
 func isHandoffOf(body, id, host string) bool {
-	if m := handoffPattern.FindStringSubmatch(lastLine(body)); m != nil {
-		var l handoffLane
-		return json.Unmarshal([]byte(m[1]), &l) == nil && l.ID == id && l.Host == host
+	if strings.Contains(body, handoffMarker) {
+		return handoffLaneOf(openingLine(body)) == (handoffLane{ID: id, Host: host}) &&
+			handoffLaneOf(lastLine(body)) == (handoffLane{ID: id, Host: host})
 	}
 	return strings.HasPrefix(body, "**Handoff — Mellions lane `"+id+"` on `"+host+"`, now ")
 }
 
-// Handoff posts body on an issue or pull request as lane id's handoff, then
-// deletes every earlier handoff this lane posted there, and touches no claim.
-//
-// It exists so a lane's handoff can travel to the other host by the only route
-// both machines already read; the assignment store is one machine's disk. A
-// handoff left behind states an older head and verdict under the same header,
-// so the lane keeps one. The new comment goes up before the old ones come down,
-// so a post that fails leaves the previous statement rather than none.
+// handoffLaneOf is the lane a whole-line handoff marker names, or the zero lane.
+func handoffLaneOf(line string) handoffLane {
+	var l handoffLane
+	if m := handoffPattern.FindStringSubmatch(line); m == nil || json.Unmarshal([]byte(m[1]), &l) != nil {
+		return handoffLane{}
+	}
+	return l
+}
+
+// Handoff posts body as lane id's handoff, marked on its first and last line,
+// then deletes the lane's earlier handoffs there; posting first means a post
+// that fails leaves the previous statement rather than none.
 func (t *Tracker) Handoff(ctx context.Context, repo, ref, id, body string) error {
 	slug, err := t.slug(repo)
 	if err != nil {
@@ -540,17 +555,22 @@ func (t *Tracker) Handoff(ctx context.Context, repo, ref, id, body string) error
 			}
 		}
 	}
-	full := strings.TrimRight(body, "\n") + "\n\n" + handoffMarker + string(payload) + " -->\n"
+	mark := handoffMarker + string(payload) + " -->"
+	full := mark + "\n" + strings.Trim(body, "\n") + "\n\n" + mark + "\n"
 	if _, err := t.run(ctx, verb, "comment", strconv.Itoa(n), "--repo", slug, "--body", full); err != nil {
 		return fmt.Errorf("claim: comment on %s: %w", name(slug, verb, n), err)
 	}
 	if readErr != nil {
 		return fmt.Errorf("claim: %w on %s: reading its comments: %v", ErrHandoffNotReplaced, name(slug, verb, n), readErr)
 	}
+	var failed []error
 	for _, ref := range earlier {
 		if err := t.deleteComment(ctx, slug, ref); err != nil {
-			return fmt.Errorf("claim: %w on %s: deleting comment %s: %v", ErrHandoffNotReplaced, name(slug, verb, n), ref, err)
+			failed = append(failed, fmt.Errorf("deleting comment %s: %v", ref, err))
 		}
+	}
+	if len(failed) > 0 {
+		return fmt.Errorf("claim: %w on %s: %v", ErrHandoffNotReplaced, name(slug, verb, n), errors.Join(failed...))
 	}
 	return nil
 }

@@ -152,8 +152,8 @@ func (f *fakeTracker) PullRequests(_ context.Context, _, branch string) ([]claim
 }
 
 // Handoff records what was posted and under which lane. Replacing the lane's
-// earlier handoff is the real tracker's, and is tested against gh in
-// internal/claim.
+// earlier handoff is the real tracker's, tested in internal/claim against a
+// fake gh that keeps the thread.
 func (f *fakeTracker) Handoff(_ context.Context, repo, ref, id, body string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
