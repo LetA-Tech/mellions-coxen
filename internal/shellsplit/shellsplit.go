@@ -124,7 +124,7 @@ func lex(command string, i int, stopAtParen bool) ([]*Command, int) {
 			expands = expands || !read
 
 		case c == '(' && !stopAtParen &&
-			opensSubshell(command, i, hasWord && (quoted || !leadsCommand[w.String()]), cur.Words, redirOut || heredocNext != 0):
+			opensSubshell(command, i, hasWord && (quoted || !leadsCommand[w.String()]), cur.Words):
 			endCmd()
 			opens = append(opens, len(out))
 			i++
@@ -291,8 +291,8 @@ func lex(command string, i int, stopAtParen bool) ([]*Command, int) {
 // after them, the last of which may touch it — and is neither a process
 // substitution's nor the first of "((", which bash reads as arithmetic.
 // Elsewhere the lexer keeps it inside the word.
-func opensSubshell(command string, i int, hasWord bool, words []string, redirecting bool) bool {
-	if hasWord || redirecting || i > 0 && (command[i-1] == '<' || command[i-1] == '>') ||
+func opensSubshell(command string, i int, hasWord bool, words []string) bool {
+	if hasWord || i > 0 && (command[i-1] == '<' || command[i-1] == '>') ||
 		i+1 < len(command) && command[i+1] == '(' {
 		return false
 	}
