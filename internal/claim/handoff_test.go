@@ -287,22 +287,25 @@ func TestAPastedClaimMarkerIsNotAClaim(t *testing.T) {
 	}
 }
 
-// A stale claim is swept, and a comment that merely carries one pasted is not
-// a claim at all, however old the paste.
+// A stale claim is swept, a hand-written one naming its lane first included,
+// and a comment that merely carries one pasted is not a claim, however old.
 func TestASweepLeavesAPastedClaim(t *testing.T) {
 	at := time.Date(2026, 10, 25, 2, 0, 0, 0, time.UTC)
 	old := body("lane-a", "elsewhere", "active", at.Add(-StaleAfter-time.Hour))
+	handwritten := "Claimed by Mellions lane `lane-b` for issue40. The lane's branch holds the work.\n\n" +
+		marker + `{"id":"lane-b","host":"elsewhere","state":"active","at":"` + at.Add(-StaleAfter-time.Hour).Format(time.RFC3339) + `"} -->` + "\n"
 	th := &thread{comments: []ghComment{
 		{ID: "STALE", Body: old},
 		{ID: "ENDPASTE", Body: "Why was this held so long?\n\n" + old},
+		{ID: "HANDWRITTEN", Body: handwritten},
 	}}
 	tr := &Tracker{Owner: "example-org", Host: "here", Run: th.run, now: func() time.Time { return at }}
 	swept, err := tr.Sweep(context.Background(), "mellions-coxen", "#40")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(swept) != 1 || swept[0].Ref != "STALE" {
-		t.Errorf("want exactly the stale claim swept, got %+v", swept)
+	if len(swept) != 2 {
+		t.Errorf("want the stale claim and the stale hand-written claim swept, got %+v", swept)
 	}
 	if len(th.comments) != 1 || th.comments[0].ID != "ENDPASTE" {
 		t.Errorf("want only the comment quoting the claim left, got:\n%s", strings.Join(th.bodies(), "\n---\n"))

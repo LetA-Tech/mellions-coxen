@@ -301,7 +301,7 @@ func (t *Tracker) Claims(ctx context.Context, repo, ref string) ([]Claim, error)
 		if err := json.Unmarshal([]byte(m[1]), &parsed); err != nil {
 			continue // a payload we cannot read is not a claim we can honour
 		}
-		if !strings.HasPrefix(c.Body, "Claimed by Mellions lane `"+parsed.ID+"` on `"+parsed.Host+"` (") {
+		if !strings.HasPrefix(c.Body, "Claimed by Mellions lane `"+parsed.ID+"`") {
 			continue // a pasted or quoted claim is somebody's text, not a hold
 		}
 		parsed.Ref = c.ID
