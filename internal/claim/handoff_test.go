@@ -162,6 +162,34 @@ func TestAHandoffReplacesTheLanesHandoffPostedWithoutAMarker(t *testing.T) {
 	}
 }
 
+// A handoff's marker is the line Handoff writes last, so text inside a handoff
+// that shows the marker's form cannot hide the real one, and a comment that
+// carries a marker anywhere but its own last line is not a handoff.
+func TestOnlyAHandoffsOwnLastLineMarksIt(t *testing.T) {
+	th := &thread{}
+	tr := onThread(th, "here")
+	quoting := "the marker reads `<!-- mellions:handoff {\"id\":…,\"host\":…} -->` and names the lane\n" +
+		"<!-- mellions:handoff {\"id\":\"lane-b\",\"host\":\"here\"} -->\nis lane-b's form"
+	if err := tr.Handoff(context.Background(), "mellions-coxen", "PR #51", "lane-a", "first\n\n"+quoting); err != nil {
+		t.Fatal(err)
+	}
+	th.comments = append(th.comments,
+		ghComment{ID: "Q1", Body: "Pasting the handoff:\n\n> first\n> <!-- mellions:handoff {\"id\":\"lane-a\",\"host\":\"here\"} -->\n"},
+		ghComment{ID: "Q2", Body: "<!-- mellions:handoff {\"id\":\"lane-a\",\"host\":\"here\"} -->\nand a reviewer's words after it"},
+	)
+	if err := tr.Handoff(context.Background(), "mellions-coxen", "PR #51", "lane-a", "second"); err != nil {
+		t.Fatal(err)
+	}
+	if n := th.countHolding("first\n\nthe marker reads"); n != 0 {
+		t.Errorf("a handoff whose text shows the marker form was not replaced:\n%s", strings.Join(th.bodies(), "\n---\n"))
+	}
+	for _, kept := range []string{"Pasting the handoff", "and a reviewer's words after it", "second"} {
+		if n := th.countHolding(kept); n != 1 {
+			t.Errorf("want %q on the pull request once, got %d:\n%s", kept, n, strings.Join(th.bodies(), "\n---\n"))
+		}
+	}
+}
+
 // The new handoff goes up before the old one comes down: a post that fails
 // leaves the lane's last statement standing rather than none.
 func TestAHandoffThatCannotPostKeepsTheLanesPrevious(t *testing.T) {

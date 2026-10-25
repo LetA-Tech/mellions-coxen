@@ -471,7 +471,7 @@ func (t *Tracker) Sweep(ctx context.Context, repo, ref string) ([]Claim, error) 
 // lane's next handoff can find and replace it.
 const handoffMarker = "<!-- mellions:handoff "
 
-var handoffPattern = regexp.MustCompile(`<!-- mellions:handoff (\{[^\n]*?\}) -->`)
+var handoffPattern = regexp.MustCompile(`^<!-- mellions:handoff (\{[^\n]*\}) -->$`)
 
 // handoffLane is what a handoff marker names: one lane on one machine.
 type handoffLane struct {
@@ -483,11 +483,13 @@ type handoffLane struct {
 // same lane may still stand beside it on the same item.
 var ErrHandoffNotReplaced = errors.New("the lane's earlier handoff may still stand beside it")
 
-// isHandoffOf reports whether body is a handoff lane id posted from host. A
-// handoff from before the marker is known by its opening line, which names the
-// lane and the host in exactly this form.
+// isHandoffOf reports whether body is a handoff lane id posted from host. The
+// marker counts only as the body's last line, where Handoff writes it; a
+// handoff from before the marker is known by its exact opening line.
 func isHandoffOf(body, id, host string) bool {
-	if m := handoffPattern.FindStringSubmatch(body); m != nil {
+	trimmed := strings.TrimRight(body, " \t\r\n")
+	last := trimmed[strings.LastIndexByte(trimmed, '\n')+1:]
+	if m := handoffPattern.FindStringSubmatch(last); m != nil {
 		var l handoffLane
 		return json.Unmarshal([]byte(m[1]), &l) == nil && l.ID == id && l.Host == host
 	}
