@@ -36,8 +36,8 @@ type adapter struct {
 	unmarket []string // drop the marketplace, so a new source can replace it
 	remove   []string // clear any installed copy first
 	install  []string // install the plugin
-	list     []string
-	manual   string // what this runtime needs from a person, and cannot be given
+	list     []string // read-only; must exit 0 before anything is cleared
+	manual   string   // what this runtime needs from a person, and cannot be given
 	pluginID string
 }
 
@@ -139,7 +139,7 @@ func cmdInstall(ctx context.Context, args []string) error {
 	}
 	fmt.Println()
 
-	var installed, absent, failed []string
+	var installed, absent, skipped, failed []string
 	for _, a := range adapters {
 		if *only != "" && !strings.EqualFold(*only, a.bin) {
 			continue
@@ -152,6 +152,13 @@ func cmdInstall(ctx context.Context, args []string) error {
 		a.bin = path
 		fmt.Printf("## %s — %s\n\n", a.name, path)
 		if err := a.run(ctx, source, *dry); err != nil {
+			var u *unrunnable
+			if errors.As(err, &u) {
+				skipped = append(skipped, fmt.Sprintf("%s: %v", a.name, err))
+				fmt.Printf("  skipped: %s does not run here (%s), so nothing of its\n"+
+					"  registration was touched\n\n", a.name, u.why)
+				continue
+			}
 			failed = append(failed, fmt.Sprintf("%s: %v", a.name, err))
 			fmt.Printf("  did not complete: %v\n\n", err)
 			continue
@@ -173,23 +180,32 @@ func cmdInstall(ctx context.Context, args []string) error {
 		verb = "Would install into"
 	}
 	switch {
-	case len(installed) > 1 && len(failed) == 0:
+	case len(installed) > 1 && len(failed)+len(skipped) == 0:
 		fmt.Printf("%s %s. Both packages carry the same Skills, the same identity\n",
 			verb, strings.Join(installed, " and "))
 		fmt.Println("and the same engineer; the deterministic surface is this binary in either.")
-	case len(installed) == 1 && len(failed) == 0:
+	case len(installed) == 1 && len(failed)+len(skipped) == 0:
 		fmt.Printf("%s %s. It carries the Skills, the identity and the engineer;\n",
 			verb, installed[0])
 		fmt.Println("the deterministic surface is this binary.")
-	case len(installed) > 0:
+	case len(installed) > 0 && len(failed) > 0:
 		// Reporting the half that worked as though it were the whole is how an
 		// installation ends up in two states that nobody meant it to be in.
 		fmt.Printf("%s %s only. %s did not complete, so that runtime is still on\n",
 			verb, strings.Join(installed, " and "), plural(len(failed), "runtime", "runtimes"))
 		fmt.Println("whatever it had before — a different release, or nothing. This is a partial")
 		fmt.Println("install and the two runtimes now disagree.")
+	case len(installed) > 0:
+		fmt.Printf("%s %s only. This is a partial install and the runtimes now disagree.\n",
+			verb, strings.Join(installed, " and "))
 	default:
 		fmt.Println("Nothing was installed.")
+	}
+	if len(skipped) > 0 {
+		fmt.Printf("\nSkipped because the runtime itself did not run here, with its registration\n"+
+			"left exactly as it was — an earlier release, or nothing:\n  %s\n"+
+			"Run this again from a shell where that runtime starts.\n",
+			strings.Join(skipped, "\n  "))
 	}
 	if len(absent) > 0 {
 		fmt.Printf("\nNot found on PATH or in the usual places, so not touched: %s.\n", strings.Join(absent, ", "))
@@ -205,8 +221,8 @@ func cmdInstall(ctx context.Context, args []string) error {
 			"without it; everything deterministic does not. Put %s on PATH,\n"+
 			"or set MELLIONS_BIN to it.\n", self)
 	}
-	if len(failed) > 0 {
-		return errors.New(strings.Join(failed, "; "))
+	if notDone := append(append([]string{}, skipped...), failed...); len(notDone) > 0 {
+		return errors.New(strings.Join(notDone, "; "))
 	}
 	return nil
 }
@@ -375,7 +391,40 @@ func (a adapter) steps(source string) []step {
 	}
 }
 
+// unrunnable is a runtime whose read-only probe failed. Nothing of its
+// registration was touched, so it still has whatever it had before.
+type unrunnable struct{ line, why string }
+
+func (u *unrunnable) Error() string {
+	return u.line + ": " + u.why + "; its registration was left untouched"
+}
+
+// probe runs the runtime's read-only list command. Clearing is only safe once
+// the same binary has been seen to run: a runtime found on disk can still fail
+// to start — a `#!/usr/bin/env node` script on a PATH without node exits 127 —
+// and clearing first would leave it with no registration at all.
+func (a adapter) probe(ctx context.Context) error {
+	line := a.bin + " " + strings.Join(a.list, " ")
+	fmt.Printf("  %s\n", line)
+	c, cancel := context.WithTimeout(ctx, time.Minute)
+	defer cancel()
+	out, err := exec.CommandContext(c, a.bin, a.list...).CombinedOutput()
+	if err != nil {
+		why := err.Error()
+		if first := firstLine(string(out)); first != "" {
+			why += ": " + first
+		}
+		return &unrunnable{line: line, why: why}
+	}
+	return nil
+}
+
 func (a adapter) run(ctx context.Context, source string, dry bool) error {
+	if dry {
+		fmt.Printf("  would run: %s %s\n", a.bin, strings.Join(a.list, " "))
+	} else if err := a.probe(ctx); err != nil {
+		return err
+	}
 	for _, s := range a.steps(source) {
 		line := a.bin + " " + strings.Join(s.args, " ")
 		if dry {
