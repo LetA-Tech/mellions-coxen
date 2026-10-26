@@ -113,6 +113,7 @@ func TestABaselineIsNeverHalfThere(t *testing.T) {
 
 	stop := make(chan struct{})
 	var wg sync.WaitGroup
+	var empty, reads, writes int64
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
@@ -122,12 +123,13 @@ func TestABaselineIsNeverHalfThere(t *testing.T) {
 				return
 			default:
 			}
-			_ = rec.Record(delivery(awareness.KindProgram, "sample", fmt.Sprintf("v%d", i),
-				map[string]string{"Purpose": "p", "Map": "m", "Constraints": "c"}))
+			if rec.Record(delivery(awareness.KindProgram, "sample", fmt.Sprintf("v%d", i),
+				map[string]string{"Purpose": "p", "Map": "m", "Constraints": "c"})) == nil {
+				atomic.AddInt64(&writes, 1)
+			}
 		}
 	}()
 
-	var empty, reads int64
 	for r := 0; r < 4; r++ {
 		wg.Add(1)
 		go func() {
@@ -145,15 +147,26 @@ func TestABaselineIsNeverHalfThere(t *testing.T) {
 			}
 		}()
 	}
+	// Sample for at least 300ms, then until both floors are met: a loaded host
+	// reaches them later, never with fewer reads or writes. The deadline bounds
+	// only a host that cannot reach them at all.
+	const minReads, minWrites = 1000, 50
 	time.Sleep(300 * time.Millisecond)
+	for deadline := time.Now().Add(30 * time.Second); time.Now().Before(deadline) &&
+		(atomic.LoadInt64(&reads) < minReads || atomic.LoadInt64(&writes) < minWrites); {
+		time.Sleep(10 * time.Millisecond)
+	}
 	close(stop)
 	wg.Wait()
 
-	if n := atomic.LoadInt64(&reads); n < 1000 {
-		t.Fatalf("only %d reads: the window was never sampled hard enough to prove anything", n)
-	}
 	if n := atomic.LoadInt64(&empty); n != 0 {
 		t.Errorf("%d of %d reads saw a session that had been handed nothing",
 			n, atomic.LoadInt64(&reads))
+	}
+	if n := atomic.LoadInt64(&reads); n < minReads {
+		t.Fatalf("only %d reads: the window was never sampled hard enough to prove anything", n)
+	}
+	if n := atomic.LoadInt64(&writes); n < minWrites {
+		t.Fatalf("only %d writes: the window was never opened often enough to prove anything", n)
 	}
 }
