@@ -225,3 +225,30 @@ func TestAHungRuntimeIsSkippedWithinItsBound(t *testing.T) {
 		t.Errorf("err = %v; want Codex named as skipped", err)
 	}
 }
+
+// TestARuntimeThatExitsCleanlyWithAChildHoldingItsOutputSucceeds: a command
+// that exits 0 while a child it started still holds the output pipe is a
+// success, for the probe and for every step, not a skip or a failed install.
+func TestARuntimeThatExitsCleanlyWithAChildHoldingItsOutputSucceeds(t *testing.T) {
+	wait := waitDelay
+	waitDelay = 200 * time.Millisecond
+	t.Cleanup(func() { waitDelay = wait })
+	logs := stubRuntimes(t, map[string]string{"codex": "sleep 2 &\nexit 0\n"})
+	src := marketplaceDir(t)
+	out := captureStdout(t, func() {
+		_ = cmdInstall(context.Background(), []string{"-runtime", "codex", "-from", src})
+	})
+	want := []string{
+		"--version",
+		"plugin remove mellions@mellions",
+		"plugin marketplace remove mellions",
+		"plugin marketplace add " + src,
+		"plugin add mellions@mellions",
+	}
+	if got := stubCalls(t, logs, "codex"); !reflect.DeepEqual(got, want) {
+		t.Errorf("codex was given %q, want %q", got, want)
+	}
+	if strings.Contains(out, "skipped") || strings.Contains(out, "did not complete") {
+		t.Errorf("a runtime whose commands exited 0 was reported as not installed:\n%s", out)
+	}
+}

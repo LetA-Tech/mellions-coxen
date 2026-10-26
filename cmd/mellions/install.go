@@ -401,7 +401,7 @@ func (u *unrunnable) Error() string {
 
 // probe runs the runtime's version command. Clearing is only safe once the
 // same binary has been seen to start: a runtime found on disk can still fail to
-// — a `#!/usr/bin/env node` script on a PATH without node exits 127 — and
+// start — a `#!/usr/bin/env node` script on a PATH without node exits 127 — and
 // clearing first would leave it with no registration at all.
 //
 // The probe asks nothing of the plugin subsystem. `codex plugin list` exits 1
@@ -412,7 +412,7 @@ func (a adapter) probe(ctx context.Context) error {
 	fmt.Printf("  %s\n", line)
 	c, cancel := context.WithTimeout(ctx, probeTimeout)
 	defer cancel()
-	out, err := runtimeCommand(c, a.bin, a.starts...).CombinedOutput()
+	out, err := runRuntime(c, a.bin, a.starts...)
 	if err != nil {
 		why := err.Error()
 		if first := firstLine(string(out)); first != "" {
@@ -423,19 +423,26 @@ func (a adapter) probe(ctx context.Context) error {
 	return nil
 }
 
-// probeTimeout bounds the version probe; waitDelay bounds how long a killed
-// runtime's children may hold its output open. The Codex launcher is node
-// running a native child with inherited stdio, so killing node alone leaves the
-// pipe open and the timeout would not end the wait.
+// probeTimeout bounds the version probe; waitDelay bounds how long a runtime's
+// children may hold its output open once it has exited or been killed. The
+// Codex launcher is node running a native child with inherited stdio, so
+// killing node alone leaves the pipe open and the timeout would not end the wait.
 var (
 	probeTimeout = time.Minute
 	waitDelay    = 5 * time.Second
 )
 
-func runtimeCommand(ctx context.Context, bin string, args ...string) *exec.Cmd {
+// runRuntime runs one runtime command and returns its combined output. A
+// command that exited 0 while a child still held its output succeeded: what
+// the runtime did is read back from its own files afterwards, not from here.
+func runRuntime(ctx context.Context, bin string, args ...string) ([]byte, error) {
 	c := exec.CommandContext(ctx, bin, args...)
 	c.WaitDelay = waitDelay
-	return c
+	out, err := c.CombinedOutput()
+	if errors.Is(err, exec.ErrWaitDelay) {
+		err = nil
+	}
+	return out, err
 }
 
 func (a adapter) run(ctx context.Context, source string, dry bool) error {
@@ -452,7 +459,7 @@ func (a adapter) run(ctx context.Context, source string, dry bool) error {
 		}
 		fmt.Printf("  %s\n", line)
 		c, cancel := context.WithTimeout(ctx, 3*time.Minute)
-		out, err := runtimeCommand(c, a.bin, s.args...).CombinedOutput()
+		out, err := runRuntime(c, a.bin, s.args...)
 		cancel()
 		if err != nil && !s.spent {
 			return fmt.Errorf("%s: %v: %s", line, err, firstLine(string(out)))
