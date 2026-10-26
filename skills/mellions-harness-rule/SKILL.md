@@ -73,7 +73,11 @@ Properties the rule must have:
   than it literally matches, write the change that satisfies the matcher and
   leaves the property false — the phrase kept in a sentence that no longer
   instructs, the field checked and then ignored — and watch it pass. If one
-  exists, widen the check or narrow what the failure message claims.
+  exists, narrow what the failure message claims, or widen the check. One added
+  spelling can be right; a matcher that needs a second is reading the wrong
+  layer, since each spelling closes one shape and leaves the rest open. Read the
+  artefact where the property lives instead: its parser, or the resolved form
+  its own tool produces, not a longer text matcher.
 - **It says what to do instead.** A failure that only says "do not do this" sends
   the next engineer looking for the answer.
 
