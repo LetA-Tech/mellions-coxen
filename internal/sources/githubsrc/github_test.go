@@ -7,6 +7,7 @@ package githubsrc
 import (
 	"context"
 	"errors"
+	"fmt"
 	"slices"
 	"strconv"
 	"strings"
@@ -700,5 +701,65 @@ func TestAClaimedPullRequestSaysAPeerHoldsIt(t *testing.T) {
 	}
 	if free := by["PR #179"].Attrs["claimed"]; free != "" {
 		t.Errorf("an unclaimed pull request carries claimed=%q; the marker would mean nothing", free)
+	}
+}
+
+// A change set stacked on a lane branch keeps that branch as its base after the
+// parent merges, and nothing on the pull request changes to say so.
+func TestAStackedChangeSetWhoseParentIsGoneSaysSo(t *testing.T) {
+	pr := func(n int, head, base string) string {
+		return fmt.Sprintf(`{"number":%d,"title":"t","url":"u","createdAt":"2030-01-02T04:44:00Z","updatedAt":"2030-01-02T04:44:00Z","labels":[],"isDraft":true,"mergeable":"MERGEABLE","headRefName":%q,"baseRefName":%q,"author":{"login":"sample-user"},"body":"x","reviews":[]}`, n, head, base)
+	}
+	prs := "[" + strings.Join([]string{
+		pr(1, "mellions/parent", "dev"),
+		pr(2, "mellions/child", "mellions/parent"),
+		pr(3, "mellions/orphan", "mellions/merged-parent"),
+		pr(4, "feature/x", "release/v1"),
+		pr(7, "dev", "main"),
+		strings.Replace(pr(8, "mellions/forked", "main"), `"labels":[]`, `"isCrossRepository":true,"labels":[]`, 1),
+		pr(9, "mellions/upstream", "mellions/forked"),
+		strings.Replace(pr(6, "dev", "dev"), `"labels":[]`, `"isCrossRepository":true,"labels":[]`, 1),
+	}, ",") + "]"
+	run, calls := fakeGH(t, map[string]string{"pr": prs})
+	got := collect(t, New(Options{Owner: "o", Repos: []string{"r"}, Run: run}), signal.Scope{})
+	by := map[string]signal.Signal{}
+	for _, cs := range got {
+		by[cs.ID] = cs
+	}
+	asked := false
+	for _, c := range *calls {
+		if strings.HasPrefix(c, "pr list") && strings.Contains(c, "baseRefName") && strings.Contains(c, "isCrossRepository") {
+			asked = true
+		}
+	}
+	if !asked {
+		t.Errorf("no pr list call requests baseRefName, so gh returns no base to judge: %q", *calls)
+	}
+
+	if o := by["PR #3"].Attrs["orphaned"]; !strings.Contains(o, "mellions/merged-parent") || !strings.Contains(o, "retarget") {
+		t.Errorf("a change set based on a lane branch no open pull request heads carries orphaned=%q", o)
+	}
+	if s := by["PR #2"].Attrs["stacked_on"]; s != "PR #1" {
+		t.Errorf("a change set based on an open pull request's head carries stacked_on=%q, want PR #1", s)
+	}
+	for _, id := range []string{"PR #1", "PR #2", "PR #4", "PR #7", "PR #8"} {
+		if o := by[id].Attrs["orphaned"]; o != "" {
+			t.Errorf("%s reads as orphaned (%q); only a lane-branch base with no open head is", id, o)
+		}
+	}
+	if o := by["PR #9"].Attrs["orphaned"]; o == "" {
+		t.Errorf("a change set based on a lane branch only a fork's pull request heads is not flagged orphaned")
+	}
+	for _, id := range []string{"PR #1", "PR #3", "PR #4", "PR #6", "PR #7", "PR #8", "PR #9"} {
+		if s := by[id].Attrs["stacked_on"]; s != "" {
+			t.Errorf("%s reads as stacked on %q", id, s)
+		}
+	}
+
+	capped := collect(t, New(Options{Owner: "o", Repos: []string{"r"}, Run: run, PerRepoLimit: 8}), signal.Scope{})
+	for _, cs := range capped {
+		if o := cs.Attrs["orphaned"]; o != "" {
+			t.Errorf("%s reads as orphaned from a list that came back at its limit, where the parent may be uncollected: %q", cs.ID, o)
+		}
 	}
 }

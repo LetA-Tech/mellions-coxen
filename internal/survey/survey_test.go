@@ -627,3 +627,24 @@ func TestALiveLanesUnlabelledDraftIsHeldInTheSurvey(t *testing.T) {
 		}
 	}
 }
+
+// A shift chooses from the brief render, so an orphaned stack has to say so there.
+func TestAnOrphanedChangeSetSaysSoInTheBriefRender(t *testing.T) {
+	orphan := signal.Signal{
+		Kind: signal.KindChangeSet, Source: "github", ID: "PR #797", Title: "stacked exhibit", Repo: "r",
+		Attrs: map[string]string{"type": "pull_request", "draft": "true", "reviews": "0",
+			"orphaned": "based on mellions/p, which no open pull request heads: retarget it before merging"},
+	}
+	child := signal.Signal{
+		Kind: signal.KindChangeSet, Source: "github", ID: "PR #798", Title: "live stack", Repo: "r",
+		Attrs: map[string]string{"type": "pull_request", "draft": "true", "reviews": "0", "stacked_on": "PR #796"},
+	}
+	r := Result{At: time.Now(), Signals: []signal.Signal{orphan, child}}
+	brief := r.Render(Default())
+	if got := lineFor(t, brief, "PR #797"); !strings.Contains(got, "ORPHANED") || !strings.Contains(got, "retarget") {
+		t.Errorf("the brief line a shift chooses from is %q and does not say the stack's parent is gone", got)
+	}
+	if got := lineFor(t, brief, "PR #798"); !strings.Contains(got, "stacked on PR #796") || strings.Contains(got, "ORPHANED") {
+		t.Errorf("a live stack's brief line is %q", got)
+	}
+}

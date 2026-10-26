@@ -64,6 +64,9 @@ const (
 	StateAbandoned = "abandoned"
 )
 
+// BranchPrefix starts the branch an assignment cuts when none is named.
+const BranchPrefix = "mellions/"
+
 var states = []string{StateActive, StateBlocked, StateSuspended, StateHandedOff, StateClosed, StateAbandoned}
 
 // ErrNotFound is returned when an id names no assignment.
@@ -886,7 +889,7 @@ func (s *Store) create(id string, o OpenOptions, ours bool) (*Assignment, error)
 
 	branch := o.Branch
 	if branch == "" {
-		branch = "mellions/" + id
+		branch = BranchPrefix + id
 	}
 	worktree := filepath.Join(s.dir(id), "tree")
 
