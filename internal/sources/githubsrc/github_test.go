@@ -715,6 +715,10 @@ func TestAStackedChangeSetWhoseParentIsGoneSaysSo(t *testing.T) {
 		pr(2, "mellions/child", "mellions/parent"),
 		pr(3, "mellions/orphan", "mellions/merged-parent"),
 		pr(4, "feature/x", "release/v1"),
+		pr(7, "dev", "main"),
+		strings.Replace(pr(8, "mellions/forked", "main"), `"labels":[]`, `"isCrossRepository":true,"labels":[]`, 1),
+		pr(9, "mellions/upstream", "mellions/forked"),
+		strings.Replace(pr(6, "dev", "dev"), `"labels":[]`, `"isCrossRepository":true,"labels":[]`, 1),
 	}, ",") + "]"
 	run, calls := fakeGH(t, map[string]string{"pr": prs})
 	got := collect(t, New(Options{Owner: "o", Repos: []string{"r"}, Run: run}), signal.Scope{})
@@ -724,7 +728,7 @@ func TestAStackedChangeSetWhoseParentIsGoneSaysSo(t *testing.T) {
 	}
 	asked := false
 	for _, c := range *calls {
-		if strings.HasPrefix(c, "pr list") && strings.Contains(c, "baseRefName") {
+		if strings.HasPrefix(c, "pr list") && strings.Contains(c, "baseRefName") && strings.Contains(c, "isCrossRepository") {
 			asked = true
 		}
 	}
@@ -738,18 +742,21 @@ func TestAStackedChangeSetWhoseParentIsGoneSaysSo(t *testing.T) {
 	if s := by["PR #2"].Attrs["stacked_on"]; s != "PR #1" {
 		t.Errorf("a change set based on an open pull request's head carries stacked_on=%q, want PR #1", s)
 	}
-	for _, id := range []string{"PR #1", "PR #2", "PR #4"} {
+	for _, id := range []string{"PR #1", "PR #2", "PR #4", "PR #7", "PR #8"} {
 		if o := by[id].Attrs["orphaned"]; o != "" {
 			t.Errorf("%s reads as orphaned (%q); only a lane-branch base with no open head is", id, o)
 		}
 	}
-	for _, id := range []string{"PR #1", "PR #3", "PR #4"} {
+	if o := by["PR #9"].Attrs["orphaned"]; o == "" {
+		t.Errorf("a change set based on a lane branch only a fork's pull request heads is not flagged orphaned")
+	}
+	for _, id := range []string{"PR #1", "PR #3", "PR #4", "PR #6", "PR #7", "PR #8", "PR #9"} {
 		if s := by[id].Attrs["stacked_on"]; s != "" {
 			t.Errorf("%s reads as stacked on %q", id, s)
 		}
 	}
 
-	capped := collect(t, New(Options{Owner: "o", Repos: []string{"r"}, Run: run, PerRepoLimit: 4}), signal.Scope{})
+	capped := collect(t, New(Options{Owner: "o", Repos: []string{"r"}, Run: run, PerRepoLimit: 8}), signal.Scope{})
 	for _, cs := range capped {
 		if o := cs.Attrs["orphaned"]; o != "" {
 			t.Errorf("%s reads as orphaned from a list that came back at its limit, where the parent may be uncollected: %q", cs.ID, o)

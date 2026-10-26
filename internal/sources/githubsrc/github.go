@@ -201,6 +201,9 @@ type ghIssue struct {
 	Mergeable string `json:"mergeable"`
 	HeadRef   string `json:"headRefName"`
 	BaseRef   string `json:"baseRefName"`
+	// CrossRepo marks a head branch in a fork, whose name says nothing about
+	// a branch in this repository.
+	CrossRepo bool `json:"isCrossRepository"`
 }
 
 func (g ghIssue) labels() []string {
@@ -278,7 +281,7 @@ func (s *Source) issues(ctx context.Context, full string, limit int) ([]signal.S
 func (s *Source) pulls(ctx context.Context, full string, limit int) ([]signal.Signal, error) {
 	raw, err := s.opts.Run(ctx, "pr", "list", "-R", full, "--state", "open",
 		"--limit", strconv.Itoa(limit),
-		"--json", "number,title,url,createdAt,updatedAt,labels,isDraft,mergeable,headRefName,baseRefName,author,body,reviews,comments")
+		"--json", "number,title,url,createdAt,updatedAt,labels,isDraft,mergeable,headRefName,baseRefName,isCrossRepository,author,body,reviews,comments")
 	if err != nil {
 		return nil, err
 	}
@@ -290,7 +293,7 @@ func (s *Source) pulls(ctx context.Context, full string, limit int) ([]signal.Si
 	repo := shortName(full)
 	heads := make(map[string]int, len(items))
 	for _, it := range items {
-		if it.HeadRef != "" {
+		if it.HeadRef != "" && !it.CrossRepo {
 			heads[it.HeadRef] = it.Number
 		}
 	}
@@ -309,15 +312,16 @@ func (s *Source) pulls(ctx context.Context, full string, limit int) ([]signal.Si
 		if it.Author.Login != "" {
 			attrs["author"] = it.Author.Login
 		}
-		// A change set based on another's branch carries that one's commits, and
-		// when the parent merges or closes its base stays on the dead branch while
-		// it reads as an ordinary draft. Only lane branches are judged, and only
-		// from a list that came back under its limit, where an absent head is gone.
-		if n, ok := heads[it.BaseRef]; ok {
-			attrs["stacked_on"] = "PR #" + strconv.Itoa(n)
-		} else if strings.HasPrefix(it.BaseRef, assignment.BranchPrefix) && len(items) < limit {
-			attrs["orphaned"] = "based on " + it.BaseRef + ", which no open pull request heads: " +
-				"the change set it was stacked on has merged or closed, or was never opened; retarget it before merging"
+		// A change set based on a lane branch is stacked on that lane's change set,
+		// and keeps the base after the parent merges or closes. An absent head means
+		// gone only in a list that came back under its limit.
+		if strings.HasPrefix(it.BaseRef, assignment.BranchPrefix) {
+			if n, ok := heads[it.BaseRef]; ok {
+				attrs["stacked_on"] = "PR #" + strconv.Itoa(n)
+			} else if len(items) < limit {
+				attrs["orphaned"] = "based on " + it.BaseRef + ", which no open pull request heads: " +
+					"the change set it was stacked on has merged or closed, or was never opened; retarget it before merging"
+			}
 		}
 		// Every Mellions session pushes as the same GitHub account, so author
 		// separates a bot's PR from an engineer's and nothing finer; which lane
