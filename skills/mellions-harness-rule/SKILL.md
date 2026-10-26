@@ -65,9 +65,16 @@ Properties the rule must have:
 
 - **It names the defect and why, not just the pattern.** Whoever trips this in
   six months needs to understand it without reading the original issue.
-- **It fails on the defect and passes on the fix.** Prove that: reintroduce the
-  old shape, watch it fail, restore it. This is the same falsification the fix
-  itself needed, applied to the rule.
+- **It fails on the defect, and passes on the fix and on correct inputs no tree
+  holds yet.** Prove the first: reintroduce the old shape, watch it fail,
+  restore it. Every current tree passing — this repository's or its siblings' —
+  shows no false alarm today, not that the matcher is precise. For each kind of
+  input it reads, write correct inputs that contain what it matches without the
+  defect — an example or placeholder, a name that resolves elsewhere, the same
+  name in another scope, a line recording its removal — keep them as cases the
+  rule must pass, and run them. One that fires means the rule reads that input
+  at the wrong layer: read it where the property lives (below), or stop reading
+  it; do not carve an exception per case.
 - **It cannot pass while the property is false.** The matcher is a proxy, and
   reintroducing the defect tests one instance of it. Where the rule claims more
   than it literally matches, write the change that satisfies the matcher and
