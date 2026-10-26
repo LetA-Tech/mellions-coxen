@@ -31,6 +31,12 @@ requirement, a golden file, a reference implementation, an invariant, a value
 read across the boundary the fix crosses — never a call into the code under
 test.
 
+Where the oracle is whether two inputs share a key — idempotency, dedupe,
+cache — it sees only the fields the pair varies. Read the producer: build the
+duplicate as it re-sends (same identity, a fresh timestamp or attempt) and the
+distinct case as a new identity with those held; assert the outcome (rows,
+backing calls); arm with a key that takes in a re-stamped field.
+
 ## The revert arms
 
 Revert every part of the fix at once and watch the named tests fail. A complete

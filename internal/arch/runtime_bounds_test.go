@@ -139,6 +139,7 @@ var skillsInReserve = map[string]int{
 	"mellions-bug-audit":         7821,
 	"mellions-deep-research":     7884,
 	"mellions-issue-closure":     7573,
+	"mellions-falsification":     7788,
 }
 
 // TestNoSkillSpendsItsLastBytesUnnoticed fires with room left to act on,
