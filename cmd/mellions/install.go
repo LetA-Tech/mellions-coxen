@@ -36,7 +36,7 @@ type adapter struct {
 	unmarket []string // drop the marketplace, so a new source can replace it
 	remove   []string // clear any installed copy first
 	install  []string // install the plugin
-	list     []string // read-only; must exit 0 before anything is cleared
+	starts   []string // read-only; must exit 0 before anything is cleared
 	manual   string   // what this runtime needs from a person, and cannot be given
 	pluginID string
 }
@@ -72,7 +72,7 @@ var adapters = []adapter{
 		unmarket: []string{"plugin", "marketplace", "remove", "mellions"},
 		remove:   []string{"plugin", "uninstall", "mellions@mellions"},
 		install:  []string{"plugin", "install", "mellions@mellions"},
-		list:     []string{"plugin", "list"},
+		starts:   []string{"--version"},
 		pluginID: "mellions@mellions",
 	},
 	{
@@ -81,7 +81,7 @@ var adapters = []adapter{
 		unmarket: []string{"plugin", "marketplace", "remove", "mellions"},
 		remove:   []string{"plugin", "remove", "mellions@mellions"},
 		install:  []string{"plugin", "add", "mellions@mellions"},
-		list:     []string{"plugin", "list"},
+		starts:   []string{"--version"},
 		pluginID: "mellions@mellions",
 		manual: "Codex will not run a plugin's hooks until they are trusted. Start Codex\n" +
 			"once and accept the Mellions hooks when it asks, or run `/hooks` there.\n" +
@@ -399,16 +399,20 @@ func (u *unrunnable) Error() string {
 	return u.line + ": " + u.why + "; its registration was left untouched"
 }
 
-// probe runs the runtime's read-only list command. Clearing is only safe once
-// the same binary has been seen to run: a runtime found on disk can still fail
-// to start — a `#!/usr/bin/env node` script on a PATH without node exits 127 —
-// and clearing first would leave it with no registration at all.
+// probe runs the runtime's version command. Clearing is only safe once the
+// same binary has been seen to start: a runtime found on disk can still fail to
+// — a `#!/usr/bin/env node` script on a PATH without node exits 127 — and
+// clearing first would leave it with no registration at all.
+//
+// The probe asks nothing of the plugin subsystem. `codex plugin list` exits 1
+// when a registered marketplace's directory is gone, and that broken
+// registration is exactly what clearing and re-adding repairs.
 func (a adapter) probe(ctx context.Context) error {
-	line := a.bin + " " + strings.Join(a.list, " ")
+	line := a.bin + " " + strings.Join(a.starts, " ")
 	fmt.Printf("  %s\n", line)
-	c, cancel := context.WithTimeout(ctx, time.Minute)
+	c, cancel := context.WithTimeout(ctx, probeTimeout)
 	defer cancel()
-	out, err := exec.CommandContext(c, a.bin, a.list...).CombinedOutput()
+	out, err := runtimeCommand(c, a.bin, a.starts...).CombinedOutput()
 	if err != nil {
 		why := err.Error()
 		if first := firstLine(string(out)); first != "" {
@@ -419,9 +423,24 @@ func (a adapter) probe(ctx context.Context) error {
 	return nil
 }
 
+// probeTimeout bounds the version probe; waitDelay bounds how long a killed
+// runtime's children may hold its output open. The Codex launcher is node
+// running a native child with inherited stdio, so killing node alone leaves the
+// pipe open and the timeout would not end the wait.
+var (
+	probeTimeout = time.Minute
+	waitDelay    = 5 * time.Second
+)
+
+func runtimeCommand(ctx context.Context, bin string, args ...string) *exec.Cmd {
+	c := exec.CommandContext(ctx, bin, args...)
+	c.WaitDelay = waitDelay
+	return c
+}
+
 func (a adapter) run(ctx context.Context, source string, dry bool) error {
 	if dry {
-		fmt.Printf("  would run: %s %s\n", a.bin, strings.Join(a.list, " "))
+		fmt.Printf("  would run: %s %s\n", a.bin, strings.Join(a.starts, " "))
 	} else if err := a.probe(ctx); err != nil {
 		return err
 	}
@@ -433,7 +452,7 @@ func (a adapter) run(ctx context.Context, source string, dry bool) error {
 		}
 		fmt.Printf("  %s\n", line)
 		c, cancel := context.WithTimeout(ctx, 3*time.Minute)
-		out, err := exec.CommandContext(c, a.bin, s.args...).CombinedOutput()
+		out, err := runtimeCommand(c, a.bin, s.args...).CombinedOutput()
 		cancel()
 		if err != nil && !s.spent {
 			return fmt.Errorf("%s: %v: %s", line, err, firstLine(string(out)))
