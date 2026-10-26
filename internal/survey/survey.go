@@ -491,6 +491,12 @@ func briefReadiness(s signal.Signal) string {
 	if h := s.Attrs[signal.AttrHeldBy]; h != "" {
 		parts = append(parts, "HELD by lane "+h)
 	}
+	if p := s.Attrs["stacked_on"]; p != "" {
+		parts = append(parts, "stacked on "+p)
+	}
+	if s.Attrs["orphaned"] != "" {
+		parts = append(parts, "ORPHANED: its base branch heads no open pull request; retarget it")
+	}
 	if len(parts) == 0 {
 		return ""
 	}
