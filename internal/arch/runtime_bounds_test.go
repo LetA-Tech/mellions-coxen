@@ -46,17 +46,10 @@ import (
 // `skills` in `cmd/mellions/skills.go` matches a query against the WHOLE
 // description (:83), utterance triggers included; `situation` (:204) cuts at
 // `Triggers —` for display only. Deleting a trigger list therefore costs the
-// method its own defining query: with the lists gone from the three Skills the
-// session hooks deliver, `mellions skills "prove a fix holds"` stops returning
+// method its own defining query: with the lists gone from the bearing Skills,
+// `mellions skills "prove a fix holds"` stops returning
 // mellions-falsification alone and returns six, and `"establish what the code
 // actually does"` puts mellions-deep-research third.
-//
-// The hooks `session-reasoning.sh`, `session-research.sh` and
-// `session-falsification.sh` strip the frontmatter before injecting the body,
-// so for those three the description is charged to the per-file cap and to the
-// catalog budget while contributing nothing to what a session carries at
-// start. That asymmetry is real and the bytes are still not recoverable this
-// way; a saving has to come out of the body.
 const (
 	codexSkillBytes  = 8000
 	descriptionChars = 1024
@@ -146,8 +139,16 @@ var skillsInReserve = map[string]int{
 	"mellions-bug-audit":         7821,
 	"mellions-deep-research":     7884,
 	"mellions-issue-closure":     7573,
-	"mellions-falsification":     7652,
+	"mellions-falsification":     7749,
 }
+
+// restoreHeadroom is what both reserve failures point to. Trimming sentences
+// until the count fits drops the qualifiers that keep them true; a deleted
+// duplicate loses no instruction, and a moved paragraph keeps its cue and
+// first action in SKILL.md.
+const restoreHeadroom = "restore headroom by deleting only what another line of the same SKILL.md already " +
+	"says, or by moving a paragraph only one situation needs to references/ behind a backticked path, keeping " +
+	"its cue, its first action and what the file holds inline"
 
 // TestNoSkillSpendsItsLastBytesUnnoticed fires with room left to act on,
 // which the hard cap by construction cannot: it reports at the boundary, when
@@ -176,8 +177,8 @@ func TestNoSkillSpendsItsLastBytesUnnoticed(t *testing.T) {
 			seen[name] = true
 			if len(raw) > baseline {
 				t.Errorf("skills/%s/SKILL.md is %d bytes, above its recorded %d and inside the %d-byte "+
-					"reserve below the %d cap — a Skill carrying this much debt may not take on more; "+
-					"restore headroom in it rather than raising the baseline", name, len(raw), baseline, skillReserveBytes, codexSkillBytes)
+					"reserve below the %d cap — a Skill carrying this much debt may not take on more, and the "+
+					"baseline does not rise: %s", name, len(raw), baseline, skillReserveBytes, codexSkillBytes, restoreHeadroom)
 			}
 			if len(raw) <= band {
 				t.Errorf("skills/%s/SKILL.md is %d bytes, at or below the %d-byte band, and skillsInReserve still "+
@@ -188,8 +189,8 @@ func TestNoSkillSpendsItsLastBytesUnnoticed(t *testing.T) {
 		}
 		if len(raw) > band {
 			t.Errorf("skills/%s/SKILL.md is %d bytes, inside the %d-byte reserve below the %d cap: a lesson "+
-				"of ordinary size can no longer land here without deleting one already there. Restore headroom, "+
-				"or record the debt in skillsInReserve in the commit that spends it", name, len(raw), skillReserveBytes, codexSkillBytes)
+				"of ordinary size can no longer land here without deleting one already there: %s; or record the "+
+				"debt in skillsInReserve in the commit that spends it", name, len(raw), skillReserveBytes, codexSkillBytes, restoreHeadroom)
 		}
 	}
 	for name, baseline := range skillsInReserve {

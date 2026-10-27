@@ -101,9 +101,8 @@ func sharedEstate(cfg *Config) sharedtree.Estate {
 		Lanes: []string{cfg.assignmentsRoot()},
 		Home:  home(),
 		Lane:  laneFinder(cfg),
-		// Landing a Mellions fix is `git pull --ff-only` here. Read from the
-		// registry rather than assumed, so an installation that loads from
-		// somewhere else exempts that tree and not this one.
+		// The checkout the runtime loads this installation from, read from the
+		// registry rather than assumed.
 		LoadPath:  pluginRoot(reg),
 		Dirty:     treeIsDirty,
 		OtherTree: inOtherTree,
@@ -155,8 +154,8 @@ func gitIgnores(path, checkout string) bool {
 //
 // Only a clear yes counts. A git that will not run, a directory that is not a
 // repository, a non-zero exit — each is "cannot tell", which answers no and
-// lets the deployment exemption stand, because a guess in the other direction
-// blocks the only sanctioned way to install a fix.
+// lets the fast-forward exemption stand, because a guess in the other direction
+// blocks every clean update of a shared checkout.
 //
 // Tracked changes only. Autostash does not pass `--include-untracked`, so an
 // untracked file is never stashed and never reapplied: measured, a tree whose

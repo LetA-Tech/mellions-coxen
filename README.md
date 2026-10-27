@@ -133,7 +133,7 @@ For Claude Code today, the plugin uses lifecycle surfaces such as:
 
 | Runtime moment | What Mellions contributes |
 |---|---|
-| **Session start / resume** | Durable identity, engineering methods, relevant program/partnership context, work in flight, and owner state |
+| **Session start / resume** | Durable identity, the owner's working rules, work in flight, and owner state (shifts also get program and partnership) |
 | **Prompt submission** | Situational awareness that became relevant since the last turn |
 | **Before tool use** | Narrow awareness and deterministic protection where an invariant genuinely needs it |
 | **Before compaction** | Preserve the engineering responsibility before context renewal |

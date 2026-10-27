@@ -156,18 +156,13 @@ func cmdDoctor(ctx context.Context, args []string) error {
 		line("hooks", "ABSENT", filepath.Join(hooksRoot, "hooks", "hooks.json")+" declares no SessionStart hooks")
 	}
 	if hooksRoot != "" {
-		// The three Skills every session's engineering rests on; one missing
-		// means the session-start hooks are delivering a partial engineer.
-		var missing []string
-		for _, name := range []string{"mellions-reasoning", "mellions-deep-research", "mellions-falsification", "mellions-self-learning"} {
-			if _, err := os.Stat(filepath.Join(hooksRoot, "skills", name, "SKILL.md")); err != nil {
-				missing = append(missing, name)
-			}
-		}
-		if len(missing) == 0 {
-			line("bearing skills", "present", "reasoning, deep research, falsification, self-learning under "+hooksRoot)
+		// The owner's working rules, the one document every session start and
+		// every compaction delivers.
+		wf := filepath.Join(hooksRoot, "config", "session-workflow.md")
+		if _, err := os.Stat(wf); err == nil {
+			line("working rules", "present", wf)
 		} else {
-			line("bearing skills", "ABSENT", strings.Join(missing, ", ")+" missing under "+filepath.Join(hooksRoot, "skills"))
+			line("working rules", "ABSENT", wf+" missing; sessions start without the workflow")
 		}
 	}
 
@@ -449,7 +444,7 @@ func reportSessionLoad(reg pluginreg.Registration) {
 			fmt.Printf("registration, a new process is the only way:\n\n  claude --resume %s\n", sessionID)
 			return
 		}
-		fmt.Println("\nThis session loaded the plugin. Identity, method, catalog and commands are\nin front of it.")
+		fmt.Println("\nThis session loaded the plugin. Identity, the working rules and commands are\nin front of it; after a compaction, the working rules alone are re-delivered.")
 		return
 	}
 	// The remedy, and the two that are not remedies. A session that reaches

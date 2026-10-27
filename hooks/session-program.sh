@@ -7,6 +7,9 @@
 # repository the session is in, and one line naming it otherwise. Standing
 # context is read as relevant because it arrived; a program that has not said it
 # covers this repository is 4 KB of every window that is about something else.
+# Unattended shifts only: scripts/shift.sh exports MELLIONS_DEADLINE and nothing
+# else sets it, so an interactive session pays nothing for this hook.
+[[ -n "${MELLIONS_DEADLINE:-}" ]] || exit 0
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 if [[ ! -x "$mellions" ]]; then
   echo "The \`mellions\` binary is not on PATH (or MELLIONS_BIN), so no partnership, no"

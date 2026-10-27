@@ -65,15 +65,30 @@ Properties the rule must have:
 
 - **It names the defect and why, not just the pattern.** Whoever trips this in
   six months needs to understand it without reading the original issue.
-- **It fails on the defect and passes on the fix.** Prove that: reintroduce the
-  old shape, watch it fail, restore it. This is the same falsification the fix
-  itself needed, applied to the rule.
+- **It fails on the defect, and passes on the fix and on correct inputs no tree
+  holds yet.** Prove the first: reintroduce the old shape, watch it fail,
+  restore it. Every current tree passing — this repository's or its siblings' —
+  shows no false alarm today, not that the matcher is precise. For each kind of
+  input it reads, write correct inputs that contain what it matches without the
+  defect — an example or placeholder, a name that resolves elsewhere, the same
+  name in another scope, a line recording its removal — keep them as cases the
+  rule must pass, and run them. One that fires means the rule reads that input
+  at the wrong layer: read it where the property lives (below), or stop reading
+  it; do not carve an exception per case.
 - **It cannot pass while the property is false.** The matcher is a proxy, and
   reintroducing the defect tests one instance of it. Where the rule claims more
   than it literally matches, write the change that satisfies the matcher and
   leaves the property false — the phrase kept in a sentence that no longer
-  instructs, the field checked and then ignored — and watch it pass. If one
-  exists, widen the check or narrow what the failure message claims.
+  instructs, the field checked and then ignored — and watch it pass. Where the
+  check carries state across lines (a fence, quote or block), also put the
+  defect after something the check takes as open and the format does not — an
+  apostrophe in a comment, a longer or tilde fence — since one such input hides
+  the rest of the file. If one exists, narrow what the failure message claims,
+  or widen the check. One added
+  spelling can be right; a matcher that needs a second is reading the wrong
+  layer, since each spelling closes one shape and leaves the rest open. Read the
+  artefact where the property lives instead: its parser, or the resolved form
+  its own tool produces, not a longer text matcher.
 - **It says what to do instead.** A failure that only says "do not do this" sends
   the next engineer looking for the answer.
 

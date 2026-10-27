@@ -27,8 +27,8 @@ refs/remotes/origin/HEAD` gives the remote's default — a candidate, not a
 declaration, and where a release branch is kept it names the one this step
 forbids. What merged pull requests mostly target settles it (`gh pr list -s
 merged --json baseRefName`). Say in the body that the base was inferred. A current
-issue contract or recorded plan is enough; record missing decisions through
-`mellions-issue-resolution-proposal` before implementation. No item at all
+issue contract or plan is enough; an architecture or cross-service contract
+change goes through `mellions-issue-resolution-proposal` first. No item at all
 → file one (`mellions-issue-creation`) and plan it there. The pull request is
 an artifact on the item, never a substitute for it.
 
@@ -70,7 +70,7 @@ a deferral marker is not an outcome. Comments follow
 **6 — Prove it.** Use focused checks while editing. Where the defect can be executed the proof has two ends:
 reproduced **before** the fix at a named commit, attacked **after** it, in
 `mellions-sandbox` where the host should not carry it. The gate runs in full,
-raw output captured; then, for every falsifiable behavioural claim, the arms
+raw output captured; then, for every claim on an expensive path, the arms
 and independent oracle of `mellions-falsification`. A check still green once
 the fix is neutralised is defective evidence whatever the suite says; where no
 such claim exists, say so rather than invent an arm. Assertions name the

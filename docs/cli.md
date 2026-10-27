@@ -14,7 +14,7 @@ means the same thing in each:
 | where | how it is invoked | what for |
 |---|---|---|
 | **inside a session**, by the engineer | the session's own shell tool (`Bash`), exactly as it runs `git` or `go test` | claiming and recording work, surveying, checking who else is here, writing the report. This is the normal case: the identity and the slash commands tell the engineer which verbs exist, and it reaches for them itself. |
-| **from the plugin's hooks**, automatically | `hooks/*.sh` call `mellions here`, `continue -brief`, `program show -brief`, `partner show -brief`, `state`, `renew` | delivering context at session start, saying a peer arrived, shaping a compaction. You never type these. |
+| **from the plugin's hooks**, automatically | `hooks/*.sh` call `mellions here`, `continue -brief`, `state`, `renew`, and for unattended shifts `program show -brief`, `partner show -brief`, `state -tool` | delivering context at session start, saying a peer arrived, shaping a compaction. You never type these. |
 | **from your own terminal** | a second shell, or the `!` prefix inside Claude Code | reading: reports, what is in flight, a lane's record, the survey, `doctor`. Occasionally acting: adopting a program, abandoning a lane. |
 
 Claude Code and Codex execute the Mellions CLI directly through their normal
@@ -150,10 +150,13 @@ reads it from stdin. The lane becomes `handed_off`.
 Where the lane has a pull request — the one `claim` recorded, or the single
 open one on its branch — the handoff is also posted there as a comment, opening
 with the lane, the host and the state, and the claim is restated on it. The
+comment replaces the lane's previous handoff there, so a pull request carries
+one handoff per lane, the current one; other lanes' handoffs are untouched. The
 record lives on one machine's disk; the peer deciding whether the draft is
 ready is on the other one, and the pull request is the only surface both read.
 A tracker that cannot take the comment does not cost the session the handoff:
-it is on the record first, and the failure is printed.
+it is on the record first, and the failure is printed — as is a previous
+handoff the tracker could not remove.
 
 **`reopen`** — take handed-off or blocked work back up (a review came back);
 the worktree is re-cut from the branch if it was cleaned up.
@@ -275,9 +278,7 @@ mellions secret-check
   clean result says how many citations it checked. Citations it cannot open,
   and bare `:N` continuations it leaves ungraded because a file is named
   between them and the citation before them, are listed and never refused.
-  `cite-check` applies it to GitHub
-  publication commands; `MELLIONS_CITE_CHECK=off` disables the hook when set
-  in the session environment.
+  `cite-check` is the same check as a PreToolUse decision; no hook calls it.
 - `secret check` is the hand-run credential-read classifier. `secret-check`
   applies it to Bash, Read, Grep and NotebookRead payloads and may deny content
   that would enter the transcript. `MELLIONS_SECRET_CHECK=off` disables the

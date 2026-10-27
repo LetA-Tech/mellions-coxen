@@ -8,6 +8,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -64,7 +65,7 @@ func (f *fake) sawArg(arg string) bool {
 func body(id, host, state string, at time.Time) string {
 	c := Claim{ID: id, Host: host, State: state, At: at}
 	raw, _ := json.Marshal(c)
-	return "Claimed by Mellions lane\n\n" + marker + string(raw) + " -->\n"
+	return fmt.Sprintf("Claimed by Mellions lane `%s` on `%s` (%s).\n\n", id, host, state) + marker + string(raw) + " -->\n"
 }
 
 func view(comments ...ghComment) string {

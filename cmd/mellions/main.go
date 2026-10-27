@@ -148,8 +148,7 @@ const usage = `mellions — the second engineer's deterministic surface
         Also refused: behind in changed files while one side of the comparison
         could not be read whole. Silence otherwise, including where the tracker
         cannot say what the pull request is or how far behind.
-        hooks/pr-merge-check.sh is what calls it, and MELLIONS_MERGE_CHECK=off
-        silences it.
+        No hook calls it; run it by hand before a merge you doubt.
 
   mellions shared-tree-check
         Reads a PreToolUse payload on stdin and denies a Bash call that runs a
@@ -172,8 +171,7 @@ const usage = `mellions — the second engineer's deterministic surface
         The same check as a PreToolUse decision: reads a payload on stdin and
         denies a gh pr or gh issue create, edit, comment or review whose body
         publishes a citation the checkout does not back. Silence otherwise.
-        hooks/citation-check.sh is what calls it, and MELLIONS_CITE_CHECK=off
-        silences it.
+        No hook calls it; mellions cite check is the by-hand form.
 
   mellions secret check [-path <file>] <command...>
         Report what in a command would read a credential-bearing file's

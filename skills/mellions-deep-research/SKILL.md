@@ -127,7 +127,7 @@ it — and when the budget ends first, the unknowns are the finding: say them.
 ## Citing
 
 A claim about code is worth its citation: `<path>:<line>` at the commit you
-verified against, `<repo>/<path>:<line>` elsewhere, the quoted lines under it,
-which survive a moving tree; the number does not. Code in another repository is
+verified against, `<repo>/<path>:<line>` elsewhere, a quoted fragment of the
+line, which survives a moving tree; the number does not. Code in another repository is
 not evidence until it has been opened, and nothing downstream opens it for you:
 a body citing only another tree publishes unmarked.

@@ -7,7 +7,9 @@ description: Load this before a test, a mutation, a revert arm or a green run is
 # Establishing that a fix holds
 
 A green run is a claim about the harness until something shows it could have
-been red.
+been red. Arms are owed where being wrong is expensive: money, schema and
+migrations, persisted state, concurrency, security and authority, resource
+bounds. An obvious diff gets its focused test and the suite, and no arms.
 
 ## The copy you falsify in
 
@@ -23,11 +25,18 @@ arm.
 
 Where a test asserts the output equals what the mechanism under test computes,
 it has no independent side: whatever moves the mechanism moves both halves,
-and the test stays green through the defect it was written for. Compare
+and the test stays green through the defect it was written for. A guard is
+held to the same rule: a guide, runbook or default that supplies its declared
+value from the source the guard observes leaves it unable to refuse. Compare
 against something the mechanism cannot reach — a literal, a figure from the
 requirement, a golden file, a reference implementation, an invariant, a value
 read across the boundary the fix crosses — never a call into the code under
 test.
+
+Where the oracle is whether two inputs share a key — idempotency, dedupe,
+cache — it sees only the fields the pair varies: build the duplicate as the
+producer re-sends it; read `references/key-arms.md` for the distinct case and
+the arm.
 
 ## The revert arms
 
@@ -90,10 +99,10 @@ failure in a second copy with the same PATH, environment, working
 directory or cache reproduces the environment, not the tree, and reads exactly
 like "it fails at base too". Vary the one thing the claim is about.
 
-A pipeline's exit is its last stage's (`make check | tail` reports `tail`
-without `pipefail`); a backgrounded command's can be the launcher's, so
-"completed, exit 0" may attest only the spawn. Read the check's own output: a
-non-zero exit falsifies a green claim, a zero exit never establishes one.
+A pipeline's exit is its last stage's (`make check | tail` reports `tail`'s
+without `pipefail`), a backgrounded command's can be the launcher's
+("completed, exit 0" may attest only the spawn): read the check's own output.
+A non-zero exit falsifies a green claim; a zero exit never establishes one.
 
 Mutation proves the tests see the change, not that the change reaches the
 outcome. Where a caller the tests never execute mediates the effect
@@ -117,17 +126,8 @@ Where the fix is to persisted state — a store, a table, a cache, a file — a
 reading taken the moment a new binary is in place measures state nothing has
 touched: drive the write path the system drives, then read.
 
-Where what you measure is emitted once — a note said once per session, an
-at-most-once delivery, a lock taken by whoever asks first — the measurement is a
-consumable: a consumer you did not account for takes it, and your instrument
-records nothing. Read the durable record
-the emission leaves (the ledger, the offset, the holder), not the stream
-somebody else may have drained; a second reader on that stream is the same
-defect, now yours.
-
 ## Writing it down
 
-A failure location from a neutralised tree cites a tree that no longer exists:
-re-derive line numbers against the branch you publish from. The proof section
-names each arm, the copy it ran in, the tests that went red and the ones that
-stayed green, and the arm that was not run.
+Re-derive line numbers on the branch you publish, never a neutralised copy.
+The proof section names each arm, the copy it ran in, the tests that went red
+and the ones that stayed green, and the arm that was not run.
