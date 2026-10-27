@@ -52,7 +52,9 @@ payload() {
   c=${c//$'\n'/\\n}
   printf '{"session_id":"t","cwd":"%s","tool_name":"Bash","tool_input":{"command":"%s"}}' "$cwd" "$c"
 }
-run() { payload "$1" | MELLIONS_BIN="$bin" bash "$hook"; }
+# The hook reads its payload from a file, never a pipe: a writer the hook
+# outlives takes SIGPIPE, which pipefail makes the status this test reads.
+run() { payload "$1" >"$tmp/stdin"; MELLIONS_BIN="$bin" bash "$hook" <"$tmp/stdin"; }
 
 denies() {
   local out; out=$(run "$2")
@@ -210,7 +212,8 @@ gh pr create --base dev --body-file $tmp/unwritten.md"
 allows "missing --body-file"   "gh pr create --base dev --body-file $tmp/gone.md"
 
 # Another tool's payload carrying the same words is not this hook's business.
-out=$(printf '{"tool_name":"Write","tool_input":{"file_path":"/tmp/b.md","content":"gh pr create --body Closes #7"}}' | MELLIONS_BIN="$bin" bash "$hook")
+printf '{"tool_name":"Write","tool_input":{"file_path":"/tmp/b.md","content":"gh pr create --body Closes #7"}}' >"$tmp/stdin"
+out=$(MELLIONS_BIN="$bin" bash "$hook" <"$tmp/stdin")
 [[ -z "$out" ]] || bad "fires on a non-Bash tool"
 
 # The runtime may hand the hook a closed descriptor. It must return, not wait.
@@ -219,7 +222,8 @@ out=$(MELLIONS_BIN="$bin" bash "$hook" <&- 2>&1); rc=$?
 
 # Deployment: the plugin travels with a checkout and the binary does not, so a
 # host that has one without the other must fall silent rather than fail.
-out=$(payload 'gh pr create --base dev --body "Closes #7"' | MELLIONS_BIN="$tmp/no-such-binary" bash "$hook" 2>&1); rc=$?
+payload 'gh pr create --base dev --body "Closes #7"' >"$tmp/stdin"
+out=$(MELLIONS_BIN="$tmp/no-such-binary" bash "$hook" <"$tmp/stdin" 2>&1); rc=$?
 [[ $rc -eq 0 && -z "$out" ]] || bad "without the binary: rc=$rc out=$out"
 
 # Denial output has to be one line of parseable JSON, or the runtime ignores it.

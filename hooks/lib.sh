@@ -30,12 +30,15 @@ fi
 # MELLIONS_HOOK says the payload is there to be read. Without it the binary
 # leaves stdin alone, so the same command run by a person, a script, cron or CI
 # neither blocks on a pipe nobody will close nor eats the caller's input.
+# The payload goes in by process substitution, so the status is the binary's:
+# a command that never reads stdin can exit before the writer, and a writer's
+# SIGPIPE in a pipeline would become the status under pipefail.
 run() {
   [[ -x "$mellions" ]] || return 1
   if command -v timeout >/dev/null 2>&1; then
-    printf '%s' "$payload" | MELLIONS_HOOK=1 timeout 8 "$mellions" "$@" 2>/dev/null
+    MELLIONS_HOOK=1 timeout 8 "$mellions" "$@" < <(printf '%s' "$payload") 2>/dev/null
   else
-    printf '%s' "$payload" | MELLIONS_HOOK=1 "$mellions" "$@" 2>/dev/null
+    MELLIONS_HOOK=1 "$mellions" "$@" < <(printf '%s' "$payload") 2>/dev/null
   fi
 }
 
