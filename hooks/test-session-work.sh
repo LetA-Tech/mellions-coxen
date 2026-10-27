@@ -26,7 +26,9 @@ exit 0
 STUB
 chmod +x "$tmp/mellions"
 
-run() { printf '%s' "$1" | MELLIONS_BIN="$tmp/mellions" CLAUDE_PLUGIN_ROOT="$root" bash "$root/hooks/session-work.sh"; }
+# The payload is written to a file before the hook starts, so no writer is still
+# running when the hook exits and its status is the hook's own.
+run() { printf '%s' "$1" >"$tmp/stdin"; MELLIONS_BIN="$tmp/mellions" CLAUDE_PLUGIN_ROOT="$root" bash "$root/hooks/session-work.sh" <"$tmp/stdin"; }
 
 out=$(run '{"source":"startup"}')
 grep -qF -- '# Work in flight' <<<"$out" || bad "the in-flight block has no heading"

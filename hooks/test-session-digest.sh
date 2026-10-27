@@ -40,7 +40,10 @@ printf 'Done.\n\n## Shipped — PR #30 merged\n' > "$MELLIONS_HOME/shifts/202608
 printf '# 2026-08-28 03:00 UTC — fx-1\n\n## Needs you\n\nThe RLS decision is yours.\n' > "$MELLIONS_HOME/reports/20260828-030000-fx-1.md"
 
 payload='{"session_id":"s","cwd":"'"$root"'","hook_event_name":"SessionStart","source":"startup"}'
-first=$(printf '%s' "$payload" | MELLIONS_BIN="$bin" CLAUDE_PLUGIN_ROOT="$root" bash "$hook")
+# Fed from a file, not a pipe: the hook can exit before reading stdin, and a
+# writer still running then takes SIGPIPE, which pipefail makes the status.
+printf '%s' "$payload" > "$tmpdir/payload"
+first=$(MELLIONS_BIN="$bin" CLAUDE_PLUGIN_ROOT="$root" bash "$hook" <"$tmpdir/payload")
 rc=$?
 [[ $rc -eq 0 ]] || bad "the hook exited $rc"
 grep -q 'shift 20260828-010000 on .*: Shipped — PR #30 merged' <<<"$first" || bad "the shift did not reach the session: $first"
@@ -51,14 +54,14 @@ bytes=$(printf '%s' "$first" | wc -c | tr -d ' ')
 note "first session: $bytes bytes, exit $rc"
 
 # The same host, a second session: said already.
-second=$(printf '%s' "$payload" | MELLIONS_BIN="$bin" CLAUDE_PLUGIN_ROOT="$root" bash "$hook")
+second=$(MELLIONS_BIN="$bin" CLAUDE_PLUGIN_ROOT="$root" bash "$hook" <"$tmpdir/payload")
 rc=$?
 [[ $rc -eq 0 ]] || bad "the second run exited $rc"
 [[ -z "$second" ]] || bad "a second session inside the window was told it again: $second"
 note "second session: silent, exit $rc"
 
 # No binary: the ordinary partial install. Silent, exit 0.
-gone=$(printf '%s' "$payload" | MELLIONS_BIN=/nonexistent/mellions CLAUDE_PLUGIN_ROOT="$root" bash "$hook")
+gone=$(MELLIONS_BIN=/nonexistent/mellions CLAUDE_PLUGIN_ROOT="$root" bash "$hook" <"$tmpdir/payload")
 rc=$?
 [[ $rc -eq 0 ]] || bad "a missing binary made the hook exit $rc"
 [[ -z "$gone" ]] || bad "a missing binary still printed: $gone"
@@ -74,12 +77,12 @@ grep -q 'shift 20260828-010000' <<<"$none" || bad "with no payload the hook said
 # — is not the reader: nothing printed and the marker not created, so the
 # owner's next session is still told.
 rm -f "$MELLIONS_HOME/digest-seen"
-shift_out=$(printf '%s' "$payload" | MELLIONS_DEADLINE=$(( $(date +%s) + 2700 )) MELLIONS_BIN="$bin" CLAUDE_PLUGIN_ROOT="$root" bash "$hook")
+shift_out=$(MELLIONS_DEADLINE=$(( $(date +%s) + 2700 )) MELLIONS_BIN="$bin" CLAUDE_PLUGIN_ROOT="$root" bash "$hook" <"$tmpdir/payload")
 rc=$?
 [[ $rc -eq 0 ]] || bad "an unattended session made the hook exit $rc"
 [[ -z "$shift_out" ]] || bad "an unattended session was told the digest: $shift_out"
 [[ ! -e "$MELLIONS_HOME/digest-seen" ]] || bad "an unattended session consumed the marker"
-after=$(printf '%s' "$payload" | MELLIONS_BIN="$bin" CLAUDE_PLUGIN_ROOT="$root" bash "$hook")
+after=$(MELLIONS_BIN="$bin" CLAUDE_PLUGIN_ROOT="$root" bash "$hook" <"$tmpdir/payload")
 grep -q 'shift 20260828-010000' <<<"$after" || bad "after an unattended session the attended one was not told"
 note "unattended session: silent, marker untouched; the next attended one told"
 
