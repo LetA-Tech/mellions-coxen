@@ -96,7 +96,15 @@ func (f *fakeTracker) Claims(_ context.Context, repo, issue string) ([]claim.Cla
 	return append([]claim.Claim(nil), f.claims[key(repo, issue)]...), nil
 }
 
-func (f *fakeTracker) Publish(_ context.Context, repo, issue, id, state string) (claim.Claim, error) {
+func (f *fakeTracker) Publish(ctx context.Context, repo, issue, id, state string) (claim.Claim, error) {
+	return f.publish(repo, issue, id, state, false)
+}
+
+func (f *fakeTracker) PublishBeside(ctx context.Context, repo, issue, id, state string) (claim.Claim, error) {
+	return f.publish(repo, issue, id, state, true)
+}
+
+func (f *fakeTracker) publish(repo, issue, id, state string, beside bool) (claim.Claim, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.fail != nil {
@@ -105,8 +113,9 @@ func (f *fakeTracker) Publish(_ context.Context, repo, issue, id, state string) 
 	if f.failPublish != nil {
 		return claim.Claim{}, f.failPublish
 	}
-	c := claim.Claim{ID: id, Host: f.host, State: state, At: f.now().UTC()}
 	k := key(repo, issue)
+	alongside := beside && claim.Defers(f.claims[k], f.host, id, f.now())
+	c := claim.Claim{ID: id, Host: f.host, State: state, Alongside: alongside, At: f.now().UTC()}
 	kept := f.claims[k][:0:0]
 	for _, e := range f.claims[k] {
 		if e.Host == c.Host && e.ID == c.ID {

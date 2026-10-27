@@ -224,7 +224,7 @@ func parseOpen(args []string) (string, assignment.OpenOptions, error) {
 	branch := fs.String("branch", "", "branch name; default mellions/<id>")
 	baseRef := fs.String("base", "", "commit to cut from; default the source HEAD")
 	worktree := fs.String("worktree", "", "adopt this existing working tree instead of cutting one; its branch is recorded and it is never removed")
-	alongside := fs.Bool("alongside", false, "open even though another live lane already claims this issue; reconciling two lanes is the case that needs it")
+	alongside := fs.Bool("alongside", false, "open even though another live lane already claims this issue; reconciling two lanes is the case that needs it; its claim defers the work and the merge to a lane still working the issue")
 	unpublished := fs.Bool("unpublished", false, "open even though the claim cannot reach the tracker, accepting that no other machine can see this lane")
 	budget := fs.Duration("budget", 0, "wall-clock budget before a written status is owed")
 	rest, err := parsePositional(fs, args)

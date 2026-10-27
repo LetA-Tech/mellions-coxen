@@ -83,6 +83,10 @@ type Claim struct {
 	// it, and the review — and the merge, where the reader establishes it
 	// ready — is what it is waiting for.
 	State string `json:"state"`
+	// Alongside marks a claim published by a lane opened beside another lane
+	// that was actively holding the item when it was restated. It defers the
+	// work and the merge to that lane; to every other reader it is a hold.
+	Alongside bool `json:"alongside,omitempty"`
 	// At is when the claim was last restated, and the only input to staleness.
 	At time.Time `json:"at"`
 	// Ref is the tracker's id for the comment carrying this claim, so it can be
@@ -94,6 +98,22 @@ type Claim struct {
 // Stale reports whether the claim has gone unrestated long enough that it is no
 // longer evidence of work in flight.
 func (c Claim) Stale(now time.Time) bool { return now.Sub(c.At) > StaleAfter }
+
+// Defers reports whether lane id on host, opened beside another lane, has to
+// defer to a claim in existing at now: another lane's, not stale, not itself
+// deferring, and not handed off — a handed-off lane has finished the work and
+// asks a reader to take its merge, so a lane beside it holds the item outright.
+func Defers(existing []Claim, host, id string, now time.Time) bool {
+	for _, c := range existing {
+		if c.Host == host && c.ID == id {
+			continue
+		}
+		if !c.Stale(now) && !c.Alongside && c.State != HandedOffState {
+			return true
+		}
+	}
+	return false
+}
 
 // Held renders the claim the way a refusal has to name it.
 func (c Claim) Held() string {
@@ -325,7 +345,12 @@ const HandedOffState = "handed_off"
 // (assignment.StateHandedOff), so refusing that reader refuses the only thing
 // the state is waiting for — and unattended there is no other reader. Every
 // other state is a lane still holding the work, where the refusal is the point.
-func audience(state string) string {
+func audience(state string, alongside bool) string {
+	if alongside {
+		return "the lane was opened alongside another lane that is still working this item, and defers to it — " +
+			"taking the work and merging it stay with that lane, and nothing here takes either from it. " +
+			"Whatever that lane's claim asks of you still applies."
+	}
 	if state == HandedOffState {
 		return "the lane has finished and written its handoff, and its worktree is kept for exactly this — " +
 			"reading it, and merging what it establishes is ready, is available to you rather than taken. " +
@@ -342,6 +367,18 @@ func audience(state string) string {
 // comment rather than a growing column of them, and the label is created if the
 // repository has never seen it.
 func (t *Tracker) Publish(ctx context.Context, repo, ref, id, state string) (Claim, error) {
+	return t.publish(ctx, repo, ref, id, state, false)
+}
+
+// PublishBeside is Publish for a lane opened beside another lane's hold. While
+// another lane is still working the item (Defers) the claim defers the work and
+// the merge to it; otherwise it is an ordinary hold, so a lane that took over
+// finished or abandoned work holds it like any other.
+func (t *Tracker) PublishBeside(ctx context.Context, repo, ref, id, state string) (Claim, error) {
+	return t.publish(ctx, repo, ref, id, state, true)
+}
+
+func (t *Tracker) publish(ctx context.Context, repo, ref, id, state string, beside bool) (Claim, error) {
 	slug, err := t.slug(repo)
 	if err != nil {
 		return Claim{}, err
@@ -354,15 +391,20 @@ func (t *Tracker) Publish(ctx context.Context, repo, ref, id, state string) (Cla
 	if err != nil {
 		return Claim{}, err
 	}
-	c := Claim{ID: id, Host: t.Host, State: state, At: t.clock().UTC()}
+	alongside := beside && Defers(existing, t.Host, id, t.clock())
+	c := Claim{ID: id, Host: t.Host, State: state, Alongside: alongside, At: t.clock().UTC()}
 	payload, err := json.Marshal(c)
 	if err != nil {
 		return Claim{}, fmt.Errorf("claim: %w", err)
 	}
-	body := fmt.Sprintf("Claimed by Mellions lane `%s` on `%s` (%s).\n\n"+
+	opening := "Claimed by Mellions lane"
+	if alongside {
+		opening = "Alongside another lane's hold: Mellions lane"
+	}
+	body := fmt.Sprintf("%s `%s` on `%s` (%s).\n\n"+
 		"Another session reading this: %s "+
 		"A claim not restated within %s is stale and is swept rather than trusted.\n\n"+
-		"%s%s -->\n", id, t.Host, state, audience(state), StaleAfter, marker, payload)
+		"%s%s -->\n", opening, id, t.Host, state, audience(state, alongside), StaleAfter, marker, payload)
 
 	if _, err := t.run(ctx, "label", "create", Label, "--repo", slug,
 		"--color", "5319E7", "--description", "A Mellions lane holds this issue or pull request", "--force"); err != nil {

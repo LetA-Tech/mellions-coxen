@@ -97,7 +97,9 @@ and "PR #12" are one item); a lane on another machine is refused too, because
 opening publishes a
 `mellions:claimed` label and a comment naming the lane and its host, and a
 claim not restated within 24 hours is swept rather than obeyed. `-alongside`
-takes a held issue deliberately (reconciling two lanes); `-unpublished`
+takes a held issue deliberately (reconciling two lanes, reading a live lane's
+draft); while another lane is still working the item its claim there defers the
+work and the merge to that lane, and once none is it is an ordinary hold. `-unpublished`
 accepts a lane no other machine can see when the tracker is unreachable.
 `-worktree` adopts a tree a repository's own process created instead of
 cutting one; an adopted tree is never removed.
