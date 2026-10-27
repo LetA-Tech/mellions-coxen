@@ -301,7 +301,7 @@ func (t *Tracker) Claims(ctx context.Context, repo, ref string) ([]Claim, error)
 		if err := json.Unmarshal([]byte(m[1]), &parsed); err != nil {
 			continue // a payload we cannot read is not a claim we can honour
 		}
-		if !strings.Contains(openingLine(c.Body), "Mellions lane `"+parsed.ID+"`") {
+		if !opensAsClaimOf(c.Body, parsed.ID) {
 			continue // a pasted or quoted claim is somebody's text, not a hold
 		}
 		parsed.Ref = c.ID
@@ -363,10 +363,10 @@ func (t *Tracker) Publish(ctx context.Context, repo, ref, id, state string) (Cla
 	if err != nil {
 		return Claim{}, fmt.Errorf("claim: %w", err)
 	}
-	body := fmt.Sprintf("Claimed by Mellions lane `%s` on `%s` (%s).\n\n"+
+	body := fmt.Sprintf("%s `%s` on `%s` (%s).\n\n"+
 		"Another session reading this: %s "+
 		"A claim not restated within %s is stale and is swept rather than trusted.\n\n"+
-		"%s%s -->\n", id, t.Host, state, audience(state), StaleAfter, marker, payload)
+		"%s%s -->\n", claimOpening, id, t.Host, state, audience(state), StaleAfter, marker, payload)
 
 	if _, err := t.run(ctx, "label", "create", Label, "--repo", slug,
 		"--color", "5319E7", "--description", "A Mellions lane holds this issue or pull request", "--force"); err != nil {
@@ -494,6 +494,24 @@ func openingLine(body string) string {
 		trimmed = trimmed[:i]
 	}
 	return strings.TrimRight(trimmed, " \t\r")
+}
+
+// claimOpening starts the first line of every claim Publish writes.
+const claimOpening = "Claimed by Mellions lane"
+
+// claimOpenings are the words a claim's first line starts with, directly
+// before the backquoted lane id. A first line that names the lane anywhere
+// later is somebody writing about the lane, not the lane's claim.
+var claimOpenings = []string{claimOpening, "Alongside another lane's hold: Mellions lane"}
+
+func opensAsClaimOf(body, id string) bool {
+	line := openingLine(body)
+	for _, o := range claimOpenings {
+		if strings.HasPrefix(line, o+" `"+id+"`") {
+			return true
+		}
+	}
+	return false
 }
 
 func lastLine(body string) string {
