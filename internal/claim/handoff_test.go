@@ -244,8 +244,8 @@ func TestAHandoffThatCannotClearItsPredecessorSaysSo(t *testing.T) {
 	}
 }
 
-// A claim opens with the line naming its lane and ends with its marker. A
-// comment that carries a claim pasted among other words — even the current one,
+// A claim's first line starts with a claim opening naming its lane, and its last
+// line is its marker. A comment that carries a claim pasted among other words — even the current one,
 // so the same instant — is not a claim, and no restate, release or sweep deletes it.
 func TestAPastedClaimMarkerIsNotAClaim(t *testing.T) {
 	at := time.Date(2026, 10, 25, 2, 0, 0, 0, time.UTC)
@@ -270,12 +270,16 @@ func TestAPastedClaimMarkerIsNotAClaim(t *testing.T) {
 				{ID: "OPENS", Body: "Claimed by Mellions lane `lane-a` is the wrong holder; its claim:\n\n" + pasted + "\nwhich I dispute."},
 				{ID: "QUOTED", Body: "> " + strings.ReplaceAll(strings.TrimRight(pasted, "\n"), "\n", "\n> ") + "\n"},
 				{ID: "NAMES", Body: "Read of Mellions lane `lane-a`: the claim it posted was\n\n" + pasted},
+				{ID: "LATER", Body: "Re: Claimed by Mellions lane `lane-a` (disputed):\n\n" + pasted},
+				{ID: "OTHER", Body: "Claimed by Mellions lane `lane-b`, not this one:\n\n" + pasted},
+				{ID: "PREFIX", Body: "Claimed by Mellions lane `lane-ab`, not this one:\n\n" + pasted},
 			}}
 			tr := &Tracker{Owner: "example-org", Host: "here", Run: th.run, now: func() time.Time { return at }}
 			if err := tc.act(tr); err != nil {
 				t.Fatal(err)
 			}
-			for _, kept := range []string{"I disagree with this lane", "> Claimed by", "My objection to this hold", "which I dispute", "Read of Mellions lane"} {
+			for _, kept := range []string{"I disagree with this lane", "> Claimed by", "My objection to this hold", "which I dispute",
+				"Read of Mellions lane", "(disputed)", "`lane-b`, not this one", "`lane-ab`, not this one"} {
 				if th.countHolding(kept) != 1 {
 					t.Errorf("a comment that is not the lane's claim was deleted (%q):\n%s", kept, strings.Join(th.bodies(), "\n---\n"))
 				}
