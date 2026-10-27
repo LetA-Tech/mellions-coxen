@@ -36,6 +36,7 @@ package claim
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -63,7 +64,7 @@ const StaleAfter = 24 * time.Hour
 // parses exactly to a machine.
 const marker = "<!-- mellions:claim "
 
-var markerPattern = regexp.MustCompile(`(?s)<!-- mellions:claim (\{.*?\}) -->`)
+var markerPattern = regexp.MustCompile(`^<!-- mellions:claim (\{[^\n]*\}) -->$`)
 
 // Claim is one lane's hold on one issue or pull request, as published.
 type Claim struct {
@@ -292,13 +293,16 @@ func (t *Tracker) Claims(ctx context.Context, repo, ref string) ([]Claim, error)
 	// must not resurrect a claim the lane has moved past.
 	byLane := map[string]Claim{}
 	for _, c := range got.Comments {
-		m := markerPattern.FindStringSubmatch(c.Body)
+		m := markerPattern.FindStringSubmatch(lastLine(c.Body))
 		if m == nil {
 			continue
 		}
 		var parsed Claim
 		if err := json.Unmarshal([]byte(m[1]), &parsed); err != nil {
 			continue // a payload we cannot read is not a claim we can honour
+		}
+		if !opensAsClaimOf(c.Body, parsed.ID) {
+			continue // a pasted or quoted claim is somebody's text, not a hold
 		}
 		parsed.Ref = c.ID
 		key := parsed.Host + "\x00" + parsed.ID
@@ -359,10 +363,10 @@ func (t *Tracker) Publish(ctx context.Context, repo, ref, id, state string) (Cla
 	if err != nil {
 		return Claim{}, fmt.Errorf("claim: %w", err)
 	}
-	body := fmt.Sprintf("Claimed by Mellions lane `%s` on `%s` (%s).\n\n"+
+	body := fmt.Sprintf("%s `%s` on `%s` (%s).\n\n"+
 		"Another session reading this: %s "+
 		"A claim not restated within %s is stale and is swept rather than trusted.\n\n"+
-		"%s%s -->\n", id, t.Host, state, audience(state), StaleAfter, marker, payload)
+		"%s%s -->\n", claimOpening, id, t.Host, state, audience(state), StaleAfter, marker, payload)
 
 	if _, err := t.run(ctx, "label", "create", Label, "--repo", slug,
 		"--color", "5319E7", "--description", "A Mellions lane holds this issue or pull request", "--force"); err != nil {
@@ -466,12 +470,79 @@ func (t *Tracker) Sweep(ctx context.Context, repo, ref string) ([]Claim, error) 
 	return swept, nil
 }
 
-// Comment posts body on an issue or pull request and touches no claim.
-//
-// It exists so a lane's handoff can travel to the other host by the only route
-// both machines already read. The assignment store is one machine's disk; the
-// pull request is not.
-func (t *Tracker) Comment(ctx context.Context, repo, ref, body string) error {
+// handoffMarker opens the lane identity a handoff comment carries, so the
+// lane's next handoff can find and replace it.
+const handoffMarker = "<!-- mellions:handoff "
+
+var handoffPattern = regexp.MustCompile(`^<!-- mellions:handoff (\{[^\n]*\}) -->$`)
+
+// handoffLane is what a handoff marker names: one lane on one machine.
+type handoffLane struct {
+	ID   string `json:"id"`
+	Host string `json:"host"`
+}
+
+// ErrHandoffNotReplaced is a handoff that posted while an earlier one by the
+// same lane may still stand beside it on the same item.
+var ErrHandoffNotReplaced = errors.New("the lane's earlier handoff may still stand beside it")
+
+// openingLine and lastLine are a comment's outer non-blank lines, where Publish
+// and Handoff write what identifies them; text between them is anyone's.
+func openingLine(body string) string {
+	trimmed := strings.TrimLeft(body, " \t\r\n")
+	if i := strings.IndexByte(trimmed, '\n'); i >= 0 {
+		trimmed = trimmed[:i]
+	}
+	return strings.TrimRight(trimmed, " \t\r")
+}
+
+// claimOpening starts the first line of every claim Publish writes.
+const claimOpening = "Claimed by Mellions lane"
+
+// claimOpenings are the words a claim's first line starts with, directly
+// before the backquoted lane id. A first line that names the lane anywhere
+// later is somebody writing about the lane, not the lane's claim.
+var claimOpenings = []string{claimOpening, "Alongside another lane's hold: Mellions lane"}
+
+func opensAsClaimOf(body, id string) bool {
+	line := openingLine(body)
+	for _, o := range claimOpenings {
+		if strings.HasPrefix(line, o+" `"+id+"`") {
+			return true
+		}
+	}
+	return false
+}
+
+func lastLine(body string) string {
+	trimmed := strings.TrimRight(body, " \t\r\n")
+	return trimmed[strings.LastIndexByte(trimmed, '\n')+1:]
+}
+
+// isHandoffOf reports whether body is lane id's handoff from host: its first and
+// last lines are both that lane's marker, or, carrying no marker at all, it
+// opens with the header handoffs were posted under before the marker.
+func isHandoffOf(body, id, host string) bool {
+	if strings.Contains(body, handoffMarker) {
+		return handoffLaneOf(openingLine(body)) == (handoffLane{ID: id, Host: host}) &&
+			handoffLaneOf(lastLine(body)) == (handoffLane{ID: id, Host: host})
+	}
+	return strings.HasPrefix(body, "**Handoff — Mellions lane `"+id+"` on `"+host+"`, now ")
+}
+
+// handoffLaneOf is the lane a whole-line handoff marker names, or the zero lane.
+func handoffLaneOf(line string) handoffLane {
+	var l handoffLane
+	if m := handoffPattern.FindStringSubmatch(line); m == nil || json.Unmarshal([]byte(m[1]), &l) != nil {
+		return handoffLane{}
+	}
+	return l
+}
+
+// Handoff posts body as lane id's handoff, marked on its first and last line,
+// then deletes the lane's earlier handoffs there; posting first means a post
+// that fails leaves the previous statement rather than none.
+func (t *Tracker) Handoff(ctx context.Context, repo, ref, id, body string) error {
 	slug, err := t.slug(repo)
 	if err != nil {
 		return err
@@ -483,8 +554,41 @@ func (t *Tracker) Comment(ctx context.Context, repo, ref, body string) error {
 	if strings.TrimSpace(body) == "" {
 		return fmt.Errorf("claim: nothing to say on %s", name(slug, verb, n))
 	}
-	if _, err := t.run(ctx, verb, "comment", strconv.Itoa(n), "--repo", slug, "--body", body); err != nil {
+	if strings.TrimSpace(id) == "" {
+		return fmt.Errorf("claim: a handoff on %s names no lane", name(slug, verb, n))
+	}
+	payload, err := json.Marshal(handoffLane{ID: id, Host: t.Host})
+	if err != nil {
+		return fmt.Errorf("claim: %w", err)
+	}
+	var earlier []string
+	out, readErr := t.run(ctx, verb, "view", strconv.Itoa(n), "--repo", slug, "--json", "comments")
+	if readErr == nil {
+		var got ghIssue
+		if readErr = json.Unmarshal(out, &got); readErr == nil {
+			for _, c := range got.Comments {
+				if c.ID != "" && isHandoffOf(c.Body, id, t.Host) {
+					earlier = append(earlier, c.ID)
+				}
+			}
+		}
+	}
+	mark := handoffMarker + string(payload) + " -->"
+	full := mark + "\n" + strings.Trim(body, "\n") + "\n\n" + mark + "\n"
+	if _, err := t.run(ctx, verb, "comment", strconv.Itoa(n), "--repo", slug, "--body", full); err != nil {
 		return fmt.Errorf("claim: comment on %s: %w", name(slug, verb, n), err)
+	}
+	if readErr != nil {
+		return fmt.Errorf("claim: %w on %s: reading its comments: %v", ErrHandoffNotReplaced, name(slug, verb, n), readErr)
+	}
+	var failed []error
+	for _, ref := range earlier {
+		if err := t.deleteComment(ctx, slug, ref); err != nil {
+			failed = append(failed, fmt.Errorf("deleting comment %s: %v", ref, err))
+		}
+	}
+	if len(failed) > 0 {
+		return fmt.Errorf("claim: %w on %s: %v", ErrHandoffNotReplaced, name(slug, verb, n), errors.Join(failed...))
 	}
 	return nil
 }
