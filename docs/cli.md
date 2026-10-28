@@ -58,7 +58,10 @@ match the tree. Grouped for reading; never ranked, scored or recommended.
 - **read it right:** `INCOMPLETE` means a source did not answer — unknown,
   not empty. "… N more collected" means the list was printed short and names
   the command that prints the rest. A change set marked `CLAIMED` carries
-  the `mellions:claimed` label, seen from every host; `HELD by lane <id>`
+  the `mellions:claimed` label, or names an open issue in its own repository
+  that does after `Refs`, `Fixes`, `Closes` or `Resolves` (as `#N`,
+  `owner/repo#N` or the issue's URL) — `-full` says which; either is seen from
+  every host. `HELD by lane <id>`
   means its branch belongs to a lane active or blocked on this host, label or
   not, and says when that lane's record last changed. Either way it is held:
   read the claim or the lane before taking it up. A lane unchanged for a day is

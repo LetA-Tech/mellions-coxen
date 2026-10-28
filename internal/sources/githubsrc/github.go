@@ -20,6 +20,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os/exec"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -122,26 +123,47 @@ func (s *Source) Collect(ctx context.Context, scope signal.Scope) ([]signal.Sign
 	// corner reported the entire estate as having no open work, which is the
 	// one reading a collector must never produce.
 	var unreachable []string
+	failed := map[string]bool{}
 	for _, repo := range repos {
 		full := s.full(repo)
+		fail := func(format string, args ...any) {
+			failed[repo] = true
+			unreachable = append(unreachable, repo+": "+fmt.Sprintf(format, args...))
+		}
 
 		issues, err := s.issues(ctx, full, limit)
 		if err != nil {
-			unreachable = append(unreachable, fmt.Sprintf("%s: %v", repo, err))
+			fail("%v", err)
 			continue
 		}
 		out = append(out, issues...)
 
-		prs, err := s.pulls(ctx, full, limit)
+		// Read once, and only when a change set refs an issue. A claim set
+		// that cannot be read is a fact about claims, never grounds to drop
+		// the change sets themselves.
+		var claimed map[int]bool
+		read := false
+		claimedSet := func() map[int]bool {
+			if !read {
+				read = true
+				var err error
+				if claimed, err = s.claimedIssues(ctx, full); err != nil {
+					fail("claimed issues: %v", err)
+				}
+			}
+			return claimed
+		}
+
+		prs, err := s.pulls(ctx, full, limit, claimedSet)
 		if err != nil {
-			unreachable = append(unreachable, fmt.Sprintf("%s: %v", repo, err))
+			fail("%v", err)
 			continue
 		}
 		out = append(out, prs...)
 
 		runs, err := s.failedRuns(ctx, full)
 		if err != nil {
-			unreachable = append(unreachable, fmt.Sprintf("%s: %v", repo, err))
+			fail("%v", err)
 			continue
 		}
 		out = append(out, runs...)
@@ -150,7 +172,7 @@ func (s *Source) Collect(ctx context.Context, scope signal.Scope) ([]signal.Sign
 		// is a fact about alerts, never grounds to drop what was collected above.
 		alerts, err := s.securityAlerts(ctx, full)
 		if err != nil {
-			unreachable = append(unreachable, fmt.Sprintf("%s: security alerts: %v", repo, err))
+			fail("security alerts: %v", err)
 		}
 		out = append(out, alerts...)
 	}
@@ -159,7 +181,7 @@ func (s *Source) Collect(ctx context.Context, scope signal.Scope) ([]signal.Sign
 		// which repositories are unaccounted for rather than being handed a
 		// picture that looks complete.
 		return out, fmt.Errorf("githubsrc: %d of %d repositories could not be read — %s",
-			len(unreachable), len(repos), strings.Join(unreachable, "; "))
+			len(failed), len(repos), strings.Join(unreachable, "; "))
 	}
 	return out, nil
 }
@@ -278,7 +300,83 @@ func (s *Source) issues(ctx context.Context, full string, limit int) ([]signal.S
 	return out, nil
 }
 
-func (s *Source) pulls(ctx context.Context, full string, limit int) ([]signal.Signal, error) {
+// firstClaimed is the first of refs the claim set holds; with no refs the set
+// is never read.
+func firstClaimed(refs []int, claimed func() map[int]bool) (int, bool) {
+	if len(refs) == 0 {
+		return 0, false
+	}
+	set := claimed()
+	for _, n := range refs {
+		if set[n] {
+			return n, true
+		}
+	}
+	return 0, false
+}
+
+// claimedLimit bounds the claimed-issue query. It is its own query, not the
+// work-item list, because that list stops at the per-repository limit and an
+// older claimed issue falls past it.
+const claimedLimit = 1000
+
+// claimedIssues is the set of open issue numbers in one repository that a
+// lane's claim label marks.
+func (s *Source) claimedIssues(ctx context.Context, full string) (map[int]bool, error) {
+	raw, err := s.opts.Run(ctx, "issue", "list", "-R", full, "--state", "open",
+		"--label", claim.Label, "--limit", strconv.Itoa(claimedLimit), "--json", "number,labels")
+	if err != nil {
+		if IssuesDisabled(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	var items []ghIssue
+	if err := json.Unmarshal(raw, &items); err != nil {
+		return nil, fmt.Errorf("githubsrc: decode claimed issues for %s: %w", full, err)
+	}
+	if len(items) >= claimedLimit {
+		return nil, fmt.Errorf("githubsrc: %s has at least %d claimed issues, more than one query reads", full, claimedLimit)
+	}
+	out := map[int]bool{}
+	for _, it := range items {
+		if hasAny(it.labels(), []string{claim.Label}) {
+			out[it.Number] = true
+		}
+	}
+	return out, nil
+}
+
+// issueRef matches a reference a pull request body makes to the issue it works
+// on: Refs or one of GitHub's closing keywords, then the issue as #N,
+// owner/repo#N or its URL, at most one line break between them.
+var issueRef = regexp.MustCompile(`(?i)(?:^|[^\w/])(?:refs?|close[sd]?|fix(?:es|ed)?|resolve[sd]?)\b:?[ \t]*\r?\n?[ \t]*` +
+	`(?:#([0-9]+)|([\w.-]+/[\w.-]+)#([0-9]+)|https?://github\.com/([\w.-]+/[\w.-]+)/issues/([0-9]+))\b`)
+
+// emphasis is the Markdown an author wraps a keyword or a number in; it stands
+// between the two without changing what the body refs.
+var emphasis = strings.NewReplacer("*", "", "`", "")
+
+// issueRefs is every issue in full, the owner/repo the body belongs to, that
+// the body refs; a reference qualified by another repository is not one.
+func issueRefs(body, full string) []int {
+	var out []int
+	for _, m := range issueRef.FindAllStringSubmatch(emphasis.Replace(body), -1) {
+		num := m[1]
+		switch {
+		case m[3] != "" && strings.EqualFold(m[2], full):
+			num = m[3]
+		case m[5] != "" && strings.EqualFold(m[4], full):
+			num = m[5]
+		}
+		if n, err := strconv.Atoi(num); err == nil {
+			out = append(out, n)
+		}
+	}
+	return out
+}
+
+func (s *Source) pulls(ctx context.Context, full string, limit int, claimed func() map[int]bool) ([]signal.Signal, error) {
 	raw, err := s.opts.Run(ctx, "pr", "list", "-R", full, "--state", "open",
 		"--limit", strconv.Itoa(limit),
 		"--json", "number,title,url,createdAt,updatedAt,labels,isDraft,mergeable,headRefName,baseRefName,isCrossRepository,author,body,reviews,comments")
@@ -338,9 +436,15 @@ func (s *Source) pulls(ctx context.Context, full string, limit int) ([]signal.Si
 		// unreviewed, and finished with a review in flight. A peer choosing
 		// work merges the third believing it is the second. The claim is the
 		// only one of the three that says so without opening the change set.
+		// A lane claims the issue it opened on and often opens its pull request
+		// with gh, which claims nothing, so the claim on the issue a change set
+		// refs holds the change set too.
 		if hasAny(it.labels(), []string{claim.Label}) {
 			attrs["claimed"] = "a Mellions lane holds this — a review in flight or a fix mid-way; " +
 				"read the claim on the pull request before merging it"
+		} else if n, ok := firstClaimed(issueRefs(it.Body, full), claimed); ok {
+			attrs["claimed"] = "a Mellions lane holds #" + strconv.Itoa(n) + ", which this change set refs; " +
+				"read the claim on that issue before merging it"
 		}
 		out = append(out, signal.Signal{
 			Kind: signal.KindChangeSet, Source: "github", ID: "PR #" + strconv.Itoa(it.Number),
