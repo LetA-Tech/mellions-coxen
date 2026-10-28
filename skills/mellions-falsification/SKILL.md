@@ -46,9 +46,9 @@ test: the edit did not land — read it where the test reads (off disk, in the
 database) before and after the run, as an edit that no-ops (a `sed` matching
 nothing) or that the run restores (`-mod=mod`, `--fix`, setup) reads like a
 pass; the tests never reach the fix; the fix is idle; or a part of the same
-revert removed the condition the test needs — where one half of a fix creates
-the state the other half's defect lives in, each half wants its own arm. Revert
-one half alone and the other can hold the test green, proving neither.
+revert removed the condition the test needs. Where the fix is more than one
+step, a red complete revert does not show each is held: read
+`references/step-arms.md` and arm each step alone.
 
 Read the red: a wide revert can fail short of the assertion — a build break, a
 panic in a helper — or trip it by a mechanism you did not test. The red that
