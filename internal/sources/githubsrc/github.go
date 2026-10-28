@@ -20,6 +20,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os/exec"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -132,7 +133,14 @@ func (s *Source) Collect(ctx context.Context, scope signal.Scope) ([]signal.Sign
 		}
 		out = append(out, issues...)
 
-		prs, err := s.pulls(ctx, full, limit)
+		// Without continue: a claim set that cannot be read is a fact about
+		// claims, never grounds to drop the change sets themselves.
+		claimed, err := s.claimedIssues(ctx, full)
+		if err != nil {
+			unreachable = append(unreachable, fmt.Sprintf("%s: claimed issues: %v", repo, err))
+		}
+
+		prs, err := s.pulls(ctx, full, limit, claimed)
 		if err != nil {
 			unreachable = append(unreachable, fmt.Sprintf("%s: %v", repo, err))
 			continue
@@ -278,7 +286,53 @@ func (s *Source) issues(ctx context.Context, full string, limit int) ([]signal.S
 	return out, nil
 }
 
-func (s *Source) pulls(ctx context.Context, full string, limit int) ([]signal.Signal, error) {
+// claimedLimit bounds the claimed-issue query. It is its own query, not the
+// work-item list, because that list stops at the per-repository limit and an
+// older claimed issue falls past it.
+const claimedLimit = 1000
+
+// claimedIssues is the set of open issue numbers in one repository that a
+// lane's claim label marks.
+func (s *Source) claimedIssues(ctx context.Context, full string) (map[int]bool, error) {
+	raw, err := s.opts.Run(ctx, "issue", "list", "-R", full, "--state", "open",
+		"--label", claim.Label, "--limit", strconv.Itoa(claimedLimit), "--json", "number,labels")
+	if err != nil {
+		if IssuesDisabled(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	var items []ghIssue
+	if err := json.Unmarshal(raw, &items); err != nil {
+		return nil, fmt.Errorf("githubsrc: decode claimed issues for %s: %w", full, err)
+	}
+	if len(items) >= claimedLimit {
+		return nil, fmt.Errorf("githubsrc: %s has at least %d claimed issues, more than one query reads", full, claimedLimit)
+	}
+	out := map[int]bool{}
+	for _, it := range items {
+		if hasAny(it.labels(), []string{claim.Label}) {
+			out[it.Number] = true
+		}
+	}
+	return out, nil
+}
+
+// issueRef matches a same-repository reference a pull request body makes to the
+// issue it works on; a reference qualified by another repository is not one.
+var issueRef = regexp.MustCompile(`(?i)(?:^|[^\w/])(?:refs?|fix(?:es|ed)?|close[sd]?|resolve[sd]?)[:\s]+#(\d+)\b`)
+
+// refsClaimedIssue returns the first issue the body refs that claimed holds.
+func refsClaimedIssue(body string, claimed map[int]bool) (int, bool) {
+	for _, m := range issueRef.FindAllStringSubmatch(body, -1) {
+		if n, err := strconv.Atoi(m[1]); err == nil && claimed[n] {
+			return n, true
+		}
+	}
+	return 0, false
+}
+
+func (s *Source) pulls(ctx context.Context, full string, limit int, claimed map[int]bool) ([]signal.Signal, error) {
 	raw, err := s.opts.Run(ctx, "pr", "list", "-R", full, "--state", "open",
 		"--limit", strconv.Itoa(limit),
 		"--json", "number,title,url,createdAt,updatedAt,labels,isDraft,mergeable,headRefName,baseRefName,isCrossRepository,author,body,reviews,comments")
@@ -338,9 +392,15 @@ func (s *Source) pulls(ctx context.Context, full string, limit int) ([]signal.Si
 		// unreviewed, and finished with a review in flight. A peer choosing
 		// work merges the third believing it is the second. The claim is the
 		// only one of the three that says so without opening the change set.
+		// A lane claims the issue it opened on and often opens its pull request
+		// with gh, which claims nothing, so the claim on the issue a change set
+		// refs holds the change set too.
 		if hasAny(it.labels(), []string{claim.Label}) {
 			attrs["claimed"] = "a Mellions lane holds this — a review in flight or a fix mid-way; " +
 				"read the claim on the pull request before merging it"
+		} else if n, ok := refsClaimedIssue(it.Body, claimed); ok {
+			attrs["claimed"] = "a Mellions lane holds #" + strconv.Itoa(n) + ", which this change set refs; " +
+				"read the claim on that issue before merging it"
 		}
 		out = append(out, signal.Signal{
 			Kind: signal.KindChangeSet, Source: "github", ID: "PR #" + strconv.Itoa(it.Number),
