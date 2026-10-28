@@ -75,8 +75,9 @@ disposition of any read already there: where one returned changes requested and
 the head has not moved since, the work waiting is the remedy it named, not a
 second opinion.
 
-**A change set carrying `mellions:claimed` is held.** A survey prints
-`CLAIMED`; read the claim before deciding anything. An active lane is still on
+**A change set carrying `mellions:claimed` is held**, and so is one that refs
+an issue carrying it. A survey prints `CLAIMED` for both, and `-full` names the
+issue when the claim is on the issue; read the claim before deciding anything. An active lane is still on
 it and merging is not yours. A handed-off one waits on what its handoff —
 posted on the change set itself — names, so read that next. A claim unrestated
 for a day is stale: swept, not obeyed. Draft state separates none of these.
