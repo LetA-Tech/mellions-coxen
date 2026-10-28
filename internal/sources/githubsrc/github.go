@@ -123,33 +123,47 @@ func (s *Source) Collect(ctx context.Context, scope signal.Scope) ([]signal.Sign
 	// corner reported the entire estate as having no open work, which is the
 	// one reading a collector must never produce.
 	var unreachable []string
+	failed := map[string]bool{}
 	for _, repo := range repos {
 		full := s.full(repo)
+		fail := func(format string, args ...any) {
+			failed[repo] = true
+			unreachable = append(unreachable, repo+": "+fmt.Sprintf(format, args...))
+		}
 
 		issues, err := s.issues(ctx, full, limit)
 		if err != nil {
-			unreachable = append(unreachable, fmt.Sprintf("%s: %v", repo, err))
+			fail("%v", err)
 			continue
 		}
 		out = append(out, issues...)
 
-		// Without continue: a claim set that cannot be read is a fact about
-		// claims, never grounds to drop the change sets themselves.
-		claimed, err := s.claimedIssues(ctx, full)
-		if err != nil {
-			unreachable = append(unreachable, fmt.Sprintf("%s: claimed issues: %v", repo, err))
+		// Read once, and only when a change set refs an issue. A claim set
+		// that cannot be read is a fact about claims, never grounds to drop
+		// the change sets themselves.
+		var claimed map[int]bool
+		read := false
+		claimedSet := func() map[int]bool {
+			if !read {
+				read = true
+				var err error
+				if claimed, err = s.claimedIssues(ctx, full); err != nil {
+					fail("claimed issues: %v", err)
+				}
+			}
+			return claimed
 		}
 
-		prs, err := s.pulls(ctx, full, limit, claimed)
+		prs, err := s.pulls(ctx, full, limit, claimedSet)
 		if err != nil {
-			unreachable = append(unreachable, fmt.Sprintf("%s: %v", repo, err))
+			fail("%v", err)
 			continue
 		}
 		out = append(out, prs...)
 
 		runs, err := s.failedRuns(ctx, full)
 		if err != nil {
-			unreachable = append(unreachable, fmt.Sprintf("%s: %v", repo, err))
+			fail("%v", err)
 			continue
 		}
 		out = append(out, runs...)
@@ -158,7 +172,7 @@ func (s *Source) Collect(ctx context.Context, scope signal.Scope) ([]signal.Sign
 		// is a fact about alerts, never grounds to drop what was collected above.
 		alerts, err := s.securityAlerts(ctx, full)
 		if err != nil {
-			unreachable = append(unreachable, fmt.Sprintf("%s: security alerts: %v", repo, err))
+			fail("security alerts: %v", err)
 		}
 		out = append(out, alerts...)
 	}
@@ -167,7 +181,7 @@ func (s *Source) Collect(ctx context.Context, scope signal.Scope) ([]signal.Sign
 		// which repositories are unaccounted for rather than being handed a
 		// picture that looks complete.
 		return out, fmt.Errorf("githubsrc: %d of %d repositories could not be read — %s",
-			len(unreachable), len(repos), strings.Join(unreachable, "; "))
+			len(failed), len(repos), strings.Join(unreachable, "; "))
 	}
 	return out, nil
 }
@@ -286,6 +300,21 @@ func (s *Source) issues(ctx context.Context, full string, limit int) ([]signal.S
 	return out, nil
 }
 
+// firstClaimed is the first of refs the claim set holds; with no refs the set
+// is never read.
+func firstClaimed(refs []int, claimed func() map[int]bool) (int, bool) {
+	if len(refs) == 0 {
+		return 0, false
+	}
+	set := claimed()
+	for _, n := range refs {
+		if set[n] {
+			return n, true
+		}
+	}
+	return 0, false
+}
+
 // claimedLimit bounds the claimed-issue query. It is its own query, not the
 // work-item list, because that list stops at the per-repository limit and an
 // older claimed issue falls past it.
@@ -318,21 +347,32 @@ func (s *Source) claimedIssues(ctx context.Context, full string) (map[int]bool, 
 	return out, nil
 }
 
-// issueRef matches a same-repository reference a pull request body makes to the
-// issue it works on; a reference qualified by another repository is not one.
-var issueRef = regexp.MustCompile(`(?i)(?:^|[^\w/])(?:refs?|fix(?:es|ed)?|close[sd]?|resolve[sd]?)[:\s]+#(\d+)\b`)
+// issueRef matches a reference a pull request body makes to the issue it works
+// on: Refs or one of GitHub's closing keywords, then the issue as #N,
+// owner/repo#N or its URL, at most one line break between them.
+var issueRef = regexp.MustCompile(`(?i)(?:^|[^\w/])(?:refs?|close[sd]?|fix(?:es|ed)?|resolve[sd]?)\b:?[ \t]*\r?\n?[ \t]*` +
+	`(?:#([0-9]+)|([\w.-]+/[\w.-]+)#([0-9]+)|https?://github\.com/([\w.-]+/[\w.-]+)/issues/([0-9]+))\b`)
 
-// refsClaimedIssue returns the first issue the body refs that claimed holds.
-func refsClaimedIssue(body string, claimed map[int]bool) (int, bool) {
+// issueRefs is every issue in full, the owner/repo the body belongs to, that
+// the body refs; a reference qualified by another repository is not one.
+func issueRefs(body, full string) []int {
+	var out []int
 	for _, m := range issueRef.FindAllStringSubmatch(body, -1) {
-		if n, err := strconv.Atoi(m[1]); err == nil && claimed[n] {
-			return n, true
+		num := m[1]
+		switch {
+		case m[3] != "" && strings.EqualFold(m[2], full):
+			num = m[3]
+		case m[5] != "" && strings.EqualFold(m[4], full):
+			num = m[5]
+		}
+		if n, err := strconv.Atoi(num); err == nil {
+			out = append(out, n)
 		}
 	}
-	return 0, false
+	return out
 }
 
-func (s *Source) pulls(ctx context.Context, full string, limit int, claimed map[int]bool) ([]signal.Signal, error) {
+func (s *Source) pulls(ctx context.Context, full string, limit int, claimed func() map[int]bool) ([]signal.Signal, error) {
 	raw, err := s.opts.Run(ctx, "pr", "list", "-R", full, "--state", "open",
 		"--limit", strconv.Itoa(limit),
 		"--json", "number,title,url,createdAt,updatedAt,labels,isDraft,mergeable,headRefName,baseRefName,isCrossRepository,author,body,reviews,comments")
@@ -398,7 +438,7 @@ func (s *Source) pulls(ctx context.Context, full string, limit int, claimed map[
 		if hasAny(it.labels(), []string{claim.Label}) {
 			attrs["claimed"] = "a Mellions lane holds this — a review in flight or a fix mid-way; " +
 				"read the claim on the pull request before merging it"
-		} else if n, ok := refsClaimedIssue(it.Body, claimed); ok {
+		} else if n, ok := firstClaimed(issueRefs(it.Body, full), claimed); ok {
 			attrs["claimed"] = "a Mellions lane holds #" + strconv.Itoa(n) + ", which this change set refs; " +
 				"read the claim on that issue before merging it"
 		}
