@@ -769,6 +769,27 @@ func TestAPullRequestRefsAClaimedIssueSaysALaneHoldsIt(t *testing.T) {
 	}
 }
 
+func TestAClaimSetThatCannotBeReadKeepsTheChangeSetsAndSaysSo(t *testing.T) {
+	run := func(_ context.Context, args ...string) ([]byte, error) {
+		switch {
+		case args[0] == "issue" && slices.Contains(args, "--label"):
+			return nil, errors.New("HTTP 502: Bad Gateway")
+		case args[0] == "pr":
+			return []byte(`[{"number":216,"title":"t","url":"u","createdAt":"2030-01-02T04:44:00Z","updatedAt":"2030-01-02T04:44:00Z","labels":[],"headRefName":"mellions/l","author":{"login":"sample-user"},"body":"Refs #215","reviews":[]}]`), nil
+		case args[0] == "api" && strings.HasSuffix(args[len(args)-1], "/actions/permissions"):
+			return []byte(`{"enabled":true}`), nil
+		}
+		return []byte("[]"), nil
+	}
+	got, err := New(Options{Owner: "o", Repos: []string{"r"}, Run: run}).Collect(context.Background(), signal.Scope{})
+	if err == nil || !strings.Contains(err.Error(), "claimed issues") {
+		t.Fatalf("Collect err = %v; an unread claim set has to make the picture incomplete, by name", err)
+	}
+	if !slices.ContainsFunc(got, func(s signal.Signal) bool { return s.ID == "PR #216" }) {
+		t.Errorf("the change sets were dropped because the claim set could not be read: %v", got)
+	}
+}
+
 // A change set stacked on a lane branch keeps that branch as its base after the
 // parent merges, and nothing on the pull request changes to say so.
 func TestAStackedChangeSetWhoseParentIsGoneSaysSo(t *testing.T) {
