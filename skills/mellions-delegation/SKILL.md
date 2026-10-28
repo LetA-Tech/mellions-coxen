@@ -75,12 +75,15 @@ disposition of any read already there: where one returned changes requested and
 the head has not moved since, the work waiting is the remedy it named, not a
 second opinion.
 
-**A change set carrying `mellions:claimed` is held**, and so is one that refs
-an issue carrying it. A survey prints `CLAIMED` for both, and `-full` names the
-issue when the claim is on the issue; read the claim before deciding anything. An active lane is still on
-it and merging is not yours. A handed-off one waits on what its handoff —
-posted on the change set itself — names, so read that next. A claim unrestated
-for a day is stale: swept, not obeyed. Draft state separates none of these.
+**A change set carrying `mellions:claimed` is held**, and so is one whose
+`Refs`, `Fixes`, `Closes` or `Resolves` names an open issue in its own
+repository carrying it. A survey prints `CLAIMED` for both, and `-full` names
+the issue; read that claim before deciding anything. A claimed issue in another
+repository, or one mentioned without those words, marks nothing: read the
+issues a change set names yourself. An active lane is still on it and merging
+is not yours. A handed-off one waits on what its handoff — posted on the change
+set itself — names, so read that next. A claim unrestated for a day is stale:
+swept, not obeyed. Draft state separates none of these.
 
 **A lane that dispatches a review of its own draft claims it first** —
 `mellions assign claim <lane> -pr <n>` — before sending the review. A
