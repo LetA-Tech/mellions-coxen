@@ -353,11 +353,15 @@ func (s *Source) claimedIssues(ctx context.Context, full string) (map[int]bool, 
 var issueRef = regexp.MustCompile(`(?i)(?:^|[^\w/])(?:refs?|close[sd]?|fix(?:es|ed)?|resolve[sd]?)\b:?[ \t]*\r?\n?[ \t]*` +
 	`(?:#([0-9]+)|([\w.-]+/[\w.-]+)#([0-9]+)|https?://github\.com/([\w.-]+/[\w.-]+)/issues/([0-9]+))\b`)
 
+// emphasis is the Markdown an author wraps a keyword or a number in; it stands
+// between the two without changing what the body refs.
+var emphasis = strings.NewReplacer("*", "", "`", "")
+
 // issueRefs is every issue in full, the owner/repo the body belongs to, that
 // the body refs; a reference qualified by another repository is not one.
 func issueRefs(body, full string) []int {
 	var out []int
-	for _, m := range issueRef.FindAllStringSubmatch(body, -1) {
+	for _, m := range issueRef.FindAllStringSubmatch(emphasis.Replace(body), -1) {
 		num := m[1]
 		switch {
 		case m[3] != "" && strings.EqualFold(m[2], full):

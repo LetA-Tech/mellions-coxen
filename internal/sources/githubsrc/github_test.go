@@ -737,6 +737,8 @@ func TestAPullRequestRefsAClaimedIssueSaysALaneHoldsIt(t *testing.T) {
 		pr(224, "Fixes https://github.com/o/r/issues/215"),
 		pr(225, "Refs https://github.com/other/repo/issues/215"),
 		pr(226, "a fix\n\n#215 is somebody else's"),
+		pr(227, "**Refs** #215"),
+		pr(228, "Refs `#215`"),
 	}, ",") + "]"
 	run, calls := fakeGH(t, map[string]string{"issue": firstPage, "claimed": claimed, "pr": prs})
 	got := collect(t, New(Options{Owner: "o", Repos: []string{"r"}, Run: run}), signal.Scope{})
@@ -745,7 +747,7 @@ func TestAPullRequestRefsAClaimedIssueSaysALaneHoldsIt(t *testing.T) {
 	for _, cs := range got {
 		by[cs.ID] = cs
 	}
-	for _, id := range []string{"PR #216", "PR #217", "PR #222", "PR #223", "PR #224"} {
+	for _, id := range []string{"PR #216", "PR #217", "PR #222", "PR #223", "PR #224", "PR #227", "PR #228"} {
 		held := by[id].Attrs["claimed"]
 		if held == "" {
 			t.Errorf("%s refs #215, which a lane's claim holds, and says nothing about being held; "+
