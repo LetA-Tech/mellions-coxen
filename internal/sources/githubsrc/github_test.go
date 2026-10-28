@@ -44,6 +44,13 @@ func fakeGH(t *testing.T, byVerb map[string]string) (Runner, *[]string) {
 			}
 			return []byte(`{"enabled":true}`), nil
 		}
+		// The claimed-issue query is an issue list of its own; a test that
+		// names "claimed" answers it apart from the work-item list.
+		if verb == "issue" && slices.Contains(args, "--label") {
+			if body, ok := byVerb["claimed"]; ok {
+				return []byte(body), nil
+			}
+		}
 		body, ok := byVerb[verb]
 		if !ok {
 			return []byte("[]"), nil
@@ -699,8 +706,110 @@ func TestAClaimedPullRequestSaysAPeerHoldsIt(t *testing.T) {
 			t.Errorf("claimed = %q, missing %q — the sentence has to be actionable, not a flag", held, want)
 		}
 	}
-	if free := by["PR #179"].Attrs["claimed"]; free != "" {
+	if free := by["PR #52"].Attrs["claimed"]; free != "" {
 		t.Errorf("an unclaimed pull request carries claimed=%q; the marker would mean nothing", free)
+	}
+}
+
+// The claim on the issue holds the change set that refs it, and the claimed
+// issue is usually older than the work-item list's first page: the claim set
+// has to come from its own query, not from the issues already collected.
+func TestAPullRequestRefsAClaimedIssueSaysALaneHoldsIt(t *testing.T) {
+	firstPage := `[
+	 {"number":300,"title":"free issue","url":"i300","createdAt":"2030-01-02T04:44:00Z","updatedAt":"2030-01-02T04:44:00Z","labels":[]}
+	]`
+	claimed := `[
+	 {"number":215,"labels":[{"name":"` + claim.Label + `"}]},
+	 {"number":301,"labels":[{"name":"unrelated"}]}
+	]`
+	pr := func(n int, body string) string {
+		return `{"number":` + strconv.Itoa(n) + `,"title":"t","url":"u","createdAt":"2030-01-02T04:44:00Z","updatedAt":"2030-01-02T04:44:00Z","labels":[],"isDraft":false,"mergeable":"MERGEABLE","headRefName":"mellions/l` + strconv.Itoa(n) + `","author":{"login":"sample-user"},"body":` + strconv.Quote(body) + `,"reviews":[]}`
+	}
+	prs := "[" + strings.Join([]string{
+		pr(216, "Refs #215\n\nEvery histogram now sets its boundaries."),
+		pr(217, "fix(x): something (Fixes: #215)"),
+		pr(218, "Refs #300"),
+		pr(219, "Refs LetA-Tech/other#215 and other/repo#215"),
+		pr(220, "prefixes #215 in passing, no keyword"),
+		pr(221, "Refs #301"),
+		pr(222, "Refs o/r#215. Lane `mellions/l222`, cut from dev"),
+		pr(223, "Closes O/R#215"),
+		pr(224, "Fixes https://github.com/o/r/issues/215"),
+		pr(225, "Refs https://github.com/other/repo/issues/215"),
+		pr(226, "a fix\n\n#215 is somebody else's"),
+		pr(227, "**Refs** #215"),
+		pr(228, "Refs `#215`"),
+	}, ",") + "]"
+	run, calls := fakeGH(t, map[string]string{"issue": firstPage, "claimed": claimed, "pr": prs})
+	got := collect(t, New(Options{Owner: "o", Repos: []string{"r"}, Run: run}), signal.Scope{})
+
+	by := map[string]signal.Signal{}
+	for _, cs := range got {
+		by[cs.ID] = cs
+	}
+	for _, id := range []string{"PR #216", "PR #217", "PR #222", "PR #223", "PR #224", "PR #227", "PR #228"} {
+		held := by[id].Attrs["claimed"]
+		if held == "" {
+			t.Errorf("%s refs #215, which a lane's claim holds, and says nothing about being held; "+
+				"a peer reads it as free and merges over the lane", id)
+			continue
+		}
+		for _, want := range []string{"#215", "before merging"} {
+			if !strings.Contains(held, want) {
+				t.Errorf("%s claimed = %q, missing %q", id, held, want)
+			}
+		}
+	}
+	for _, id := range []string{"PR #218", "PR #219", "PR #220", "PR #221", "PR #225", "PR #226"} {
+		if _, ok := by[id]; !ok {
+			t.Fatalf("%s not collected", id)
+		}
+		if c := by[id].Attrs["claimed"]; c != "" {
+			t.Errorf("%s carries claimed=%q but refs no claimed issue in this repository", id, c)
+		}
+	}
+	if !slices.ContainsFunc(*calls, func(c string) bool {
+		return strings.HasPrefix(c, "issue list") && strings.Contains(c, "--state open") &&
+			strings.Contains(c, "--label "+claim.Label)
+	}) {
+		t.Errorf("no issue list call asks for open issues carrying %s: %q", claim.Label, *calls)
+	}
+}
+
+func TestAClaimSetThatCannotBeReadKeepsTheChangeSetsAndSaysSo(t *testing.T) {
+	run := func(_ context.Context, args ...string) ([]byte, error) {
+		switch {
+		case args[0] == "issue" && slices.Contains(args, "--label"):
+			return nil, errors.New("HTTP 502: Bad Gateway")
+		case args[0] == "pr":
+			return []byte(`[{"number":216,"title":"t","url":"u","createdAt":"2030-01-02T04:44:00Z","updatedAt":"2030-01-02T04:44:00Z","labels":[],"headRefName":"mellions/l","author":{"login":"sample-user"},"body":"Refs #215","reviews":[]}]`), nil
+		case args[0] == "api" && strings.HasSuffix(args[len(args)-1], "/actions/permissions"):
+			return []byte(`{"enabled":true}`), nil
+		case args[0] == "api" && strings.Contains(args[len(args)-1], "/dependabot/alerts"):
+			return nil, errors.New("HTTP 403: Resource not accessible by integration")
+		}
+		return []byte("[]"), nil
+	}
+	got, err := New(Options{Owner: "o", Repos: []string{"r"}, Run: run}).Collect(context.Background(), signal.Scope{})
+	if err == nil || !strings.Contains(err.Error(), "claimed issues") {
+		t.Fatalf("Collect err = %v; an unread claim set has to make the picture incomplete, by name", err)
+	}
+	if !strings.Contains(err.Error(), "1 of 1 repositories") {
+		t.Errorf("Collect err = %v; one repository failing twice is still one repository", err)
+	}
+	if !slices.ContainsFunc(got, func(s signal.Signal) bool { return s.ID == "PR #216" }) {
+		t.Errorf("the change sets were dropped because the claim set could not be read: %v", got)
+	}
+}
+
+func TestNoChangeSetThatRefsAnIssueReadsNoClaimSet(t *testing.T) {
+	prs := `[{"number":7,"title":"t","url":"u","createdAt":"2030-01-02T04:44:00Z","updatedAt":"2030-01-02T04:44:00Z","labels":[],"headRefName":"mellions/l","author":{"login":"sample-user"},"body":"after release #172","reviews":[]}]`
+	run, calls := fakeGH(t, map[string]string{"pr": prs})
+	collect(t, New(Options{Owner: "o", Repos: []string{"r"}, Run: run}), signal.Scope{})
+	for _, c := range *calls {
+		if strings.HasPrefix(c, "issue list") && strings.Contains(c, "--label") {
+			t.Errorf("the claim set was read for a repository whose change sets ref no issue: %q", c)
+		}
 	}
 }
 
