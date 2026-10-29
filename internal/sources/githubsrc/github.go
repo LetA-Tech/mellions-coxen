@@ -154,8 +154,8 @@ func (s *Source) Collect(ctx context.Context, scope signal.Scope) ([]signal.Sign
 			return claimed
 		}
 
-		// One lookup per distinct gate. A state that cannot be read leaves that
-		// gate unreported and the picture incomplete, never reads it as passed.
+		// One lookup per distinct gate. A state that cannot be read is named as
+		// unknown and leaves the picture incomplete; it is never read as ended.
 		states := map[int]gate{}
 		gateState := func(n int) gate {
 			if g, ok := states[n]; ok {
@@ -397,7 +397,7 @@ func issueRefs(body, full string) []int {
 // number in another repository, or one Refs or "stacked on" names, is not one;
 // nor is one a past-tense verb follows, which tells what already happened.
 var gateRef = regexp.MustCompile(`(?i)\bafter\b((?:(?:[\s,]+|\b(?:and|or|release|pr|issue)\b)*#[0-9]+\b)+)` +
-	`(?:\s+(merged|landed|closed|shipped|was|were)\b)?`)
+	`(?:\s+(?:had\s+)?(merged|landed|closed|shipped|been|was|were)\b)?`)
 
 var gateNum = regexp.MustCompile(`#([0-9]+)`)
 

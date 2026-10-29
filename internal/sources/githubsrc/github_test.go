@@ -900,7 +900,7 @@ func TestAChangeSetWhoseNamedGateHasHappenedSaysSo(t *testing.T) {
 		pr(3, "fix(x): w (draft: merge after #278 and release #172)", "x"),
 		pr(4, "fix(x): v (draft: merge after release #401)", "x"),
 		pr(5, "fix(x): u", "Draft: it merges **after #280**, then after #9 (issue), not after other/repo#172."),
-		pr(6, "fix(x): t", "Left after #172 merged. Quoted: `(draft: merge after release #172)`.\n```\nmerge after #278\n```"),
+		pr(6, "fix(x): t", "Left after #172 merged, and after #9 had merged. Quoted: `(draft: merge after release #172)`.\n```\nmerge after #278\n```"),
 		pr(280, "parent", "x"),
 	}, ",") + "]"
 	run, calls := fakeGH(t, map[string]string{
