@@ -38,6 +38,18 @@ func fakeGH(t *testing.T, byVerb map[string]string) (Runner, *[]string) {
 			}
 			return []byte("[]"), nil
 		}
+		// A gate's state answers open unless a test names it as "ref:N"; "404"
+		// is a number that cannot be resolved.
+		if verb == "api" && strings.Contains(args[len(args)-1], "/issues/") {
+			_, num, _ := strings.Cut(args[len(args)-1], "/issues/")
+			if body, ok := byVerb["ref:"+num]; ok {
+				if body == "404" {
+					return nil, errors.New("HTTP 404: Not Found")
+				}
+				return []byte(body), nil
+			}
+			return []byte(`{"state":"open"}`), nil
+		}
 		if verb == "api" && strings.HasSuffix(args[len(args)-1], "/actions/permissions") {
 			if body, ok := byVerb["permissions"]; ok {
 				return []byte(body), nil
@@ -73,6 +85,9 @@ func keyed(t *testing.T, byRepoVerb map[string]string) Runner {
 				}
 			}
 			return []byte("[]"), nil
+		}
+		if args[0] == "api" && strings.Contains(args[len(args)-1], "/issues/") {
+			return []byte(`{"state":"open"}`), nil
 		}
 		if args[0] == "api" && strings.HasSuffix(args[len(args)-1], "/actions/permissions") {
 			for k, v := range byRepoVerb {
@@ -870,5 +885,80 @@ func TestAStackedChangeSetWhoseParentIsGoneSaysSo(t *testing.T) {
 		if o := cs.Attrs["orphaned"]; o != "" {
 			t.Errorf("%s reads as orphaned from a list that came back at its limit, where the parent may be uncollected: %q", cs.ID, o)
 		}
+	}
+}
+
+// A draft's title keeps naming the release it waits on after that release has
+// merged, so the line has to say the event happened.
+func TestAChangeSetWhoseNamedGateHasHappenedSaysSo(t *testing.T) {
+	pr := func(n int, title, body string) string {
+		return fmt.Sprintf(`{"number":%d,"title":%q,"url":"u","createdAt":"2030-01-02T04:44:00Z","updatedAt":"2030-01-02T04:44:00Z","labels":[],"isDraft":true,"headRefName":"mellions/l%d","baseRefName":"dev","author":{"login":"sample-user"},"body":%q,"reviews":[]}`, n, title, n, body)
+	}
+	prs := "[" + strings.Join([]string{
+		pr(1, "fix(x): y (draft: merge after release #172)", "Refs #272."),
+		pr(2, "fix(x): z (Refs #272; stacked on #280)", "Refs #272. Stacked on #280. Fixes #273."),
+		pr(3, "fix(x): w (draft: merge after #278 and release #172)", "x"),
+		pr(4, "fix(x): v (draft: merge after release #401)", "x"),
+		pr(5, "fix(x): u", "Draft: it merges **after #280**, then after #9 (issue), not after other/repo#172."),
+		pr(280, "parent", "x"),
+	}, ",") + "]"
+	run, calls := fakeGH(t, map[string]string{
+		"pr":      prs,
+		"ref:172": `{"state":"closed","closed_at":"2026-10-25T15:06:57Z","pull_request":{"merged_at":"2026-10-25T15:06:57Z"}}`,
+		"ref:278": `{"state":"closed","closed_at":"2026-10-26T01:00:00Z","pull_request":{"merged_at":null}}`,
+		"ref:9":   `{"state":"closed","closed_at":"2026-10-27T01:00:00Z"}`,
+		"ref:401": `{"state":"open","pull_request":{"merged_at":null}}`,
+	})
+	got := collect(t, New(Options{Owner: "o", Repos: []string{"r"}, Run: run}), signal.Scope{})
+	by := map[string]signal.Signal{}
+	for _, cs := range got {
+		by[cs.ID] = cs
+	}
+	want := map[string]string{
+		"PR #1":   "PR #172 merged 2026-10-25:",
+		"PR #3":   "PR #278 closed unmerged 2026-10-26, PR #172 merged 2026-10-25:",
+		"PR #5":   "issue #9 closed 2026-10-27:",
+		"PR #2":   "",
+		"PR #4":   "",
+		"PR #280": "",
+	}
+	for id, w := range want {
+		g := by[id].Attrs["gate_passed"]
+		if w == "" && g != "" || w != "" && !strings.HasPrefix(g, w) {
+			t.Errorf("%s (%q) carries gate_passed=%q, want prefix %q", id, by[id].Title, g, w)
+		}
+	}
+	lookups := map[string]int{}
+	for _, c := range *calls {
+		if strings.HasPrefix(c, "api ") && strings.Contains(c, "/issues/") {
+			lookups[c]++
+		}
+	}
+	for c, n := range lookups {
+		if n > 1 {
+			t.Errorf("%q was looked up %d times; one lookup per distinct gate", c, n)
+		}
+		for _, never := range []string{"/issues/272", "/issues/273", "/issues/280"} {
+			if strings.HasSuffix(c, never) {
+				t.Errorf("%q: a Refs, closing, stacked-on or open-list number was read as a gate", c)
+			}
+		}
+	}
+	if len(lookups) != 4 {
+		t.Errorf("looked up %v, want exactly #172, #278, #9 and #401", lookups)
+	}
+}
+
+// A gate whose state cannot be read is unknown, never passed, and the picture
+// says it is incomplete.
+func TestAGateThatCannotBeResolvedLeavesThePictureIncomplete(t *testing.T) {
+	prs := `[{"number":7,"title":"t (draft: merge after release #172)","url":"u","createdAt":"2030-01-02T04:44:00Z","updatedAt":"2030-01-02T04:44:00Z","labels":[],"headRefName":"mellions/l","author":{"login":"sample-user"},"body":"x","reviews":[]}]`
+	run, _ := fakeGH(t, map[string]string{"pr": prs, "ref:172": "404"})
+	got, err := New(Options{Owner: "o", Repos: []string{"r"}, Run: run}).Collect(context.Background(), signal.Scope{})
+	if err == nil || !strings.Contains(err.Error(), "#172") {
+		t.Errorf("an unresolvable gate left the picture complete: err=%v", err)
+	}
+	if !slices.ContainsFunc(got, func(s signal.Signal) bool { return s.ID == "PR #7" && s.Attrs["gate_passed"] == "" }) {
+		t.Errorf("the change set was dropped or its unresolved gate read as passed: %v", got)
 	}
 }
