@@ -655,17 +655,17 @@ func TestAPassedGateSaysSoInTheBriefRender(t *testing.T) {
 	cs := signal.Signal{
 		Kind: signal.KindChangeSet, Source: "github", ID: "PR #308", Title: "fix (draft: merge after release #172)", Repo: "r",
 		Attrs: map[string]string{"type": "pull_request", "draft": "true", "reviews": "1",
-			"gate_passed": "PR #172 merged 2026-10-25: an event this change set says it waits on has happened"},
+			"gates": "PR #172 merged 2026-10-25, PR #280 open"},
 	}
 	open := signal.Signal{
 		Kind: signal.KindChangeSet, Source: "github", ID: "PR #309", Title: "fix (draft: merge after release #400)", Repo: "r",
 		Attrs: map[string]string{"type": "pull_request", "draft": "true", "reviews": "0"},
 	}
 	brief := Result{At: time.Now(), Signals: []signal.Signal{cs, open}}.Render(Default())
-	if got := lineFor(t, brief, "PR #308"); !strings.Contains(got, "GATE PASSED: PR #172 merged 2026-10-25") {
+	if got := lineFor(t, brief, "PR #308"); !strings.Contains(got, "WAITS ON: PR #172 merged 2026-10-25, PR #280 open") {
 		t.Errorf("the brief line a shift chooses from is %q and does not say its gate has happened", got)
 	}
-	if got := lineFor(t, brief, "PR #309"); strings.Contains(got, "GATE PASSED") {
+	if got := lineFor(t, brief, "PR #309"); strings.Contains(got, "WAITS ON") {
 		t.Errorf("a change set whose gate is open reads %q", got)
 	}
 }

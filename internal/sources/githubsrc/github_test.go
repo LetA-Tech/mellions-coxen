@@ -896,10 +896,11 @@ func TestAChangeSetWhoseNamedGateHasHappenedSaysSo(t *testing.T) {
 	}
 	prs := "[" + strings.Join([]string{
 		pr(1, "fix(x): y (draft: merge after release #172)", "Refs #272."),
-		pr(2, "fix(x): z (Refs #272; stacked on #280)", "Refs #272. Stacked on #280. Fixes #273."),
+		pr(2, "fix(x): z (Refs #272; stacked on #278)", "Refs #272. Stacked on #278. Fixes #273."),
 		pr(3, "fix(x): w (draft: merge after #278 and release #172)", "x"),
 		pr(4, "fix(x): v (draft: merge after release #401)", "x"),
 		pr(5, "fix(x): u", "Draft: it merges **after #280**, then after #9 (issue), not after other/repo#172."),
+		pr(6, "fix(x): t", "Left after #172 merged. Quoted: `(draft: merge after release #172)`.\n```\nmerge after #278\n```"),
 		pr(280, "parent", "x"),
 	}, ",") + "]"
 	run, calls := fakeGH(t, map[string]string{
@@ -915,17 +916,17 @@ func TestAChangeSetWhoseNamedGateHasHappenedSaysSo(t *testing.T) {
 		by[cs.ID] = cs
 	}
 	want := map[string]string{
-		"PR #1":   "PR #172 merged 2026-10-25:",
-		"PR #3":   "PR #278 closed unmerged 2026-10-26, PR #172 merged 2026-10-25:",
-		"PR #5":   "issue #9 closed 2026-10-27:",
+		"PR #1":   "PR #172 merged 2026-10-25",
+		"PR #3":   "PR #278 closed unmerged 2026-10-26, PR #172 merged 2026-10-25",
+		"PR #5":   "PR #280 open, issue #9 closed 2026-10-27",
 		"PR #2":   "",
 		"PR #4":   "",
+		"PR #6":   "",
 		"PR #280": "",
 	}
 	for id, w := range want {
-		g := by[id].Attrs["gate_passed"]
-		if w == "" && g != "" || w != "" && !strings.HasPrefix(g, w) {
-			t.Errorf("%s (%q) carries gate_passed=%q, want prefix %q", id, by[id].Title, g, w)
+		if g := by[id].Attrs["gates"]; g != w {
+			t.Errorf("%s (%q) carries gates=%q, want %q", id, by[id].Title, g, w)
 		}
 	}
 	lookups := map[string]int{}
@@ -958,7 +959,7 @@ func TestAGateThatCannotBeResolvedLeavesThePictureIncomplete(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "#172") {
 		t.Errorf("an unresolvable gate left the picture complete: err=%v", err)
 	}
-	if !slices.ContainsFunc(got, func(s signal.Signal) bool { return s.ID == "PR #7" && s.Attrs["gate_passed"] == "" }) {
+	if !slices.ContainsFunc(got, func(s signal.Signal) bool { return s.ID == "PR #7" && s.Attrs["gates"] == "" }) {
 		t.Errorf("the change set was dropped or its unresolved gate read as passed: %v", got)
 	}
 }
