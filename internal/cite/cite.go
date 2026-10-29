@@ -106,6 +106,10 @@ const (
 	Unanchored
 	// Inverted: a range that ends before it starts, which names no lines.
 	Inverted
+	// Unquoted: the body has the line's text, outside any quotation. An item that
+	// ended the fence holding it, or an indent that continues a paragraph, leaves
+	// it prose, and prose quotes nothing.
+	Unquoted
 )
 
 // Finding is a citation the document cannot back, with what the line says.
@@ -135,6 +139,12 @@ func (f Finding) Reason() string {
 			"Backing is anchored: a citation is backed by a span on its own line, or by the first line of the block its own paragraph introduces, " +
 			"and a quotation already spent on an earlier citation is not free to back a second. " +
 			"Put the quotation under this citation, repeating it if another one already uses it."
+	case Unquoted:
+		return f.Raw + ": that line says " + strconv.Quote(strings.TrimSpace(f.Actual)) +
+			", and the body shows it only outside any quotation, so the check cannot read it as one. " +
+			"If the number and the checkout are right, the markup is what changes. " +
+			"A fenced block in a list item ends where the item does, so indent its lines to the item's content column; an indented code block needs four columns past that. " +
+			"Or put the quote in a fence or blockquote of its own under the citation."
 	default:
 		if strings.TrimSpace(f.Actual) == "" {
 			return f.Raw + ": that line is blank. Nothing there is the claim."
@@ -413,6 +423,16 @@ func Check(doc string, read func(path string) ([]string, error)) ([]Finding, []C
 			first[f.Raw] = f
 		}
 	}
+	var proseLines map[string]bool // built when a refusal first needs it
+	isProse := func(want string) bool {
+		if proseLines == nil {
+			proseLines = map[string]bool{}
+			for _, l := range strings.Split(prose(doc), "\n") {
+				proseLines[normalize(l)] = true
+			}
+		}
+		return proseLines[want]
+	}
 	graded, _ := occurrences(doc)
 	for _, c := range graded {
 		if backed[c.Raw] {
@@ -463,8 +483,11 @@ func Check(doc string, read func(path string) ([]string, error)) ([]Finding, []C
 			continue
 		}
 		kind := Unbacked
-		if q.exhibits(normalize(actual)) {
+		switch want := normalize(actual); {
+		case q.exhibits(want):
 			kind = Unanchored
+		case want != "" && isProse(want):
+			kind = Unquoted
 		}
 		note(Finding{Citation: c, Kind: kind, Actual: actual})
 	}
@@ -487,23 +510,14 @@ func Check(doc string, read func(path string) ([]string, error)) ([]Finding, []C
 func prose(doc string) string {
 	var out strings.Builder
 	lines := strings.Split(doc, "\n")
-	code, base := indentedCode(lines)
-	fence := ""
+	code, fenced := indentedCode(lines)
 	for i, line := range lines {
 		if i > 0 {
 			out.WriteByte('\n')
 		}
-		trimmed := strings.TrimLeft(line, " \t")
-		marker := fenceText(line, base[i])
-		closer := strings.TrimRight(marker, " \t\r")
 		switch {
-		case fence != "":
-			if len(closer) >= len(fence) && strings.TrimLeft(closer, fence[:1]) == "" {
-				fence = ""
-			}
-		case strings.HasPrefix(marker, "```"), strings.HasPrefix(marker, "~~~"):
-			fence = marker[:runLen(marker)]
-		case strings.HasPrefix(trimmed, ">"):
+		case fenced[i] != unfenced:
+		case strings.HasPrefix(strings.TrimLeft(line, " \t"), ">"):
 			// a blockquote: what it holds is quotation
 		case code[i]:
 			// quotation by indentation alone
@@ -514,11 +528,24 @@ func prose(doc string) string {
 	return out.String()
 }
 
-// indentedCode marks the lines indentation alone makes quotation: an indented
-// code block as CommonMark reads one, and the indented lazy lines of a
-// blockquote paragraph. base is the column each line's container starts at.
-func indentedCode(lines []string) (code []bool, base []int) {
-	code, base = make([]bool, len(lines)), make([]int, len(lines))
+// fenceRole is the part a line plays in a fenced code block.
+type fenceRole uint8
+
+const (
+	unfenced   fenceRole = iota
+	fenceOpen            // the opening marker
+	fenceBody            // between the markers, or after an opener nothing closes
+	fenceClose           // the closing marker
+)
+
+// live reports whether a fence is still open after the line.
+func (r fenceRole) live() bool { return r == fenceOpen || r == fenceBody }
+
+// indentedCode returns the lines indentation alone makes quotation, and each
+// line's part in a fenced block, which ends at its closing marker, at the first
+// line outside its list item, or at the end of the document.
+func indentedCode(lines []string) (code []bool, fenced []fenceRole) {
+	code, fenced = make([]bool, len(lines)), make([]fenceRole, len(lines))
 	var items []int // content column of each open list item, outermost first
 	fence := ""
 	// A paragraph is open; it is a blockquote's; the last item opened empty.
@@ -529,21 +556,28 @@ func indentedCode(lines []string) (code []bool, base []int) {
 		for depth < len(items) && col >= items[depth] {
 			depth++
 		}
+		base := 0 // the column the line's container starts at
 		if depth > 0 {
-			base[i] = items[depth-1]
+			base = items[depth-1]
 		}
 		text := strings.TrimRight(rest, " \t\r")
-		marker := fenceText(line, base[i])
+		if fence != "" && text != "" && depth < len(items) {
+			// A blank line stays in its item; any other line outside the item
+			// ends the fence, which no lazy continuation can keep open.
+			fence = ""
+		}
+		marker := fenceText(line, base)
 		closer := strings.TrimRight(marker, " \t\r")
 		wasBare := bare
 		bare = false
 		switch {
 		case fence != "":
+			fenced[i] = fenceBody
 			if len(closer) >= len(fence) && strings.TrimLeft(closer, fence[:1]) == "" {
-				fence = ""
+				fence, fenced[i] = "", fenceClose
 			}
-		case strings.HasPrefix(marker, "```"), strings.HasPrefix(marker, "~~~"):
-			fence = marker[:runLen(marker)]
+		case fenceRun(marker) != "":
+			fence, fenced[i] = fenceRun(marker), fenceOpen
 			items, para, quote = items[:depth], false, false
 		case strings.HasPrefix(text, ">"):
 			items, para, quote = items[:depth], true, true
@@ -554,7 +588,7 @@ func indentedCode(lines []string) (code []bool, base []int) {
 			para, quote = false, false
 			code[i] = col >= 4 && i > 0 && code[i-1]
 		default:
-			rel := col - base[i]
+			rel := col - base
 			it := readItem(col, text)
 			switch {
 			case rel >= 4 && para:
@@ -572,7 +606,7 @@ func indentedCode(lines []string) (code []bool, base []int) {
 			}
 		}
 	}
-	return code, base
+	return code, fenced
 }
 
 // fenceText is the text of line if it may carry a fence marker, which is
@@ -582,6 +616,19 @@ func fenceText(line string, base int) string {
 		return rest
 	}
 	return ""
+}
+
+// fenceRun is the delimiter run of the fence a marker opens, or "" if it opens
+// none. A backtick fence's info string holds no backtick; a tilde fence's may.
+func fenceRun(marker string) string {
+	if !strings.HasPrefix(marker, "```") && !strings.HasPrefix(marker, "~~~") {
+		return ""
+	}
+	run := marker[:runLen(marker)]
+	if run[0] == '`' && strings.Contains(marker[len(run):], "`") {
+		return ""
+	}
+	return run
 }
 
 // margin is the column a line's text starts at, tab stops every four, and the
@@ -674,8 +721,7 @@ type quotedText struct {
 
 func quotations(doc string) *quotedText {
 	q := &quotedText{lines: strings.Split(doc, "\n")}
-	fence := ""
-	code, base := indentedCode(q.lines)
+	code, fenced := indentedCode(q.lines)
 	open := -1
 	// head records a block's first non-blank line as what the block quotes,
 	// and each later line as present but backing nothing: a citation names
@@ -696,18 +742,17 @@ func quotations(doc string) *quotedText {
 	}
 	for i, line := range q.lines {
 		trimmed := strings.TrimLeft(line, " \t")
-		marker := fenceText(line, base[i])
-		closer := strings.TrimRight(marker, " \t\r")
+		if i > 0 && fenced[i-1].live() && fenced[i] == unfenced {
+			// the item holding the fence ended
+			open = -1
+		}
 		switch {
-		case fence != "":
-			if len(closer) >= len(fence) && strings.TrimLeft(closer, fence[:1]) == "" {
-				fence, open = "", -1
-				continue
-			}
+		case fenced[i] == fenceBody:
 			head(line)
-		case strings.HasPrefix(marker, "```"), strings.HasPrefix(marker, "~~~"):
-			fence = marker[:runLen(marker)]
+		case fenced[i] == fenceOpen:
 			start(i)
+		case fenced[i] == fenceClose:
+			open = -1
 		case strings.HasPrefix(trimmed, ">"):
 			if open < 0 {
 				start(i)
