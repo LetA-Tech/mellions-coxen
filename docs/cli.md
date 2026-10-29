@@ -251,7 +251,7 @@ method for the agent.
 
 ## Deterministic checks and PreToolUse guards
 
-These commands are the CLI side of the four narrow safeguards in
+These commands are the CLI side of the three narrow safeguards in
 [`architecture.md`](architecture.md). The `*-check` forms read a runtime
 PreToolUse payload when `MELLIONS_HOOK` says one is present; hand-running one
 without a payload prints usage rather than claiming that it checked anything.

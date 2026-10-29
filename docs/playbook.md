@@ -138,8 +138,8 @@ PreToolUse checks that may deny a tool call:
   branch where GitHub will not resolve the keyword;
 - a tree-mutating Git command aimed at a configured shared checkout rather
   than the session's assignment worktree;
-- a GitHub body that publishes a locally resolvable `path:line` citation but
-  does not quote the cited line;
+- an `rm` of a glob over a temporary root every session shares, or a signal
+  sent by process name or pattern;
 - a shell/read/grep/notebook operation that would put credential-file contents
   into the transcript.
 
