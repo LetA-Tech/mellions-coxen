@@ -5,15 +5,17 @@
 package main
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 )
 
-// The posting hook grades the paragraph after a list whose item holds a fence
-// the item's end closed: a wrong quotation denies and the true one is silent.
-func TestCiteHook_AParagraphAfterAnItemsFenceIsGraded(t *testing.T) {
+// mellions cite check, and its PreToolUse form cite-check, grade the paragraph
+// after a list whose item holds a fence the item's end closed: a wrong
+// quotation is refused and the true one passes.
+func TestCite_AParagraphAfterAnItemsFenceIsGraded(t *testing.T) {
 	root := citeGitRepo(t)
 	for name, c := range map[string]struct {
 		quote string
@@ -27,10 +29,14 @@ func TestCiteHook_AParagraphAfterAnItemsFenceIsGraded(t *testing.T) {
 		if err := os.WriteFile(body, []byte(doc), 0o644); err != nil {
 			t.Fatal(err)
 		}
+		err := cmdCite(context.Background(), []string{"check", "-file", body, "-dir", root})
+		if got := err != nil; got != c.deny {
+			t.Errorf("%s: cite check refused = %v, want %v (err: %v)", name, got, c.deny, err)
+		}
 		var out string
 		runCiteHookRaw(t, root, "gh pr create --base dev --body-file "+body, &out)
 		if got := strings.Contains(out, `"permissionDecision":"deny"`); got != c.deny {
-			t.Errorf("%s: denied = %v, want %v.\ngot: %s", name, got, c.deny, out)
+			t.Errorf("%s: cite-check denied = %v, want %v.\ngot: %s", name, got, c.deny, out)
 		}
 	}
 }
