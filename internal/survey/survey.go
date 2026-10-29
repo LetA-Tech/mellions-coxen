@@ -497,6 +497,9 @@ func briefReadiness(s signal.Signal) string {
 	if s.Attrs["orphaned"] != "" {
 		parts = append(parts, "ORPHANED: its base branch heads no open pull request; retarget it")
 	}
+	if g := s.Attrs["gates"]; g != "" {
+		parts = append(parts, "WAITS ON: "+g)
+	}
 	if len(parts) == 0 {
 		return ""
 	}

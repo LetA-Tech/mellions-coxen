@@ -154,7 +154,23 @@ func (s *Source) Collect(ctx context.Context, scope signal.Scope) ([]signal.Sign
 			return claimed
 		}
 
-		prs, err := s.pulls(ctx, full, limit, claimedSet)
+		// One lookup per distinct gate. A state that cannot be read is named as
+		// unknown and leaves the picture incomplete; it is never read as ended.
+		states := map[int]gate{}
+		gateState := func(n int) gate {
+			if g, ok := states[n]; ok {
+				return g
+			}
+			g, err := s.refState(ctx, full, n)
+			if err != nil {
+				fail("state of #%d, named as a change set's gate: %v", n, err)
+				g = gate{desc: "#" + strconv.Itoa(n) + " state unknown"}
+			}
+			states[n] = g
+			return g
+		}
+
+		prs, err := s.pulls(ctx, full, limit, claimedSet, gateState)
 		if err != nil {
 			fail("%v", err)
 			continue
@@ -376,7 +392,89 @@ func issueRefs(body, full string) []int {
 	return out
 }
 
-func (s *Source) pulls(ctx context.Context, full string, limit int, claimed func() map[int]bool) ([]signal.Signal, error) {
+// gateRef matches the event a change set says it waits on: "after", then one
+// or more #N joined by "and", "or", "release", "PR", "issue" or a comma. A
+// number in another repository, or one Refs or "stacked on" names, is not one;
+// nor is one a past-tense verb follows, which tells what already happened.
+var gateRef = regexp.MustCompile(`(?i)\bafter\b((?:(?:[\s,]+|\b(?:and|or|release|pr|issue)\b)*#[0-9]+\b)+)` +
+	`(?:\s+(?:had\s+)?(merged|landed|closed|shipped|been|was|were)\b)?`)
+
+var gateNum = regexp.MustCompile(`#([0-9]+)`)
+
+// quoted is code, fenced or inline: a phrase quoted there is an example, not a
+// statement about this change set.
+var quoted = regexp.MustCompile("(?s)```.*?```|`[^`\n]*`")
+
+// gates is every distinct #N the title or body names as what the change set
+// waits on, in order of first mention.
+func gates(title, body string) []int {
+	var out []int
+	seen := map[int]bool{}
+	text := strings.ReplaceAll(quoted.ReplaceAllString(title+"\n"+body, " "), "*", "")
+	for _, m := range gateRef.FindAllStringSubmatch(text, -1) {
+		if m[2] != "" {
+			continue
+		}
+		for _, g := range gateNum.FindAllStringSubmatch(m[1], -1) {
+			if n, err := strconv.Atoi(g[1]); err == nil && !seen[n] {
+				seen[n] = true
+				out = append(out, n)
+			}
+		}
+	}
+	return out
+}
+
+// gate is what has happened to one named gate.
+type gate struct {
+	desc     string
+	happened bool
+}
+
+type ghRef struct {
+	State       string     `json:"state"`
+	ClosedAt    *time.Time `json:"closed_at"`
+	PullRequest *struct {
+		MergedAt *time.Time `json:"merged_at"`
+	} `json:"pull_request"`
+}
+
+// refState is which of issue or pull request n is, whether it is open or how
+// it ended, and when. The issues endpoint answers for both and says which.
+func (s *Source) refState(ctx context.Context, full string, n int) (gate, error) {
+	raw, err := s.opts.Run(ctx, "api", "repos/"+full+"/issues/"+strconv.Itoa(n))
+	if err != nil {
+		return gate{}, err
+	}
+	var r ghRef
+	if err := json.Unmarshal(raw, &r); err != nil {
+		return gate{}, fmt.Errorf("githubsrc: decode #%d in %s: %w", n, full, err)
+	}
+	day := func(t *time.Time) string {
+		if t == nil {
+			return ""
+		}
+		return " " + t.UTC().Format("2006-01-02")
+	}
+	what := "issue #" + strconv.Itoa(n)
+	if r.PullRequest != nil {
+		what = "PR #" + strconv.Itoa(n)
+	}
+	switch {
+	case r.State == "open":
+		return gate{desc: what + " open"}, nil
+	case r.State != "closed":
+		return gate{}, fmt.Errorf("githubsrc: #%d in %s has state %q, neither open nor closed", n, full, r.State)
+	case r.PullRequest != nil && r.PullRequest.MergedAt != nil:
+		return gate{desc: what + " merged" + day(r.PullRequest.MergedAt), happened: true}, nil
+	case r.PullRequest != nil:
+		return gate{desc: what + " closed unmerged" + day(r.ClosedAt), happened: true}, nil
+	default:
+		return gate{desc: what + " closed" + day(r.ClosedAt), happened: true}, nil
+	}
+}
+
+func (s *Source) pulls(ctx context.Context, full string, limit int, claimed func() map[int]bool, gateState func(int) gate) ([]signal.Signal, error) {
 	raw, err := s.opts.Run(ctx, "pr", "list", "-R", full, "--state", "open",
 		"--limit", strconv.Itoa(limit),
 		"--json", "number,title,url,createdAt,updatedAt,labels,isDraft,mergeable,headRefName,baseRefName,isCrossRepository,author,body,reviews,comments")
@@ -390,7 +488,9 @@ func (s *Source) pulls(ctx context.Context, full string, limit int, claimed func
 
 	repo := shortName(full)
 	heads := make(map[string]int, len(items))
+	openPRs := make(map[int]bool, len(items))
 	for _, it := range items {
+		openPRs[it.Number] = true
 		if it.HeadRef != "" && !it.CrossRepo {
 			heads[it.HeadRef] = it.Number
 		}
@@ -420,6 +520,23 @@ func (s *Source) pulls(ctx context.Context, full string, limit int, claimed func
 				attrs["orphaned"] = "based on " + it.BaseRef + ", which no open pull request heads: " +
 					"the change set it was stacked on has merged or closed, or was never opened; retarget it before merging"
 			}
+		}
+		// The title outlives the event it names: a draft that waits on a
+		// release keeps saying so after the release merges. Once one gate has
+		// ended, every gate is named with its state, so one still open is not
+		// hidden behind it. A gate the open list holds needs no lookup.
+		var named []string
+		ended := false
+		for _, n := range gates(it.Title, it.Body) {
+			g := gate{desc: "PR #" + strconv.Itoa(n) + " open"}
+			if !openPRs[n] {
+				g = gateState(n)
+			}
+			named = append(named, g.desc)
+			ended = ended || g.happened
+		}
+		if ended {
+			attrs["gates"] = strings.Join(named, ", ")
 		}
 		// Every Mellions session pushes as the same GitHub account, so author
 		// separates a bot's PR from an engineer's and nothing finer; which lane
