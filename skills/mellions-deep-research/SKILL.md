@@ -98,8 +98,10 @@ row or a published body carries both. Wordings you have met bound nothing, so
 where the claim attaches to a name the toolchain resolves, enumerate its sites
 and read each; where the name is assembled at runtime, that set is not closed. Nor is one that returns hits
 thereby well scoped: a negative conclusion holds only for the boundary you
-searched, and where a value is read, stored or passed on often is not where it
-is declared — the far side may drop the very name, tag or key you matched on.
+searched, where a value is read, stored or passed on often is not where it is
+declared — the far side may drop the very name, tag or key you matched on — and
+across services a hit is not a link: a consumer's producer is the address it
+reads from — route, topic, RPC, table — not a shared field name.
 Where absence across an estate is the claim, no tree is its outer edge:
 enumerate the refs the remote reports, not the ones a checkout fetched, and
 the open pull requests no integration ref holds.
