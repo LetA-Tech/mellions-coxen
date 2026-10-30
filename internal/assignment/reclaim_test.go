@@ -297,11 +297,14 @@ func TestReclaimKeepsGitWorkBelowARebuildableDirectory(t *testing.T) {
 	reclaimGit(t, work, "commit", "-q", "-m", "only in the bare repository")
 	reclaimGit(t, work, "remote", "add", "origin", bare)
 	reclaimGit(t, work, "push", "-q", "origin", "work")
-	reclaimGit(t, bare, "repack", "-q", "-a", "-d")
+	reclaimGit(t, bare, "gc", "-q")
 	writeFile(t, filepath.Join(lane, "history.bundle"), append([]byte{0}, make([]byte, EvidenceBound+1)...))
 
 	if _, err := reclaimLane(lane, nil, true); err != nil {
 		t.Fatal(err)
+	}
+	if out, err := exec.Command("git", "-C", bare, "fsck", "--no-progress").CombinedOutput(); err != nil {
+		t.Errorf("a kept bare repository no longer reads as one: %v\n%s", err, out)
 	}
 	if out, err := exec.Command("git", "-C", bare, "rev-parse", "--verify", "-q", "work^{commit}").CombinedOutput(); err != nil {
 		t.Errorf("a bare repository holding the only copy of a commit was gutted: %v\n%s", err, out)

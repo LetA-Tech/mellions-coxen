@@ -69,6 +69,7 @@ var cacheEntry = regexp.MustCompile(`^[0-9a-f]{64}-[ad]$`)
 // pointing into a worktree or a shared cache cannot reach past itself.
 func reclaimLane(dir string, protect map[string]bool, apply bool) (Reclaimed, error) {
 	var r Reclaimed
+	kept := map[string]bool{}
 	info, err := os.Lstat(dir)
 	if errors.Is(err, fs.ErrNotExist) {
 		return r, nil
@@ -99,6 +100,7 @@ func reclaimLane(dir string, protect map[string]bool, apply bool) (Reclaimed, er
 		}
 		if filepath.Dir(path) == dir && laneKeeps[d.Name()] {
 			if d.IsDir() {
+				kept[path] = true
 				return filepath.SkipDir
 			}
 			return nil
@@ -108,10 +110,12 @@ func reclaimLane(dir string, protect map[string]bool, apply bool) (Reclaimed, er
 			// its compressed objects as binaries would corrupt it.
 			if d.Name() == ".git" || isRepository(path) {
 				r.Kept++
+				kept[path] = true
 				return filepath.SkipDir
 			}
 			if protect[path] || isWorktree(path) || holdsUnsavedGit(path) {
 				r.Kept++
+				kept[path] = true
 				return filepath.SkipDir
 			}
 			if !rebuildable(path, d.Name()) {
@@ -158,7 +162,7 @@ func reclaimLane(dir string, protect map[string]bool, apply bool) (Reclaimed, er
 		return r, err
 	}
 	if apply {
-		pruneEmpty(dir)
+		pruneEmpty(dir, kept)
 	}
 	return r, nil
 }
@@ -318,13 +322,18 @@ func removeTree(dir string) error {
 }
 
 // pruneEmpty removes the directories a reclaim left empty, deepest first,
-// and never dir itself.
-func pruneEmpty(dir string) {
+// and never dir itself nor anything inside what the reclaim kept whole: a
+// packed repository's empty refs/ is part of the repository.
+func pruneEmpty(dir string, kept map[string]bool) {
 	var dirs []string
 	filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
-		if err == nil && d.IsDir() && path != dir {
-			dirs = append(dirs, path)
+		if err != nil || !d.IsDir() || path == dir {
+			return nil
 		}
+		if kept[path] {
+			return filepath.SkipDir
+		}
+		dirs = append(dirs, path)
 		return nil
 	})
 	for i := len(dirs) - 1; i >= 0; i-- {
