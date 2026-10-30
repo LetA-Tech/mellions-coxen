@@ -18,7 +18,6 @@ func TestNoclobberRedirectIsOneRedirection(t *testing.T) {
 		{`echo x >|out.txt`, []string{"echo", "x"}, "out.txt"},
 		{`cat >| /dev/stdout .pgpass`, []string{"cat", ".pgpass"}, "/dev/stdout"},
 		{`cat >|/dev/stderr .pgpass`, []string{"cat", ".pgpass"}, "/dev/stderr"},
-		{`cat 1>| /dev/stdout .pgpass`, []string{"cat", "1", ".pgpass"}, "/dev/stdout"},
 	} {
 		cmds := Split(tc.cmd)
 		if len(cmds) != 1 {
@@ -42,8 +41,9 @@ func TestNoclobberRedirectIsOneRedirection(t *testing.T) {
 	}
 }
 
-// Only the | that touches a single > belongs to it: a pipe after a redirection's
-// target, or after >>, still separates two commands.
+// Only the | that touches an unquoted single > belongs to it: a pipe after a
+// redirection's target, after >>, or after a quoted or escaped > still
+// separates two commands.
 func TestNoclobberLeavesPipesAlone(t *testing.T) {
 	for _, tc := range []struct {
 		cmd  string
@@ -54,9 +54,31 @@ func TestNoclobberLeavesPipesAlone(t *testing.T) {
 		{`echo x >| out.txt; cat y`, 2},
 		{`echo x >> out.txt | wc`, 2},
 		{`echo x >&2 | wc`, 2},
+		{`echo x \>| cat .pgpass`, 2},
+		{`echo x '>'| cat .pgpass`, 2},
+		{`echo x ">"| cat .pgpass`, 2},
 	} {
 		if got := len(Split(tc.cmd)); got != tc.want {
 			t.Errorf("Split(%q) gave %d commands, want %d", tc.cmd, got, tc.want)
 		}
+	}
+}
+
+// An fd prefix leaves the operand the command reads, and stdout's target, as
+// they are without it.
+func TestNoclobberWithDescriptorKeepsTheOperand(t *testing.T) {
+	cmds := Split(`cat 1>| /dev/stdout .pgpass`)
+	if len(cmds) != 1 {
+		t.Fatalf("Split(cat 1>| /dev/stdout .pgpass) gave %d commands, want 1", len(cmds))
+	}
+	if cmds[0].Out != "/dev/stdout" {
+		t.Errorf("Out = %q, want /dev/stdout", cmds[0].Out)
+	}
+	found := false
+	for _, w := range cmds[0].Words {
+		found = found || w == ".pgpass"
+	}
+	if !found {
+		t.Errorf("Words = %q, want .pgpass among them", cmds[0].Words)
 	}
 }

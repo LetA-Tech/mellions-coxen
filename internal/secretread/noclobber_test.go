@@ -27,8 +27,9 @@ func TestScanBash_NoclobberRedirectKeepsTheRead(t *testing.T) {
 	}
 }
 
-// Whatever the guard decides about a > redirection it decides about >|: the two
-// differ only in whether bash honours noclobber, which changes no read.
+// Whatever the guard decides about a > redirection it decides about >|. They
+// differ only under noclobber, where > to an existing file aborts the command;
+// the guard cannot see that option, so it reads both as the read they may be.
 func TestScanBash_NoclobberMatchesPlainRedirect(t *testing.T) {
 	for _, cmd := range []string{
 		`cat >| /dev/stdout .pgpass`,
