@@ -53,6 +53,9 @@ func TestTheMergeIsFoundWhateverItIsWrittenBeside(t *testing.T) {
 		{"env and absolute path", "GH_TOKEN=x /usr/bin/gh pr merge 7", 1, "7", ""},
 		{"not a merge", "gh pr view 5 --json mergeable", 0, "", ""},
 		{"merge in someone else's text", `echo "remember to gh pr merge 9"`, 0, "", ""},
+		{"behind timeout", "timeout 60 gh pr merge 11 --merge", 1, "11", ""},
+		{"behind a keyword", "if true; then gh pr merge 12 --merge; fi", 1, "12", ""},
+		{"in a subshell", "( gh pr merge 13 --repo o/r )", 1, "13", "o/r"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			got := Calls(c.command)
