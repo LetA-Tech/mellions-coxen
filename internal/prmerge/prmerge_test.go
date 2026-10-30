@@ -293,3 +293,20 @@ func TestTheOverlapListIsBoundedAndSaysSo(t *testing.T) {
 type errNotFound struct{}
 
 func (errNotFound) Error() string { return "no pull request found" }
+
+// A body citation the head does not back is refused, and the refusal names the
+// outside-any-quotation case beside the wrong number and the other ref.
+func TestAnUnbackedBodyRefusalNamesTheUnquotedCase(t *testing.T) {
+	got := Deny(payloadFor("gh pr merge 42"), answering(State{
+		Number: 42, Base: "dev", MergeState: "CLEAN", Head: "0123456789abcdef",
+		Unbacked: []string{"a.go:1: that line says \"x\", and the body shows it only outside any quotation"},
+	}))
+	for _, want := range []string{"one of three ways", "shows the line outside any quotation", "if the number and the ref are right", "follow that reason's remedy"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("the refusal does not carry %q: %q", want, got)
+		}
+	}
+	if strings.Contains(got, "paragraph") || strings.Contains(got, "are right and the markup is not") {
+		t.Errorf("the refusal claims what the check does not know: %q", got)
+	}
+}

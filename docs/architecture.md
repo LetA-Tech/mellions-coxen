@@ -67,7 +67,9 @@ Four layers remain distinct:
 3. **Deterministic Mellions safeguards** inspect PreToolUse payloads and can
    deny three narrow classes: publishing a closing keyword on a pull request
    base where GitHub will not resolve it; mutating a configured shared checkout
-   instead of a lane, a clean fast-forward-only pull or merge excepted; and
+   instead of a lane, a clean fast-forward-only pull or merge excepted, or
+   reaching other sessions' files or processes through an `rm` glob over a
+   shared temporary root or a signal sent by name or pattern; and
    reading credential-bearing files into a transcript. The first two stay
    silent when their required context cannot be established. The credential
    detector rejects a read shape it cannot prove non-printing;

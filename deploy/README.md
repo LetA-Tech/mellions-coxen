@@ -12,7 +12,7 @@ login or boot and bring it back when it dies.
 **Autonomous by default, within the configured boundaries.** An interactive
 session runs under the runtime's native permission configuration. Mellions
 does not replace that authorization model, but its PreToolUse hooks can deny
-the four narrow invariant violations documented in
+the three narrow invariant violations documented in
 [`../docs/architecture.md`](../docs/architecture.md). The identity and
 partnership guide organizational judgment; runtime and operator controls decide
 which capabilities are available.
