@@ -284,8 +284,30 @@ func TestReclaimKeepsGitWorkBelowARebuildableDirectory(t *testing.T) {
 	reclaimGit(t, pushed, "commit", "-q", "-m", "one")
 	reclaimGit(t, pushed, "update-ref", "refs/remotes/origin/work", "HEAD")
 
+	// A commit pushed only to a bare repository inside the lane.
+	bare := filepath.Join(lane, "keep", "origin.git")
+	if err := os.MkdirAll(bare, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	reclaimGit(t, bare, "init", "-q", "--bare", "-b", "work")
+	work := filepath.Join(lane, "work")
+	writeFile(t, filepath.Join(work, "go.mod"), []byte("module w\n"))
+	reclaimGit(t, work, "init", "-q", "-b", "work")
+	reclaimGit(t, work, "add", ".")
+	reclaimGit(t, work, "commit", "-q", "-m", "only in the bare repository")
+	reclaimGit(t, work, "remote", "add", "origin", bare)
+	reclaimGit(t, work, "push", "-q", "origin", "work")
+	reclaimGit(t, bare, "repack", "-q", "-a", "-d")
+	writeFile(t, filepath.Join(lane, "history.bundle"), append([]byte{0}, make([]byte, EvidenceBound+1)...))
+
 	if _, err := reclaimLane(lane, nil, true); err != nil {
 		t.Fatal(err)
+	}
+	if out, err := exec.Command("git", "-C", bare, "rev-parse", "--verify", "-q", "work^{commit}").CombinedOutput(); err != nil {
+		t.Errorf("a bare repository holding the only copy of a commit was gutted: %v\n%s", err, out)
+	}
+	if !exists(filepath.Join(lane, "history.bundle")) {
+		t.Error("a git bundle was reclaimed; it is history archived on purpose")
 	}
 	if !exists(filepath.Join(nested, ".git")) {
 		t.Error("a linked worktree nested in a rebuildable directory was taken with it")

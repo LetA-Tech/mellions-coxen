@@ -106,7 +106,7 @@ func reclaimLane(dir string, protect map[string]bool, apply bool) (Reclaimed, er
 		if d.IsDir() {
 			// A repository's own store is never read file by file: removing
 			// its compressed objects as binaries would corrupt it.
-			if d.Name() == ".git" {
+			if d.Name() == ".git" || isRepository(path) {
 				r.Kept++
 				return filepath.SkipDir
 			}
@@ -161,6 +161,22 @@ func reclaimLane(dir string, protect map[string]bool, apply bool) (Reclaimed, er
 		pruneEmpty(dir)
 	}
 	return r, nil
+}
+
+// isRepository says whether dir is a bare git repository: HEAD, objects/ and
+// refs/ with no .git around them. Its packs read as binaries, and a commit
+// pushed only to it exists nowhere else.
+func isRepository(dir string) bool {
+	head, err := os.Lstat(filepath.Join(dir, "HEAD"))
+	if err != nil || !head.Mode().IsRegular() {
+		return false
+	}
+	for _, sub := range []string{"objects", "refs"} {
+		if fi, err := os.Lstat(filepath.Join(dir, sub)); err != nil || !fi.IsDir() {
+			return false
+		}
+	}
+	return true
 }
 
 // isWorktree says whether dir is a linked git worktree (.git is a file). Its
@@ -229,9 +245,14 @@ func rebuildable(dir, name string) bool {
 	return false
 }
 
-// keepAsEvidence is a regular file within EvidenceBound whose first 8000
-// bytes hold no NUL, the test git applies before it calls a file binary.
+// keepAsEvidence is a git bundle, or a regular file within EvidenceBound
+// whose first 8000 bytes hold no NUL, the test git applies before it calls a
+// file binary.
 func keepAsEvidence(path string, fi fs.FileInfo) bool {
+	// A bundle is history a session archived on purpose, whatever its size.
+	if fi.Mode().IsRegular() && strings.HasSuffix(fi.Name(), ".bundle") {
+		return true
+	}
 	if !fi.Mode().IsRegular() || fi.Size() > EvidenceBound || cacheEntry.MatchString(fi.Name()) {
 		return false
 	}
@@ -256,10 +277,12 @@ func treeSize(dir string, protect map[string]bool) (int64, int, bool) {
 	nested := false
 	filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
-			return nil
+			// What cannot be read cannot be shown to hold no git work.
+			nested = true
+			return filepath.SkipAll
 		}
 		ownGit := d.Name() == ".git" && filepath.Dir(path) == dir
-		if path != dir && ((d.Name() == ".git" && !ownGit) || protect[path]) {
+		if path != dir && ((d.Name() == ".git" && !ownGit) || protect[path] || (!ownGit && d.IsDir() && isRepository(path))) {
 			nested = true
 			return filepath.SkipAll
 		}
