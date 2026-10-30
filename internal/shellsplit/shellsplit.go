@@ -218,6 +218,9 @@ func lex(command string, i int, stopAtParen bool) ([]*Command, int) {
 				// its fragments are no operand of a < written before it.
 				i++
 				redirIn = false
+			case strings.HasPrefix(command[i:], "<&"):
+				i = descriptor(command, i+2)
+				redirIn = false
 			default:
 				i++
 				redirIn = true
@@ -225,17 +228,18 @@ func lex(command string, i int, stopAtParen bool) ([]*Command, int) {
 
 		case c == '>':
 			endWord()
-			if strings.HasPrefix(command[i:], ">>") {
+			switch {
+			case strings.HasPrefix(command[i:], ">>"):
 				i += 2
-			} else {
+			case strings.HasPrefix(command[i:], ">|"):
+				// >| overrides noclobber; its | is part of the operator, not a
+				// pipe ending the command.
+				i += 2
+			default:
 				i++
 			}
-			// >&2 duplicates a descriptor and names no file.
 			if i < len(command) && command[i] == '&' {
-				i++
-				for i < len(command) && command[i] >= '0' && command[i] <= '9' {
-					i++
-				}
+				i = descriptor(command, i+1)
 				break
 			}
 			redirOut = true
@@ -248,6 +252,19 @@ func lex(command string, i int, stopAtParen bool) ([]*Command, int) {
 	}
 	endCmd()
 	return out, i
+}
+
+// descriptor skips, from i just past the & of >& or <&, an adjacent descriptor
+// number, a lone - that closes one, or a number then - that moves it, and
+// returns the index past it. A spaced or variable target stays a word.
+func descriptor(command string, i int) int {
+	for i < len(command) && command[i] >= '0' && command[i] <= '9' {
+		i++
+	}
+	if i < len(command) && command[i] == '-' {
+		i++
+	}
+	return i
 }
 
 // substitution reads $(...) beginning at i. It returns the text the
