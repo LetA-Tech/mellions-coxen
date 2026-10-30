@@ -21,8 +21,9 @@ as is an assertion moved to match the behaviour.
 **1 — Establish the contract and ground.** From the work item,
 its plan, and the repository's `CLAUDE.md`, establish: the branch to work from
 and target; the release branch, which is never a base for implementation; the
-verification commands; and any path that must not enter the diff without
-authorization. Where none declares the base, `git symbolic-ref
+verification commands; the acceptance criteria, read in full wherever they sit
+— a truncated read drops the last sections, a body-only read the comments; and
+any path that must not enter the diff without authorization. Where none declares the base, `git symbolic-ref
 refs/remotes/origin/HEAD` gives the remote's default — a candidate, not a
 declaration, and where a release branch is kept it names the one this step
 forbids. What merged pull requests mostly target settles it (`gh pr list -s
@@ -63,8 +64,7 @@ than the contract → update it on the item first.
 
 **5 — Implement.** Every file is opened before it is changed. Fix the cause at
 the point every caller routes through, not each call site in turn. Machinery the change makes unreachable is deleted with its
-tests, not deprecated and not left behind a flag. A defect found in a file being changed goes through step 3;
-a deferral marker is not an outcome. Comments follow
+tests, not deprecated and not left behind a flag. Comments follow
 `mellions-comment-hygiene`.
 
 **6 — Prove it.** Use focused checks while editing. Where the defect can be executed the proof has two ends:
