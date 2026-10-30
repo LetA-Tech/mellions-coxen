@@ -99,7 +99,7 @@ func TestSweepReclaimsAFinishedLanesRebuildableScratchAfterTheHorizon(t *testing
 	now = now.Add(2 * time.Hour)
 	got := verdicts(mustSweep(t, s, o))
 	if v := got["fx-done"]; v.Verdict != "reclaimable" || !strings.Contains(v.Why, "6 evidence file(s) kept") {
-		t.Fatalf("dry run past the horizon: %+v, want reclaimable keeping 4 evidence files and the unpushed clone", v)
+		t.Fatalf("dry run past the horizon: %+v, want reclaimable keeping 4 evidence files, the unpushed clone and the arm worktree", v)
 	}
 	if !exists(filepath.Join(scratch, "base", "go.mod")) || !exists(filepath.Join(scratch, "bin", "mellions")) {
 		t.Fatal("a dry run removed scratch")
