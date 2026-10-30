@@ -277,6 +277,13 @@ func TestReclaimKeepsGitWorkBelowARebuildableDirectory(t *testing.T) {
 	writeFile(t, filepath.Join(stashed, "go.mod"), []byte("module s // edited\n"))
 	reclaimGit(t, stashed, "stash", "-q")
 
+	pushed := filepath.Join(lane, "pushed")
+	writeFile(t, filepath.Join(pushed, "go.mod"), []byte("module p\n"))
+	reclaimGit(t, pushed, "init", "-q", "-b", "work")
+	reclaimGit(t, pushed, "add", ".")
+	reclaimGit(t, pushed, "commit", "-q", "-m", "one")
+	reclaimGit(t, pushed, "update-ref", "refs/remotes/origin/work", "HEAD")
+
 	if _, err := reclaimLane(lane, nil, true); err != nil {
 		t.Fatal(err)
 	}
@@ -291,5 +298,8 @@ func TestReclaimKeepsGitWorkBelowARebuildableDirectory(t *testing.T) {
 	}
 	if !exists(filepath.Join(stashed, ".git")) {
 		t.Error("a clone whose only unsaved work is a stash was reclaimed")
+	}
+	if exists(filepath.Join(lane, "pushed")) {
+		t.Error("a clean clone every commit of which a remote carries survived; it is rebuildable")
 	}
 }

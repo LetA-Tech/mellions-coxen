@@ -104,6 +104,12 @@ func reclaimLane(dir string, protect map[string]bool, apply bool) (Reclaimed, er
 			return nil
 		}
 		if d.IsDir() {
+			// A repository's own store is never read file by file: removing
+			// its compressed objects as binaries would corrupt it.
+			if d.Name() == ".git" {
+				r.Kept++
+				return filepath.SkipDir
+			}
 			if protect[path] || isWorktree(path) || holdsUnsavedGit(path) {
 				r.Kept++
 				return filepath.SkipDir
@@ -252,9 +258,13 @@ func treeSize(dir string, protect map[string]bool) (int64, int, bool) {
 		if err != nil {
 			return nil
 		}
-		if path != dir && (d.Name() == ".git" || protect[path]) {
+		ownGit := d.Name() == ".git" && filepath.Dir(path) == dir
+		if path != dir && ((d.Name() == ".git" && !ownGit) || protect[path]) {
 			nested = true
 			return filepath.SkipAll
+		}
+		if ownGit && d.IsDir() {
+			return filepath.SkipDir
 		}
 		if d.IsDir() {
 			return nil
