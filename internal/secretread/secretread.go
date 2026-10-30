@@ -473,18 +473,214 @@ func containsSecretRead(word string) bool {
 }
 
 // secretInside returns the credential path embedded in a substitution, or "".
+//
+// One fragment shape is not read as a glob: `.*` or `.?` at the head of a
+// basename, inside a quoted span with whitespace, handed to a program in
+// patternConsumers — a regex or a sed script the shell never globs. Any other
+// program may re-parse or path-match the span, so it gets no exemption; nor
+// does a word naming a re-parser or path matcher anywhere, or unbalanced quoting.
 func secretInside(word string) string {
 	if !strings.Contains(word, "$(") && !strings.Contains(word, "`") {
 		return ""
 	}
-	for _, f := range strings.FieldsFunc(word, func(r rune) bool {
-		return r == ' ' || r == '\t' || r == '(' || r == ')' || r == '`' || r == '"' || r == '\''
-	}) {
-		if IsSecretPath(f) {
-			return f
+	frags, balanced := substitutionFragments(word)
+	exempt := balanced
+	for _, f := range frags {
+		if n := programName(f.text); reparsers[n] || pathMatchers[n] {
+			exempt = false
+		}
+	}
+	for _, f := range frags {
+		if exempt && f.prose && dotRegexHead(f.text) && consumesPattern(f) {
+			if secretByName(f.text) {
+				return f.text
+			}
+			continue
+		}
+		if IsSecretPath(f.text) {
+			return f.text
 		}
 	}
 	return ""
+}
+
+// patternConsumers take a quoted argument as a regex or an edit script and
+// match it against text, never against file names or through a shell.
+var patternConsumers = map[string]bool{
+	"grep": true, "egrep": true, "fgrep": true, "rg": true, "sed": true,
+	"gsed": true, "pgrep": true, "jq": true,
+}
+
+// consumesPattern reports whether a fragment is an argument of a program in
+// patternConsumers, or of `git grep`.
+func consumesPattern(f fragment) bool {
+	return patternConsumers[f.cmd] || (f.cmd == "git" && f.gitGrep)
+}
+
+// reparsers run a quoted argument as a script of their own, where `.*` is a
+// glob again: shells, eval and remote shells, and the interpreters whose
+// one-liners reach a glob or a shell.
+var reparsers = map[string]bool{
+	"sh": true, "bash": true, "zsh": true, "dash": true, "ksh": true, "mksh": true,
+	"fish": true, "csh": true, "tcsh": true, "busybox": true, "eval": true,
+	"ssh": true, "su": true, "script": true, "watch": true, "flock": true,
+	"parallel": true, "expect": true, "tclsh": true,
+	"awk": true, "gawk": true, "mawk": true, "nawk": true,
+	"perl": true, "python": true, "ruby": true, "node": true, "php": true,
+}
+
+// pathMatchers select files by a pattern they are handed, so a quoted regex
+// with whitespace in one branch still matches `.env` through another.
+var pathMatchers = map[string]bool{
+	"find": true, "fd": true, "fdfind": true, "ag": true, "locate": true,
+	"plocate": true, "tree": true, "rsync": true, "tar": true, "zip": true,
+}
+
+// programName lowers a fragment's basename and strips a version suffix, so
+// `/usr/bin/python3.12` is `python`.
+func programName(s string) string {
+	return strings.TrimRight(strings.ToLower(path.Base(s)), "0123456789.")
+}
+
+// dotRegexHead reports whether a fragment's basename begins with the regex
+// "any character" — `.*` or `.?` — which is the shape whose glob stem `.`
+// prefixes every dotted credential name.
+func dotRegexHead(s string) bool {
+	base := basename(s)
+	return strings.HasPrefix(base, ".*") || strings.HasPrefix(base, ".?")
+}
+
+// fragment is one piece of a word that secretInside judges. prose is true when
+// the piece came from a quoted span with whitespace in it; cmd is the command
+// word of the simple command it belongs to, and gitGrep says that command is
+// `git … grep`.
+type fragment struct {
+	text    string
+	prose   bool
+	cmd     string
+	gitGrep bool
+}
+
+// substitutionFragments cuts a word at the punctuation that wraps a path inside
+// another command, tracking quotes the way bash does: each `$(` and backtick
+// opens a fresh quoting context, and a quote inside the other kind is literal.
+// balanced is false when a quote, a substitution or a parenthesis is left open
+// or closed twice, or where a `case` word appears: its pattern's `)` can close a
+// substitution early and leave nothing unbalanced to show it. The caller then
+// falls back to the reading that exempts nothing.
+func substitutionFragments(word string) ([]fragment, bool) {
+	type context struct {
+		single, double, backtick bool
+		parens                   int
+		// want is true until the next unquoted fragment, which is a command word.
+		want    bool
+		cmd     string
+		gitGrep bool
+	}
+	var stack []context
+	cur := context{want: true}
+	var out []fragment
+	var span strings.Builder
+	balanced := true
+	flush := func() {
+		text := span.String()
+		span.Reset()
+		quoted := cur.single || cur.double
+		prose := quoted && strings.ContainsAny(text, " \t\n")
+		for _, f := range strings.FieldsFunc(text, func(r rune) bool {
+			return r == ' ' || r == '\t' || r == '\n' || r == '(' || r == ')' || r == '`' || r == '"' || r == '\''
+		}) {
+			if !quoted && f == "case" {
+				balanced = false
+			}
+			// A `|`, `;` or `&` starts the next command inside the fragment rather
+			// than cutting it: the lexer has stripped this word's own quotes, so a
+			// sed script's `|` can land here, and `.*$/|` must not become `.*$/`.
+			switch {
+			case quoted:
+			case strings.ContainsAny(f, "|;&"):
+				rest := f[strings.LastIndexAny(f, "|;&")+1:]
+				cur.cmd, cur.want, cur.gitGrep = programName(rest), rest == "", false
+			case cur.want:
+				cur.cmd, cur.want, cur.gitGrep = programName(f), false, false
+			case cur.cmd == "git" && f == "grep":
+				cur.gitGrep = true
+			}
+			out = append(out, fragment{text: f, prose: prose, cmd: cur.cmd, gitGrep: cur.gitGrep})
+		}
+	}
+	rs := []rune(word)
+	for i := 0; i < len(rs); i++ {
+		r := rs[i]
+		if cur.single {
+			if r == '\'' {
+				flush()
+				cur.single = false
+				continue
+			}
+			span.WriteRune(r)
+			continue
+		}
+		switch {
+		case r == '\\' && i+1 < len(rs):
+			span.WriteRune(r)
+			span.WriteRune(rs[i+1])
+			i++
+			continue
+		case r == '\'' && !cur.double:
+			flush()
+			cur.single = true
+			continue
+		case r == '"':
+			flush()
+			cur.double = !cur.double
+			continue
+		case r == '$' && i+1 < len(rs) && rs[i+1] == '(':
+			flush()
+			stack = append(stack, cur)
+			cur = context{want: true}
+			i++
+			continue
+		case r == '`':
+			flush()
+			if cur.backtick {
+				if len(stack) == 0 || cur.double || cur.parens != 0 {
+					balanced = false
+				}
+				if len(stack) > 0 {
+					cur, stack = stack[len(stack)-1], stack[:len(stack)-1]
+				}
+			} else {
+				stack = append(stack, cur)
+				cur = context{backtick: true, want: true}
+			}
+			continue
+		case !cur.double && r == '\n':
+			flush()
+			cur.want = true
+		case r == '(' && !cur.double:
+			cur.parens++
+		case r == ')' && !cur.double:
+			if cur.parens > 0 {
+				cur.parens--
+				break
+			}
+			flush()
+			if len(stack) == 0 || cur.backtick {
+				balanced = false
+			}
+			if len(stack) > 0 {
+				cur, stack = stack[len(stack)-1], stack[:len(stack)-1]
+			}
+			continue
+		}
+		span.WriteRune(r)
+	}
+	flush()
+	if len(stack) != 0 || cur.single || cur.double || cur.parens != 0 {
+		balanced = false
+	}
+	return out, balanced
 }
 
 // names reports whether an argument references the shell variable.
