@@ -83,7 +83,7 @@ mellions assign handoff <id> [-file f|-]
 mellions assign reopen <id>
 mellions assign close <id>
 mellions assign abandon <id> -discarding "..."
-mellions assign sweep [-repo R] [-apply]
+mellions assign sweep [-repo R] [-apply] [-reclaim-after 24h]
 ```
 
 Every verb takes the id as the first argument or as `-id`, and means the same
@@ -180,6 +180,15 @@ pull request, a tracker that could not answer and a worktree still holding
 uncommitted work each keep the lane, saying why; active work is never closed,
 and is told to hand off only when no live session holds it. `-repo` narrows.
 Without `-apply` it is a dry run.
+
+A lane closed or abandoned at least `-reclaim-after` ago (default 24h; `0`
+turns it off) is reclaimable: `-apply` removes from its directory what a
+commit or a build tool rebuilds — any directory holding `go.mod`, `.git`,
+`package.json`, `pyproject.toml`, `setup.py`, `Cargo.toml`, `go.work` or a Go
+cache's `trim.txt`, any `go-build*` or `node_modules` directory, and any file
+over 1 MiB, binary, or named as a Go cache entry. `assignment.json`, its lock
+and `tree/` are never entered; small text files stay as the lane's evidence.
+The record says what was freed, and a reclaimed lane is not read again.
 
 - **who:** both. The engineer runs it when `continue` or the survey carries
   finished lanes as work in flight; you run it when the listing has grown.

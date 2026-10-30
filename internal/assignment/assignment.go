@@ -165,6 +165,8 @@ type Assignment struct {
 	// Discarded is what abandoning this work destroyed. Present only where the
 	// worktree was removed with material in it.
 	Discarded *Discarded `json:"discarded,omitempty"`
+	// Reclaimed is what the sweep freed from this finished lane's directory.
+	Reclaimed *Reclaimed `json:"reclaimed,omitempty"`
 	// Sessions is every runtime session that worked this lane; a reader's note
 	// from outside the lane's tree adds none. It is how
 	// recovery reaches for the runtime's own resume before rebuilding anything
