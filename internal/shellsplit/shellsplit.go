@@ -225,9 +225,14 @@ func lex(command string, i int, stopAtParen bool) ([]*Command, int) {
 
 		case c == '>':
 			endWord()
-			if strings.HasPrefix(command[i:], ">>") {
+			switch {
+			case strings.HasPrefix(command[i:], ">>"):
 				i += 2
-			} else {
+			case strings.HasPrefix(command[i:], ">|"):
+				// >| overrides noclobber; its | is part of the operator, not a
+				// pipe ending the command.
+				i += 2
+			default:
 				i++
 			}
 			// >&2 duplicates a descriptor and names no file.
