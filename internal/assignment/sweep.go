@@ -34,8 +34,8 @@ type SweepOptions struct {
 	// the lane records. A lane with a live session is being worked whatever
 	// its state says, and the sweep says so instead of asking for a handoff.
 	Live map[string]string
-	// ReclaimAfter frees the rebuildable scratch of a lane closed or abandoned
-	// at least this long ago (see reclaimScratch). Zero leaves scratch alone.
+	// ReclaimAfter frees what is rebuildable in a lane closed or abandoned at
+	// least this long ago (see reclaimLane). Zero leaves finished lanes alone.
 	ReclaimAfter time.Duration
 }
 
@@ -69,7 +69,7 @@ type Swept struct {
 // worktree goes, the branch and the record stay, and the record says the
 // sweep did it and on what evidence.
 //
-// Closing leaves the lane's scratch, which holds archive extractions, build
+// Closing leaves the lane's directory, which holds archive extractions, build
 // caches and logs. Past ReclaimAfter the sweep frees what is rebuildable and
 // keeps the record and the small text files that are the lane's evidence.
 func (s *Store) Sweep(ctx context.Context, o SweepOptions) ([]Swept, error) {

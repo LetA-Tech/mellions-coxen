@@ -16,16 +16,21 @@ import (
 	"time"
 )
 
-// EvidenceBound is the largest scratch file a reclaim keeps. A log, a
+// EvidenceBound is the largest file a reclaim keeps. A log, a
 // rendered body or a captured test run sits far below it; a binary, an
 // archive or a database dump sits above it and is rebuilt from a commit.
 const EvidenceBound = 1 << 20
 
-// ReclaimAfter is how long a finished lane's scratch stays whole. A lane
-// closed by mistake is reopened inside it with every artifact intact.
+// ReclaimAfter is how long a finished lane's directory stays whole, so the
+// session that closed it, or the next lane on the same work, can still read
+// what it built.
 const ReclaimAfter = 24 * time.Hour
 
-// Reclaimed is what a reclaim freed from a finished lane's scratch.
+// laneKeeps are the entries of a lane directory a reclaim never enters: the
+// record, its lock, and the worktree, which git owns and close removes.
+var laneKeeps = map[string]bool{"assignment.json": true, "assignment.json.lock": true, "tree": true}
+
+// Reclaimed is what a reclaim freed from a finished lane's directory.
 type Reclaimed struct {
 	At    time.Time `json:"at"`
 	Bytes int64     `json:"bytes"`
@@ -47,13 +52,15 @@ var toolDirs = regexp.MustCompile(`^(go-build.*|node_modules|__pycache__|\.pytes
 // root when a GOCACHE was pointed at a directory without its marker.
 var cacheEntry = regexp.MustCompile(`^[0-9a-f]{64}-[ad]$`)
 
-// reclaimScratch removes from dir everything a commit or a build tool
-// rebuilds, and keeps small text files outside such trees as the lane's
-// evidence. Without apply it only measures what it would remove.
+// reclaimLane removes from a lane directory everything a commit or a build
+// tool rebuilds, and keeps the record, the worktree and small text files
+// outside such trees as the lane's evidence. Sessions write archive copies,
+// arms and logs both under scratch/ and beside the record, so the whole
+// directory is read. Without apply it only measures what it would remove.
 //
-// A symlink is removed as a link and never followed, so a scratch pointing
-// into a worktree or a shared cache cannot reach past itself.
-func reclaimScratch(dir string, apply bool) (Reclaimed, error) {
+// A symlink is removed as a link and never followed, so a lane directory
+// pointing into a worktree or a shared cache cannot reach past itself.
+func reclaimLane(dir string, apply bool) (Reclaimed, error) {
 	var r Reclaimed
 	info, err := os.Lstat(dir)
 	if errors.Is(err, fs.ErrNotExist) {
@@ -63,13 +70,19 @@ func reclaimScratch(dir string, apply bool) (Reclaimed, error) {
 		return r, err
 	}
 	if !info.IsDir() {
-		return r, fmt.Errorf("assignment: scratch %s is not a directory", dir)
+		return r, fmt.Errorf("assignment: lane %s is not a directory", dir)
 	}
 	err = filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
 		if path == dir {
+			return nil
+		}
+		if filepath.Dir(path) == dir && laneKeeps[d.Name()] {
+			if d.IsDir() {
+				return filepath.SkipDir
+			}
 			return nil
 		}
 		if d.IsDir() {
@@ -190,8 +203,8 @@ func pruneEmpty(dir string) {
 	}
 }
 
-// reclaimDue says whether a finished lane's scratch is past its horizon and
-// not yet reclaimed.
+// reclaimDue says whether a finished lane is past its horizon and not yet
+// reclaimed.
 func (s *Store) reclaimDue(a *Assignment, after time.Duration) bool {
 	if a.State != StateClosed && a.State != StateAbandoned {
 		return false
@@ -202,15 +215,16 @@ func (s *Store) reclaimDue(a *Assignment, after time.Duration) bool {
 	return s.clock().Sub(a.ClosedAt) >= after
 }
 
-// reclaim frees a finished lane's rebuildable scratch and records what went.
+// reclaim frees what is rebuildable in a finished lane's directory and
+// records what went.
 //
-// The directory is always <store>/<id>/scratch, never the path the record
-// names: a record is data, and a reclaim that followed it could be pointed at
-// anything on the disk.
+// The directory is always <store>/<id>, never a path the record names: a
+// record is data, and a reclaim that followed it could be pointed at anything
+// on the disk.
 func (s *Store) reclaim(a *Assignment, apply bool) Swept {
 	v := Swept{ID: a.ID, Verdict: "reclaimable"}
-	dir := filepath.Join(s.dir(a.ID), "scratch")
-	r, err := reclaimScratch(dir, apply)
+	dir := s.dir(a.ID)
+	r, err := reclaimLane(dir, apply)
 	if err != nil {
 		v.Verdict = "unreclaimed"
 		v.Why = fmt.Sprintf("reclaiming %s failed after %s: %v", dir, sizeText(r.Bytes), err)
@@ -226,7 +240,7 @@ func (s *Store) reclaim(a *Assignment, apply bool) Swept {
 		a.Reclaimed = &r
 		return nil
 	}); err != nil {
-		v.Verdict, v.Why = "unreclaimed", "scratch freed but the record could not say so: "+err.Error()
+		v.Verdict, v.Why = "unreclaimed", "freed, but the record could not say so: "+err.Error()
 		return v
 	}
 	v.Verdict = "reclaimed"

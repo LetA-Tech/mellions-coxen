@@ -31,9 +31,11 @@ func fillScratch(t *testing.T, scratch, outside string) {
 	writeFile(t, filepath.Join(scratch, "base", "go.mod"), []byte("module x\n"))
 	writeFile(t, filepath.Join(scratch, "base", "README.md"), []byte("source, not evidence\n"))
 	writeFile(t, filepath.Join(scratch, "base", "pkg", "a.go"), []byte("package pkg\n"))
-	if err := os.Chmod(filepath.Join(scratch, "base", "pkg"), 0o555); err != nil {
+	readOnly := filepath.Join(scratch, "base", "pkg")
+	if err := os.Chmod(readOnly, 0o555); err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { os.Chmod(readOnly, 0o700) })
 	writeFile(t, filepath.Join(scratch, "gocache", "trim.txt"), []byte("1\n"))
 	writeFile(t, filepath.Join(scratch, "gocache", "b4", strings.Repeat("b", 64)+"-d"), []byte("ok\n"))
 	writeFile(t, filepath.Join(scratch, "tmp", "x-go-build.tree.1", "c5", strings.Repeat("c", 64)+"-a"), []byte("v1\n"))
@@ -42,6 +44,11 @@ func fillScratch(t *testing.T, scratch, outside string) {
 	writeFile(t, filepath.Join(scratch, "small.bin"), []byte{1, 0, 2})
 	writeFile(t, filepath.Join(scratch, "logs", "gate.log"), []byte("ok  pkg 0.1s\n"))
 	writeFile(t, filepath.Join(scratch, "review.md"), []byte("# READY\n"))
+	lane := filepath.Dir(scratch)
+	writeFile(t, filepath.Join(lane, "evidence", "pkg-copy", "go.mod"), []byte("module y\n"))
+	writeFile(t, filepath.Join(lane, "evidence", "pkg-copy", "big_test.go"), []byte("package y\n"))
+	writeFile(t, filepath.Join(lane, "evidence", "arm-m1.txt"), []byte("--- FAIL: TestX\n"))
+	writeFile(t, filepath.Join(lane, "suite.log"), []byte("ok\n"))
 	writeFile(t, outside, []byte("not the lane's\n"))
 	if err := os.Symlink(outside, filepath.Join(scratch, "link")); err != nil {
 		t.Fatal(err)
@@ -61,6 +68,8 @@ func TestSweepReclaimsAFinishedLanesRebuildableScratchAfterTheHorizon(t *testing
 	if err := s.Close(done.ID); err != nil {
 		t.Fatal(err)
 	}
+	// A worktree git would not detach stays where close left it.
+	writeFile(t, filepath.Join(s.dir(done.ID), "tree", "go.mod"), []byte("module worktree\n"))
 	live := mustOpen(t, s, OpenOptions{ID: "fx-live", Repo: "rates-service", Source: repo,
 		Objective: "still working", Because: "the owner asked for it"})
 	liveFile := filepath.Join(s.dir(live.ID), "scratch", "bin", "big")
@@ -74,8 +83,8 @@ func TestSweepReclaimsAFinishedLanesRebuildableScratchAfterTheHorizon(t *testing
 
 	now = now.Add(2 * time.Hour)
 	got := verdicts(mustSweep(t, s, o))
-	if v := got["fx-done"]; v.Verdict != "reclaimable" || !strings.Contains(v.Why, "2 evidence file(s) kept") {
-		t.Fatalf("dry run past the horizon: %+v, want reclaimable keeping 2 evidence files", v)
+	if v := got["fx-done"]; v.Verdict != "reclaimable" || !strings.Contains(v.Why, "4 evidence file(s) kept") {
+		t.Fatalf("dry run past the horizon: %+v, want reclaimable keeping 4 evidence files", v)
 	}
 	if !exists(filepath.Join(scratch, "base", "go.mod")) || !exists(filepath.Join(scratch, "bin", "mellions")) {
 		t.Fatal("a dry run removed scratch")
@@ -97,6 +106,15 @@ func TestSweepReclaimsAFinishedLanesRebuildableScratchAfterTheHorizon(t *testing
 			t.Errorf("%s was removed; it is the lane's evidence", kept)
 		}
 	}
+	lane := s.dir("fx-done")
+	if exists(filepath.Join(lane, "evidence", "pkg-copy")) {
+		t.Error("an archive copy beside the record survived the reclaim")
+	}
+	for _, kept := range []string{"assignment.json", "evidence/arm-m1.txt", "suite.log", "tree/go.mod"} {
+		if !exists(filepath.Join(lane, kept)) {
+			t.Errorf("%s was removed; the record, the evidence beside it and the worktree are never reclaimed", kept)
+		}
+	}
 	if !exists(outside) {
 		t.Error("the reclaim followed a symlink out of the scratch and removed its target")
 	}
@@ -107,7 +125,7 @@ func TestSweepReclaimsAFinishedLanesRebuildableScratchAfterTheHorizon(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	if a.Reclaimed == nil || a.Reclaimed.Bytes != v.Bytes || a.Reclaimed.Kept != 2 || !a.Reclaimed.At.Equal(now) {
+	if a.Reclaimed == nil || a.Reclaimed.Bytes != v.Bytes || a.Reclaimed.Kept != 4 || !a.Reclaimed.At.Equal(now) {
 		t.Fatalf("record: %+v, want what the reclaim freed and kept, and when", a.Reclaimed)
 	}
 
