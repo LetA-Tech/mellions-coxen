@@ -7,8 +7,8 @@ package shellsplit
 import "testing"
 
 // <& and >& duplicate, close or move a descriptor. Their & is part of the
-// operator, so the words after them stay the command's own, and their target
-// is no word of it.
+// operator, so the words after them stay the command's own, and an adjacent
+// number or - target is no word of it.
 func TestDescriptorDuplicationKeepsTheCommandWhole(t *testing.T) {
 	for _, tc := range []struct {
 		cmd   string

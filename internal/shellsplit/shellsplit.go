@@ -254,9 +254,9 @@ func lex(command string, i int, stopAtParen bool) ([]*Command, int) {
 	return out, i
 }
 
-// descriptor skips the target of >& or <& starting at i — a descriptor number,
-// a lone - that closes one, or a number then - that moves it — and returns the
-// index past it. The & belongs to the operator, so it never ends the command.
+// descriptor skips, from i just past the & of >& or <&, an adjacent descriptor
+// number, a lone - that closes one, or a number then - that moves it, and
+// returns the index past it. A spaced or variable target stays a word.
 func descriptor(command string, i int) int {
 	for i < len(command) && command[i] >= '0' && command[i] <= '9' {
 		i++
