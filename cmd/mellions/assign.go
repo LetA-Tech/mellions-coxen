@@ -51,7 +51,7 @@ func cmdAssign(ctx context.Context, args []string) error {
 			"mellions assign list [-all] | get <id> | record <id> <text> [-kind found|hypothesis|next|note]\n" +
 			"mellions assign claim <id> -pr N            # this lane holds that change set; a peer reads the claim before merging\n" +
 			"mellions assign handoff <id> [-file f|-] | reopen <id> | close <id> | abandon <id> -discarding \"...\"\n" +
-			"mellions assign sweep [-repo R] [-apply]   # close the handed-off lanes whose pull request is merged or closed; retry a claim release that failed\n" +
+			"mellions assign sweep [-repo R] [-apply] [-reclaim-after 24h]   # close the handed-off lanes whose pull request is merged or closed; retry a claim release that failed; free a finished lane's rebuildable scratch\n" +
 			"Each verb takes -h for its flags.")
 		return nil
 	// Older verbs, kept so a session following an older method is told what
@@ -701,7 +701,9 @@ func assignSweep(ctx context.Context, args []string) error {
 	fs := newFlagSet("assign sweep", flag.ExitOnError)
 	cfgPath := fs.String("config", "", "config file")
 	repo := fs.String("repo", "", "only lanes on this repository")
-	apply := fs.Bool("apply", false, "close what is closable; without it the sweep only says what it would close")
+	apply := fs.Bool("apply", false, "close what is closable and reclaim what is reclaimable; without it the sweep only says what it would do")
+	reclaimAfter := fs.Duration("reclaim-after", assignment.ReclaimAfter,
+		"free the rebuildable scratch of a lane finished at least this long ago; 0 leaves scratch alone")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -709,7 +711,7 @@ func assignSweep(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	o := assignment.SweepOptions{Repo: *repo, Apply: *apply, Live: liveSessions(cfg)}
+	o := assignment.SweepOptions{Repo: *repo, Apply: *apply, Live: liveSessions(cfg), ReclaimAfter: *reclaimAfter}
 	if strings.TrimSpace(cfg.Owner) != "" {
 		tr := claim.NewTracker(cfg.Owner)
 		o.PullRequests = func(ctx context.Context, repo, branch string) ([]claim.PullRequest, error) {
@@ -727,11 +729,21 @@ func assignSweep(ctx context.Context, args []string) error {
 		return nil
 	}
 	counts := map[string]int{}
+	var freed int64
 	for _, v := range swept {
 		counts[v.Verdict]++
+		freed += v.Bytes
 		fmt.Printf("%-28s %-9s %s\n", v.ID, v.Verdict, v.Why)
 	}
 	fmt.Println()
+	switch {
+	case counts["reclaimed"] > 0 || counts["unreclaimed"] > 0:
+		fmt.Printf("%d finished lane(s) reclaimed, %.2f GiB of rebuildable scratch freed; record and evidence kept. %d failed.\n",
+			counts["reclaimed"], float64(freed)/(1<<30), counts["unreclaimed"])
+	case counts["reclaimable"] > 0:
+		fmt.Printf("%d finished lane(s) reclaimable — a dry run; `mellions assign sweep -apply` frees their rebuildable scratch.\n",
+			counts["reclaimable"])
+	}
 	if n := counts["released"] + counts["stranded"]; n > 0 {
 		fmt.Printf("%d finished lane(s) whose claim a failed release left on the tracker: %d released now, %d still stranded.\n",
 			n, counts["released"], counts["stranded"])

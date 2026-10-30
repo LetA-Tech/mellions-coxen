@@ -8,6 +8,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/LetA-Tech/mellions-coxen/internal/claim"
 )
@@ -33,6 +34,9 @@ type SweepOptions struct {
 	// the lane records. A lane with a live session is being worked whatever
 	// its state says, and the sweep says so instead of asking for a handoff.
 	Live map[string]string
+	// ReclaimAfter frees the rebuildable scratch of a lane closed or abandoned
+	// at least this long ago (see reclaimScratch). Zero leaves scratch alone.
+	ReclaimAfter time.Duration
 }
 
 // Swept is the sweep's reading of one lane.
@@ -43,6 +47,8 @@ type Swept struct {
 	// and the lane's own state where the sweep never touches it.
 	Verdict string
 	Why     string
+	// Bytes is what a reclaim freed.
+	Bytes int64
 }
 
 // Sweep closes the handed-off lanes whose pull request the tracker says is
@@ -62,6 +68,10 @@ type Swept struct {
 // suspended one is resting on purpose. Closing is the ordinary close: the
 // worktree goes, the branch and the record stay, and the record says the
 // sweep did it and on what evidence.
+//
+// Closing leaves the lane's scratch, which holds archive extractions, build
+// caches and logs. Past ReclaimAfter the sweep frees what is rebuildable and
+// keeps the record and the small text files that are the lane's evidence.
 func (s *Store) Sweep(ctx context.Context, o SweepOptions) ([]Swept, error) {
 	all, err := s.List(true)
 	if err != nil {
@@ -77,6 +87,9 @@ func (s *Store) Sweep(ctx context.Context, o SweepOptions) ([]Swept, error) {
 			out = append(out, s.sweepOne(ctx, a, o))
 		case a.Claim != nil && a.Claim.Stranded != "":
 			out = append(out, s.retryRelease(a, o))
+		}
+		if o.ReclaimAfter > 0 && s.reclaimDue(a, o.ReclaimAfter) {
+			out = append(out, s.reclaim(a, o.Apply))
 		}
 	}
 	return out, nil
