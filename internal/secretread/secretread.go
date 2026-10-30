@@ -384,7 +384,7 @@ func ScanBash(command string) []Finding {
 	holdsPath := map[string]bool{}
 
 	for _, c := range shellsplit.Split(command) {
-		words := c.Words
+		words, argc := commandFirst(c)
 		if len(words) == 0 {
 			continue
 		}
@@ -444,8 +444,9 @@ func ScanBash(command string) []Finding {
 					out = append(out, Finding{Path: "$" + name, Reader: reader, Held: true})
 				}
 			}
-			// An option operand the reader consumes rather than prints.
-			if ai > 0 && consumed[args[ai-1]] {
+			// An option operand the reader consumes rather than prints. A stdin
+			// operand is never one, wherever it was written.
+			if ai > 0 && consumed[args[ai-1]] && i+1+ai < argc {
 				continue
 			}
 			if found := secretsInWord(a); len(found) > 0 {
@@ -466,6 +467,28 @@ func ScanBash(command string) []Finding {
 	return dedupe(out)
 }
 
+// commandFirst returns a command's words with its stdin operands moved after
+// the rest, and how many words precede them. `<wc cat .pgpass` runs cat, not
+// wc, and the file it reads on stdin stays an operand the command opens.
+func commandFirst(c *shellsplit.Command) ([]string, int) {
+	if len(c.Stdin) == 0 {
+		return c.Words, len(c.Words)
+	}
+	stdin := map[int]bool{}
+	for _, i := range c.Stdin {
+		stdin[i] = true
+	}
+	var head, tail []string
+	for i, w := range c.Words {
+		if stdin[i] {
+			tail = append(tail, w)
+		} else {
+			head = append(head, w)
+		}
+	}
+	return append(head, tail...), len(head)
+}
+
 // containsSecretRead reports whether a word embeds a command substitution that
 // reads a credential — the `$(tail -1 .db_connection)` inside an assignment.
 func containsSecretRead(word string) bool {
@@ -473,12 +496,19 @@ func containsSecretRead(word string) bool {
 }
 
 // secretInside returns the credential path embedded in a substitution, or "".
+// A shell operator glued to a file name (`<.pgpass`, `0<>.pgpass`,
+// `.pgpass|base64`, `.pgpass;`) ends a token as whitespace does: bash opens
+// the file either way.
 func secretInside(word string) string {
 	if !strings.Contains(word, "$(") && !strings.Contains(word, "`") {
 		return ""
 	}
 	for _, f := range strings.FieldsFunc(word, func(r rune) bool {
-		return r == ' ' || r == '\t' || r == '(' || r == ')' || r == '`' || r == '"' || r == '\''
+		switch r {
+		case ' ', '\t', '(', ')', '<', '>', '|', ';', '&', '`', '"', '\'':
+			return true
+		}
+		return false
 	}) {
 		if IsSecretPath(f) {
 			return f
