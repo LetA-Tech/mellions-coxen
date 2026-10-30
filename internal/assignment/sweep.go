@@ -7,6 +7,7 @@ package assignment
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -77,6 +78,12 @@ func (s *Store) Sweep(ctx context.Context, o SweepOptions) ([]Swept, error) {
 	if err != nil {
 		return nil, err
 	}
+	protect := map[string]bool{}
+	for _, a := range all {
+		if a.Worktree != "" {
+			protect[filepath.Clean(a.Worktree)] = true
+		}
+	}
 	var out []Swept
 	for _, a := range all {
 		if o.Repo != "" && !strings.EqualFold(strings.TrimSpace(o.Repo), strings.TrimSpace(a.Repo)) {
@@ -89,7 +96,7 @@ func (s *Store) Sweep(ctx context.Context, o SweepOptions) ([]Swept, error) {
 			out = append(out, s.retryRelease(a, o))
 		}
 		if o.ReclaimAfter > 0 && s.reclaimDue(a, o.ReclaimAfter) {
-			out = append(out, s.reclaim(a, o.Apply))
+			out = append(out, s.reclaim(a, o.ReclaimAfter, protect, o.Apply))
 		}
 	}
 	return out, nil

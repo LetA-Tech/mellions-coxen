@@ -1,7 +1,9 @@
 package assignment
 
 import (
+	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -50,6 +52,14 @@ func fillScratch(t *testing.T, scratch, outside string) {
 	writeFile(t, filepath.Join(lane, "evidence", "arm-m1.txt"), []byte("--- FAIL: TestX\n"))
 	writeFile(t, filepath.Join(lane, "suite.log"), []byte("ok\n"))
 	writeFile(t, outside, []byte("not the lane's\n"))
+	clone := filepath.Join(scratch, "sibling")
+	writeFile(t, filepath.Join(clone, "go.mod"), []byte("module sibling\n"))
+	for _, args := range [][]string{{"init", "-q"}, {"add", "."},
+		{"-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "local only"}} {
+		if out, err := exec.Command("git", append([]string{"-C", clone}, args...)...).CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
 	if err := os.Symlink(outside, filepath.Join(scratch, "link")); err != nil {
 		t.Fatal(err)
 	}
@@ -70,6 +80,11 @@ func TestSweepReclaimsAFinishedLanesRebuildableScratchAfterTheHorizon(t *testing
 	}
 	// A worktree git would not detach stays where close left it.
 	writeFile(t, filepath.Join(s.dir(done.ID), "tree", "go.mod"), []byte("module worktree\n"))
+	// A clean worktree of another repository, cut inside the lane for an arm.
+	armTree := filepath.Join(scratch, "arm-wt")
+	if out, err := exec.Command("git", "-C", repo, "worktree", "add", "-q", "--detach", armTree).CombinedOutput(); err != nil {
+		t.Fatalf("worktree add: %v\n%s", err, out)
+	}
 	live := mustOpen(t, s, OpenOptions{ID: "fx-live", Repo: "rates-service", Source: repo,
 		Objective: "still working", Because: "the owner asked for it"})
 	liveFile := filepath.Join(s.dir(live.ID), "scratch", "bin", "big")
@@ -83,8 +98,8 @@ func TestSweepReclaimsAFinishedLanesRebuildableScratchAfterTheHorizon(t *testing
 
 	now = now.Add(2 * time.Hour)
 	got := verdicts(mustSweep(t, s, o))
-	if v := got["fx-done"]; v.Verdict != "reclaimable" || !strings.Contains(v.Why, "4 evidence file(s) kept") {
-		t.Fatalf("dry run past the horizon: %+v, want reclaimable keeping 4 evidence files", v)
+	if v := got["fx-done"]; v.Verdict != "reclaimable" || !strings.Contains(v.Why, "6 evidence file(s) kept") {
+		t.Fatalf("dry run past the horizon: %+v, want reclaimable keeping 4 evidence files and the unpushed clone", v)
 	}
 	if !exists(filepath.Join(scratch, "base", "go.mod")) || !exists(filepath.Join(scratch, "bin", "mellions")) {
 		t.Fatal("a dry run removed scratch")
@@ -106,6 +121,12 @@ func TestSweepReclaimsAFinishedLanesRebuildableScratchAfterTheHorizon(t *testing
 			t.Errorf("%s was removed; it is the lane's evidence", kept)
 		}
 	}
+	if !exists(filepath.Join(scratch, "sibling", ".git")) || !exists(filepath.Join(scratch, "sibling", "go.mod")) {
+		t.Error("a clone holding a commit no remote carries was reclaimed; it is not rebuildable")
+	}
+	if !exists(filepath.Join(armTree, ".git")) {
+		t.Error("a linked worktree inside the lane was removed outside git; its repository still registers it")
+	}
 	lane := s.dir("fx-done")
 	if exists(filepath.Join(lane, "evidence", "pkg-copy")) {
 		t.Error("an archive copy beside the record survived the reclaim")
@@ -125,7 +146,7 @@ func TestSweepReclaimsAFinishedLanesRebuildableScratchAfterTheHorizon(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	if a.Reclaimed == nil || a.Reclaimed.Bytes != v.Bytes || a.Reclaimed.Kept != 4 || !a.Reclaimed.At.Equal(now) {
+	if a.Reclaimed == nil || a.Reclaimed.Bytes != v.Bytes || a.Reclaimed.Kept != 6 || !a.Reclaimed.At.Equal(now) {
 		t.Fatalf("record: %+v, want what the reclaim freed and kept, and when", a.Reclaimed)
 	}
 
@@ -151,5 +172,67 @@ func TestSweepLeavesScratchAloneWithoutAHorizon(t *testing.T) {
 	}
 	if !exists(big) {
 		t.Error("scratch removed with ReclaimAfter zero")
+	}
+}
+
+// A record is data. One whose id field names another lane, or no lane, is
+// never the key to which directory gets emptied.
+func TestSweepNeverReclaimsByARecordsIDField(t *testing.T) {
+	repo := realRepo(t)
+	s := newStore(t)
+	now := time.Date(2026, 10, 30, 4, 0, 0, 0, time.UTC)
+	s.now = func() time.Time { return now }
+	live := mustOpen(t, s, OpenOptions{ID: "fx-live", Repo: "rates-service", Source: repo,
+		Objective: "still working", Because: "the owner asked for it"})
+	liveFile := filepath.Join(s.dir(live.ID), "scratch", "bin", "big")
+	writeFile(t, liveFile, make([]byte, EvidenceBound+1))
+	for _, id := range []string{"fx-blank", "fx-other"} {
+		handedOff(t, s, id, "rates-service", repo, "Merged.")
+		if err := s.Close(id); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for dir, claimed := range map[string]string{"fx-blank": "", "fx-other": "fx-live"} {
+		a, err := s.Get(dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		a.ID = claimed
+		raw, err := json.Marshal(a)
+		if err != nil {
+			t.Fatal(err)
+		}
+		writeFile(t, s.file(dir), raw)
+	}
+	now = now.Add(48 * time.Hour)
+	for _, v := range mustSweep(t, s, SweepOptions{Apply: true, ReclaimAfter: time.Hour}) {
+		if v.Verdict == "reclaimed" {
+			t.Errorf("reclaimed by a record's id field: %+v", v)
+		}
+	}
+	if !exists(liveFile) {
+		t.Fatal("an open lane's scratch was emptied through another record's id field")
+	}
+	if !exists(s.dir(live.ID) + "/tree") {
+		t.Fatal("an open lane's worktree was removed through another record's id field")
+	}
+}
+
+func TestReclaimReadsPastAnUnreadableDirectory(t *testing.T) {
+	lane := t.TempDir()
+	locked := filepath.Join(lane, "a-locked")
+	writeFile(t, filepath.Join(locked, "x.log"), []byte("x\n"))
+	if err := os.Chmod(locked, 0); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Chmod(locked, 0o700) })
+	big := filepath.Join(lane, "z.bin")
+	writeFile(t, big, make([]byte, EvidenceBound+1))
+	r, err := reclaimLane(lane, nil, true)
+	if err != nil {
+		t.Fatalf("one unreadable directory failed the lane: %v", err)
+	}
+	if exists(big) || r.Unreadable != 1 {
+		t.Fatalf("z.bin present=%v unreadable=%d, want it removed past the locked directory and 1 unreadable named", exists(big), r.Unreadable)
 	}
 }

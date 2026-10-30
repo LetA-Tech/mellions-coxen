@@ -11,6 +11,7 @@ import (
 	"io"
 	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"time"
@@ -36,6 +37,9 @@ type Reclaimed struct {
 	Bytes int64     `json:"bytes"`
 	Files int       `json:"files"`
 	Kept  int       `json:"kept"`
+	// Unreadable is the entries the reclaim could not read or remove and
+	// left in place.
+	Unreadable int `json:"unreadable,omitempty"`
 }
 
 // treeMarkers are the files whose presence makes a directory something a
@@ -53,14 +57,15 @@ var toolDirs = regexp.MustCompile(`^(go-build.*|node_modules|__pycache__|\.pytes
 var cacheEntry = regexp.MustCompile(`^[0-9a-f]{64}-[ad]$`)
 
 // reclaimLane removes from a lane directory everything a commit or a build
-// tool rebuilds, and keeps the record, the worktree and small text files
-// outside such trees as the lane's evidence. Sessions write archive copies,
+// tool rebuilds, and keeps the record, the worktree, any checkout holding
+// unsaved git work, and small text files outside such trees as the lane's
+// evidence. Sessions write archive copies,
 // arms and logs both under scratch/ and beside the record, so the whole
 // directory is read. Without apply it only measures what it would remove.
 //
 // A symlink is removed as a link and never followed, so a lane directory
 // pointing into a worktree or a shared cache cannot reach past itself.
-func reclaimLane(dir string, apply bool) (Reclaimed, error) {
+func reclaimLane(dir string, protect map[string]bool, apply bool) (Reclaimed, error) {
 	var r Reclaimed
 	info, err := os.Lstat(dir)
 	if errors.Is(err, fs.ErrNotExist) {
@@ -74,7 +79,18 @@ func reclaimLane(dir string, apply bool) (Reclaimed, error) {
 	}
 	err = filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
-			return err
+			// One unreadable entry is left where it is and named; the rest of
+			// the lane is still read.
+			if path == dir {
+				return err
+			}
+			if !errors.Is(err, fs.ErrNotExist) {
+				r.Unreadable++
+			}
+			if d != nil && d.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
 		}
 		if path == dir {
 			return nil
@@ -86,6 +102,10 @@ func reclaimLane(dir string, apply bool) (Reclaimed, error) {
 			return nil
 		}
 		if d.IsDir() {
+			if protect[path] || isWorktree(path) || holdsUnsavedGit(path) {
+				r.Kept++
+				return filepath.SkipDir
+			}
 			if !rebuildable(path, d.Name()) {
 				return nil
 			}
@@ -101,15 +121,19 @@ func reclaimLane(dir string, apply bool) (Reclaimed, error) {
 		}
 		fi, err := d.Info()
 		if err != nil {
-			return err
+			if !errors.Is(err, fs.ErrNotExist) {
+				r.Unreadable++
+			}
+			return nil
 		}
 		if keepAsEvidence(path, fi) {
 			r.Kept++
 			return nil
 		}
 		if apply {
-			if err := os.Remove(path); err != nil {
-				return err
+			if err := os.Remove(path); err != nil && !errors.Is(err, fs.ErrNotExist) {
+				r.Unreadable++
+				return nil
 			}
 		}
 		r.Bytes += fi.Size()
@@ -123,6 +147,40 @@ func reclaimLane(dir string, apply bool) (Reclaimed, error) {
 		pruneEmpty(dir)
 	}
 	return r, nil
+}
+
+// isWorktree says whether dir is a linked git worktree (.git is a file). Its
+// repository registers it, and only git removes it without leaving that
+// registration behind, so a reclaim never does; a lane's own worktree goes
+// through close.
+func isWorktree(dir string) bool {
+	fi, err := os.Lstat(filepath.Join(dir, ".git"))
+	return err == nil && fi.Mode().IsRegular()
+}
+
+// holdsUnsavedGit says whether dir is a git checkout holding work no commit
+// on a remote carries: a clone (.git is a directory) with commits on no
+// remote, or any checkout with uncommitted changes. A worktree's commits live
+// in its source repository, so for a worktree (.git is a file) only
+// uncommitted changes count. Such a directory is kept whole; one git cannot
+// read is kept too, because unknown is not rebuildable.
+func holdsUnsavedGit(dir string) bool {
+	fi, err := os.Lstat(filepath.Join(dir, ".git"))
+	if err != nil {
+		return false
+	}
+	git := func(args ...string) (string, error) {
+		out, err := exec.Command("git", append([]string{"-C", dir}, args...)...).Output()
+		return string(bytes.TrimSpace(out)), err
+	}
+	if out, err := git("status", "--porcelain"); err != nil || out != "" {
+		return true
+	}
+	if fi.IsDir() {
+		out, err := git("log", "--branches", "--tags", "--not", "--remotes", "--format=%H", "-n", "1")
+		return err != nil || out != ""
+	}
+	return false
 }
 
 func rebuildable(dir, name string) bool {
@@ -221,10 +279,26 @@ func (s *Store) reclaimDue(a *Assignment, after time.Duration) bool {
 // The directory is always <store>/<id>, never a path the record names: a
 // record is data, and a reclaim that followed it could be pointed at anything
 // on the disk.
-func (s *Store) reclaim(a *Assignment, apply bool) Swept {
-	v := Swept{ID: a.ID, Verdict: "reclaimable"}
+//
+// The record is read again from that directory and must carry the same id: a
+// listed record whose id field names some other directory, the store itself
+// or its parent is never acted on. protect is every path a lane records as
+// its worktree, which no reclaim enters whatever lane directory it sits in.
+func (s *Store) reclaim(a *Assignment, after time.Duration, protect map[string]bool, apply bool) Swept {
+	v := Swept{ID: a.ID, Verdict: "unreclaimed"}
+	cur, err := s.Get(a.ID)
+	if err != nil || cur.ID != a.ID {
+		v.Why = fmt.Sprintf("the record's id %q does not name its own directory; not reclaimed", a.ID)
+		return v
+	}
+	if !s.reclaimDue(cur, after) {
+		v.Verdict, v.Why = cur.State, "no longer due for a reclaim"
+		return v
+	}
+	a = cur
+	v.Verdict = "reclaimable"
 	dir := s.dir(a.ID)
-	r, err := reclaimLane(dir, apply)
+	r, err := reclaimLane(dir, protect, apply)
 	if err != nil {
 		v.Verdict = "unreclaimed"
 		v.Why = fmt.Sprintf("reclaiming %s failed after %s: %v", dir, sizeText(r.Bytes), err)
@@ -232,6 +306,9 @@ func (s *Store) reclaim(a *Assignment, apply bool) Swept {
 	}
 	v.Why = fmt.Sprintf("%s %s closed %s: %s in %d file(s) rebuildable, %d evidence file(s) kept",
 		a.State, a.ID, a.ClosedAt.UTC().Format("2006-01-02 15:04 UTC"), sizeText(r.Bytes), r.Files, r.Kept)
+	if r.Unreadable > 0 {
+		v.Why += fmt.Sprintf(", %d unreadable entr(ies) left in place", r.Unreadable)
+	}
 	if !apply {
 		return v
 	}
