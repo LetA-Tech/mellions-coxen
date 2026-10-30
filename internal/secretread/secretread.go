@@ -472,19 +472,121 @@ func containsSecretRead(word string) bool {
 	return secretInside(word) != ""
 }
 
-// secretInside returns the credential path embedded in a substitution, or "".
+// secretInside returns the credential path a command substitution in the word
+// reads, or "".
+//
+// Each substitution is lexed as the shell will run it, and its words are
+// classified as a bare argument is, then searched as text: a quoted sed
+// script, grep pattern, `sh -c` or `python3 -c` program or a path with a space
+// is one word the shell hands over whole.
 func secretInside(word string) string {
-	if !strings.Contains(word, "$(") && !strings.Contains(word, "`") {
-		return ""
-	}
-	for _, f := range strings.FieldsFunc(word, func(r rune) bool {
-		return r == ' ' || r == '\t' || r == '(' || r == ')' || r == '`' || r == '"' || r == '\''
-	}) {
-		if IsSecretPath(f) {
+	for i := 0; i < len(word); {
+		j := strings.Index(word[i:], "$(")
+		if j < 0 {
+			break
+		}
+		at := i + j
+		cmds, next := shellsplit.Substitution(word, at)
+		if strings.HasPrefix(word[at:], "$((") {
+			// Arithmetic runs nothing itself, but a substitution inside it runs.
+			if f := secretInside(word[at+3 : next]); f != "" {
+				return f
+			}
+		} else if f := secretInCommands(cmds); f != "" {
 			return f
+		}
+		i = next
+	}
+	// The lexer does not group a backquoted command, so each pair of backquotes
+	// in the word encloses one.
+	rest := word
+	for {
+		_, after, ok := strings.Cut(rest, "`")
+		if !ok {
+			return ""
+		}
+		body, tail, _ := strings.Cut(after, "`")
+		if f := secretInCommands(shellsplit.Split(body)); f != "" {
+			return f
+		}
+		rest = tail
+	}
+}
+
+// secretInCommands returns the first credential path the commands' words name,
+// including one read by a substitution nested in a word.
+func secretInCommands(cmds []*shellsplit.Command) string {
+	for _, c := range cmds {
+		for _, w := range c.Words {
+			if found := secretsInWord(w); len(found) > 0 {
+				return found[0]
+			}
+			if f := secretInText(w); f != "" {
+				return f
+			}
+			if f := secretInside(w); f != "" {
+				return f
+			}
 		}
 	}
 	return ""
+}
+
+// secretInText returns a credential path named inside a word's text, or "".
+//
+// The word is split at whitespace into tokens, and each token at the
+// punctuation that wraps a path. A fragment is a credential by name, or by a
+// glob stem: the program the text runs may glob it, as `sh -c 'cat .db_conn*'`
+// and `find -name '.env*'` do. Two fragments are not:
+//   - a subject word that is not itself a credential's name, the `credential`
+//     in `grep 'a credential file'`;
+//   - a stem of dots in a fragment ending in a backslash, the `.*\` the sed
+//     script `s/\(.*\)/\1/` splits into, which is a regex and not a pattern
+//     any program expands. Any other `.*` stays a glob: `sh -c 'cat .*;'`
+//     prints every dotfile.
+func secretInText(word string) string {
+	for _, tok := range strings.Fields(word) {
+		for _, f := range strings.FieldsFunc(tok, wrapsAPath) {
+			lower := strings.ToLower(f)
+			if subjectWords[lower] && !exactSecretNames[lower] {
+				continue
+			}
+			if secretByName(f) {
+				return f
+			}
+		}
+		// A glob is cut only at quotes, parentheses and backquotes, so a
+		// stem keeps the operator in front of it: `>.*` in a sed script
+		// names no file.
+		for _, f := range strings.FieldsFunc(tok, func(r rune) bool {
+			return r == '(' || r == ')' || r == '`' || r == '"' || r == '\''
+		}) {
+			if secretByGlob(f) && !regexDots(f) {
+				return f
+			}
+		}
+	}
+	return ""
+}
+
+// wrapsAPath reports whether a rune is punctuation that wraps a path inside
+// another language's text.
+func wrapsAPath(r rune) bool {
+	switch r {
+	case '(', ')', '\'', '"', '`', ',', '=', ';', '{', '}', '[', ']', '<', '>', '$':
+		return true
+	}
+	return false
+}
+
+// regexDots reports whether a fragment is a regex's dot-star rather than a
+// glob: its stem is nothing but dots and it ends in the backslash of an
+// escaped group, as `\(.*\)` splits into. A backslash before a letter is
+// dropped by the shell, so `.*\n` is the glob `.*n`.
+func regexDots(f string) bool {
+	base := basename(f)
+	i := strings.IndexAny(base, "*?")
+	return i > 0 && strings.Trim(base[:i], ".") == "" && strings.HasSuffix(f, `\`)
 }
 
 // names reports whether an argument references the shell variable.
