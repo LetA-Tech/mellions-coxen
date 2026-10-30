@@ -236,3 +236,60 @@ func TestReclaimReadsPastAnUnreadableDirectory(t *testing.T) {
 		t.Fatalf("z.bin present=%v unreadable=%d, want it removed past the locked directory and 1 unreadable named", exists(big), r.Unreadable)
 	}
 }
+
+func reclaimGit(t *testing.T, dir string, args ...string) {
+	t.Helper()
+	full := append([]string{"-C", dir, "-c", "user.name=t", "-c", "user.email=t@t"}, args...)
+	if out, err := exec.Command("git", full...).CombinedOutput(); err != nil {
+		t.Fatalf("git %v: %v\n%s", args, err, out)
+	}
+}
+
+// Work git holds anywhere below a rebuildable directory keeps that work: a
+// linked worktree nested in an archive copy, a clone whose only commit is on
+// a detached HEAD, and one whose only unsaved work is a stash.
+func TestReclaimKeepsGitWorkBelowARebuildableDirectory(t *testing.T) {
+	repo := realRepo(t)
+	lane := t.TempDir()
+	writeFile(t, filepath.Join(lane, "arms", "x", "go.mod"), []byte("module x\n"))
+	writeFile(t, filepath.Join(lane, "arms", "x", "big.bin"), make([]byte, EvidenceBound+1))
+	nested := filepath.Join(lane, "arms", "x", "wt")
+	reclaimGit(t, repo, "worktree", "add", "-q", "--detach", nested)
+
+	detached := filepath.Join(lane, "detached")
+	writeFile(t, filepath.Join(detached, "go.mod"), []byte("module d\n"))
+	reclaimGit(t, detached, "init", "-q", "-b", "work")
+	reclaimGit(t, detached, "add", ".")
+	reclaimGit(t, detached, "commit", "-q", "-m", "one")
+	reclaimGit(t, detached, "checkout", "-q", "--detach")
+	writeFile(t, filepath.Join(detached, "local.go"), []byte("package d\n"))
+	reclaimGit(t, detached, "add", ".")
+	reclaimGit(t, detached, "commit", "-q", "-m", "only on HEAD")
+	reclaimGit(t, detached, "branch", "-q", "-D", "work")
+	reclaimGit(t, detached, "remote", "add", "origin", "https://example.invalid/d")
+
+	stashed := filepath.Join(lane, "stashed")
+	writeFile(t, filepath.Join(stashed, "go.mod"), []byte("module s\n"))
+	reclaimGit(t, stashed, "init", "-q", "-b", "work")
+	reclaimGit(t, stashed, "add", ".")
+	reclaimGit(t, stashed, "commit", "-q", "-m", "one")
+	reclaimGit(t, stashed, "update-ref", "refs/remotes/origin/work", "HEAD")
+	writeFile(t, filepath.Join(stashed, "go.mod"), []byte("module s // edited\n"))
+	reclaimGit(t, stashed, "stash", "-q")
+
+	if _, err := reclaimLane(lane, nil, true); err != nil {
+		t.Fatal(err)
+	}
+	if !exists(filepath.Join(nested, ".git")) {
+		t.Error("a linked worktree nested in a rebuildable directory was taken with it")
+	}
+	if exists(filepath.Join(lane, "arms", "x", "big.bin")) {
+		t.Error("the binary beside the nested worktree survived; the walk went in and should still judge it")
+	}
+	if !exists(filepath.Join(detached, ".git")) {
+		t.Error("a clone whose only commit is on a detached HEAD was reclaimed")
+	}
+	if !exists(filepath.Join(stashed, ".git")) {
+		t.Error("a clone whose only unsaved work is a stash was reclaimed")
+	}
+}

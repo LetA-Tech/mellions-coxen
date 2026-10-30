@@ -6,6 +6,7 @@ package assignment
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -14,6 +15,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strings"
 	"time"
 )
 
@@ -109,10 +111,16 @@ func reclaimLane(dir string, protect map[string]bool, apply bool) (Reclaimed, er
 			if !rebuildable(path, d.Name()) {
 				return nil
 			}
-			n, files := treeSize(path)
+			n, files, nested := treeSize(path, protect)
+			if nested {
+				// A worktree or checkout somewhere inside is judged on its
+				// own; the walk goes in rather than taking it with the parent.
+				return nil
+			}
 			if apply {
 				if err := removeTree(path); err != nil {
-					return err
+					r.Unreadable++
+					return filepath.SkipDir
 				}
 			}
 			r.Bytes += n
@@ -160,7 +168,8 @@ func isWorktree(dir string) bool {
 
 // holdsUnsavedGit says whether dir is a git checkout holding work no commit
 // on a remote carries: a clone (.git is a directory) with commits on no
-// remote, or any checkout with uncommitted changes. A worktree's commits live
+// remote, a detached HEAD or a stash among them, or any checkout with
+// uncommitted changes. A worktree's commits live
 // in its source repository, so for a worktree (.git is a file) only
 // uncommitted changes count. Such a directory is kept whole; one git cannot
 // read is kept too, because unknown is not rebuildable.
@@ -170,17 +179,36 @@ func holdsUnsavedGit(dir string) bool {
 		return false
 	}
 	git := func(args ...string) (string, error) {
-		out, err := exec.Command("git", append([]string{"-C", dir}, args...)...).Output()
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		cmd := exec.CommandContext(ctx, "git", append([]string{"-C", dir, "-c", "core.fsmonitor=false"}, args...)...)
+		cmd.Env = append(gitFreeEnv(), "GIT_OPTIONAL_LOCKS=0")
+		out, err := cmd.Output()
 		return string(bytes.TrimSpace(out)), err
 	}
 	if out, err := git("status", "--porcelain"); err != nil || out != "" {
 		return true
 	}
-	if fi.IsDir() {
-		out, err := git("log", "--branches", "--tags", "--not", "--remotes", "--format=%H", "-n", "1")
-		return err != nil || out != ""
+	if !fi.IsDir() {
+		return false
 	}
-	return false
+	if _, err := git("rev-parse", "-q", "--verify", "refs/stash"); err == nil {
+		return true
+	}
+	out, err := git("log", "HEAD", "--branches", "--tags", "--not", "--remotes", "--format=%H", "-n", "1")
+	return err != nil || out != ""
+}
+
+// gitFreeEnv is the environment without GIT_* variables, so a sweep run from
+// inside another repository's hook asks the checkout it names and no other.
+func gitFreeEnv() []string {
+	var env []string
+	for _, kv := range os.Environ() {
+		if !strings.HasPrefix(kv, "GIT_") {
+			env = append(env, kv)
+		}
+	}
+	return env
 }
 
 func rebuildable(dir, name string) bool {
@@ -214,11 +242,21 @@ func keepAsEvidence(path string, fi fs.FileInfo) bool {
 	return bytes.IndexByte(head[:n], 0) < 0
 }
 
-func treeSize(dir string) (int64, int) {
+// treeSize measures dir and says whether anything below it is a git
+// checkout or a recorded worktree, which removing dir whole would take.
+func treeSize(dir string, protect map[string]bool) (int64, int, bool) {
 	var n int64
 	var files int
-	filepath.WalkDir(dir, func(_ string, d fs.DirEntry, err error) error {
-		if err != nil || d.IsDir() {
+	nested := false
+	filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		if path != dir && (d.Name() == ".git" || protect[path]) {
+			nested = true
+			return filepath.SkipAll
+		}
+		if d.IsDir() {
 			return nil
 		}
 		if fi, err := d.Info(); err == nil {
@@ -227,7 +265,7 @@ func treeSize(dir string) (int64, int) {
 		}
 		return nil
 	})
-	return n, files
+	return n, files, nested
 }
 
 // removeTree is os.RemoveAll that first restores owner write on every
