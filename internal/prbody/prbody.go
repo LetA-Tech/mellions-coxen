@@ -14,9 +14,13 @@
 // becomes a tool result the session must answer, which advisory text delivered
 // alongside the call is not shown to do.
 //
-// Whether a close is warranted on the default branch is a question of
-// authority, and that is the closure Skill's and the partnership's: a body with
-// no --base, or a base that is the default branch, passes.
+// On the default branch the keyword is live, and it closes the issue the
+// second the merge lands — before any deploy, and before the proof comment
+// mellions-issue-closure requires is on the record. A promotion into the
+// default branch lists what each merged pull request fixed, so its body is
+// where that happens. GitHub reads a negated keyword there as a close too, so
+// every keyword outside code is denied, unless the body declares that the
+// diff is the whole proof, which is the one close that Skill lets a merge make.
 //
 // The question is four smaller ones, and each is a parse rather than a search:
 // which commands in the payload open a pull request, what text each one hands
@@ -43,6 +47,8 @@ const bodyLimit = 1 << 20
 // Call is one `gh pr create` or `gh pr edit` in a command, with the text it
 // hands GitHub as the body and the base and repository it names.
 type Call struct {
+	// Verb is the gh pr or gh issue subcommand: create, edit, comment, review.
+	Verb   string
 	Base   string
 	Repo   string
 	Bodies []string
@@ -64,8 +70,10 @@ type Close struct {
 
 // Deny returns the reason to refuse a PreToolUse payload, or "" to stay
 // silent. defaultBranch answers with the repository's default branch, or ""
-// where it cannot be read — unknown means silence, because a deny on a guess
-// blocks a legitimate close in a repository nothing here can see.
+// where it cannot be read. A --base that cannot be compared with it means
+// silence, because a deny on a guess blocks a legitimate close in a repository
+// nothing here can see; a create with no --base is on the default branch
+// whatever its name.
 func Deny(payload []byte, defaultBranch func(cwd, repo string) string) string {
 	var ev struct {
 		ToolName string `json:"tool_name"`
@@ -78,23 +86,50 @@ func Deny(payload []byte, defaultBranch func(cwd, repo string) string) string {
 		return ""
 	}
 	for _, call := range Calls(ev.Input.Command, ev.Cwd) {
-		// Without --base, gh targets the default branch, where the keyword
-		// does exactly what it says.
-		if call.Base == "" {
+		live, body := firstLive(call.Bodies)
+		if live.Text == "" {
 			continue
 		}
+		// gh pr edit without --base keeps whatever base the pull request
+		// already has, and the command does not say which.
+		if call.Base == "" && call.Verb == "edit" {
+			continue
+		}
+		// gh pr create without --base targets the default branch, whatever
+		// its name, so there is nothing to look up.
+		onDefault := call.Base == ""
+		def := ""
+		if !onDefault {
+			if def = defaultBranch(ev.Cwd, call.Repo); def == "" {
+				continue
+			}
+			onDefault = call.Base == def
+		}
+		if onDefault {
+			if wholeProof(call.Bodies[body]) {
+				continue
+			}
+			into := "the default branch"
+			if call.Base != "" {
+				into = call.Base + ", the default branch"
+			}
+			return "\"" + live.Text + "\" in a pull request into " + into +
+				": GitHub closes " + live.Ref + " the moment this merges, before any deploy and before " +
+				"the proof comment mellions-issue-closure requires is on the record. A negation does not " +
+				"stop it: GitHub reads \"does not close " + live.Ref + "\" as a close.\n\n" +
+				"Write \"Refs " + live.Ref + "\" instead, and close " + live.Ref +
+				" by hand once its acceptance is met. A merge that is itself the whole proof — never a " +
+				"promotion carrying other pull requests' work — says \"the diff is the whole proof\" in its body, " +
+				"and the keyword then stands."
+		}
 		var found Close
-		for _, body := range call.Bodies {
-			if c, ok := Declared(body); ok {
+		for _, b := range call.Bodies {
+			if c, ok := Declared(b); ok {
 				found = c
 				break
 			}
 		}
 		if found.Text == "" {
-			continue
-		}
-		def := defaultBranch(ev.Cwd, call.Repo)
-		if def == "" || call.Base == def {
 			continue
 		}
 		return "\"" + found.Text + "\" in a pull request into " + call.Base +
@@ -157,11 +192,15 @@ func calls(command, cwd string, accept func(noun, verb string) bool) []Call {
 			dir = moved
 			continue
 		}
-		args, ok := ghcmd.Args(c.Words, accept)
+		var verb string
+		args, ok := ghcmd.Args(c.Words, func(noun, v string) bool {
+			verb = v
+			return accept(noun, v)
+		})
 		if !ok {
 			continue
 		}
-		call := Call{Dir: dir}
+		call := Call{Verb: verb, Dir: dir}
 		for i := 0; i < len(args); i++ {
 			name, glued, hasGlued := ghcmd.SplitFlag(args[i])
 			var v string
