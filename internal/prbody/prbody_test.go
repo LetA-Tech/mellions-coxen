@@ -287,6 +287,16 @@ Refs #113"`, true, "GitHub closes #113"},
 		// that carries the keyword, and never a promotion's list.
 		{"whole proof beside a promotion list", "", `gh pr create --base main --body "- #1612 (fixes #1611)
 - #1610 README typo: the diff is the whole proof."`, true, into + "#1611"},
+		{"whole proof, squash-subject order", "", `gh pr create --base main --head dev --body "Promote dev.
+- fix(etl): keep attested rows, fixes #1611 (#1612)
+- docs: README typo (#1610). The diff is the whole proof."`, true, into + "#1611"},
+		{"whole proof, pull request on the line above", "", `gh pr create --base main --body "### #1612
+Fixes #1611.
+### #1610
+The diff is the whole proof."`, true, into + "#1611"},
+		{"whole proof, reference across a wrap", "", `gh pr create --base main --body "Carries #1612, which
+fixes #1611. The diff is the whole proof."`, true, into + "#1611"},
+		{"whole proof closing two issues", "", `gh pr create --base main --body "Closes #7, fixes #8. The diff is the whole proof."`, false, ""},
 		{"whole proof in another --body", "", `gh pr create --base main --body "The diff is the whole proof." --body "Closes #7"`, true, into + "#7"},
 		{"whole proof negated", "", `gh pr create --base main --body "Closes #7. Do not write that the diff is the whole proof."`, true, into + "#7"},
 		{"quoted on main", "", "gh pr create --base main --body \"PR #1613 carried `fixes #1611` and closed it early.\"", false, ""},
