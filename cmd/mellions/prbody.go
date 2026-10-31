@@ -29,8 +29,9 @@ type decision struct {
 }
 
 // cmdPRBodyCheck reads a PreToolUse payload on stdin and denies a `gh pr
-// create` or `gh pr edit` whose body declares that it closes an issue on a
-// base branch where GitHub will not resolve it. Everything else is silence.
+// create` or `gh pr edit` whose body declares that it closes an issue, on any
+// base, unless it is the default branch and the body says the diff is the
+// whole proof. prbody.Deny is the predicate.
 func cmdPRBodyCheck(ctx context.Context, args []string) error {
 	fs := newFlagSet("pr-body-check", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
@@ -40,7 +41,8 @@ func cmdPRBodyCheck(ctx context.Context, args []string) error {
 	payload := readPayload(os.Stdin)
 	if len(payload) == 0 {
 		guardUsage("pr-body-check", "It denies a `gh pr create` whose body declares a closing "+
-			"keyword on a base that is not the default branch, where GitHub resolves none.")
+			"keyword: on a base that is not the default branch, where GitHub resolves none, and on the "+
+			"default branch, where it closes before the proof, unless the body says the diff is the whole proof.")
 		return nil
 	}
 	reason := prbody.Deny(payload, func(cwd, repo string) string {

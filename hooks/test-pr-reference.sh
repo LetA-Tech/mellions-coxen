@@ -159,10 +159,16 @@ denies "long gap after negator" 'gh pr create --base dev --body "not the branch 
 # A keyword its author bolded away from the number is still a close.
 denies "emphasised keyword"     'gh pr create --base dev --body "**Closes** #7"'
 
-# On the default branch the keyword does what it says; whether the close is
-# warranted is the closure Skill's question, not this hook's.
-allows "no --base"             'gh pr create --body "Closes #7"'
-allows "--base is the default" 'gh pr create --base main --body "Closes #7"'
+# On the default branch the keyword is live and closes the issue at the merge,
+# before any deploy or proof comment: a promotion listing what each merged pull
+# request fixed is the shape that does it. Only a body declaring the diff is
+# the whole proof keeps its keyword.
+printf 'Promote dev to main.\n\n- #1612 (fixes #1611)\n' >"$tmp/promote.md"
+denies "promotion into main"   "gh pr create --base main --head dev --body-file $tmp/promote.md"
+denies "no --base"             'gh pr create --body "Closes #7"'
+denies "--base is the default" 'gh pr create --base main --body "Closes #7"'
+allows "whole proof declared"  'gh pr create --base main --body "Closes #7. The diff is the whole proof."'
+allows "refs on main"          'gh pr create --base main --body "- #1612 (Refs #1611)"'
 allows "pr edit without --base" 'gh pr edit 12 --body "Closes #7"'
 
 # Where the default branch cannot be read, a deny would be a guess.

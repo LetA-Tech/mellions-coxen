@@ -43,6 +43,21 @@ func Declared(body string) (Close, bool) {
 	return Close{}, false
 }
 
+// proofClaim is the declaration mellions-issue-closure accepts in place of a
+// proof comment: the body says the diff is the whole proof.
+var proofClaim = regexp.MustCompile(`(?i)\b(the|this)\s+diff\s+(is|was)\s+the\s+whole\s+proof\b`)
+
+// wholeProof reports whether any body declares, in its own prose, that the
+// diff is the whole proof. A quotation of the phrase declares nothing.
+func wholeProof(bodies []string) bool {
+	for _, b := range bodies {
+		if proofClaim.MatchString(strip(b)) {
+			return true
+		}
+	}
+	return false
+}
+
 // strip leaves the body's prose and removes what quotes rather than states:
 // fenced code blocks, blockquotes and inline code spans of any delimiter
 // width. A keyword inside one of those is a quotation of this rule and not a
