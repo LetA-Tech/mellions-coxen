@@ -136,9 +136,10 @@ const usage = `mellions — the second engineer's deterministic surface
 
   mellions pr-body-check
         Reads a PreToolUse payload on stdin and denies a gh pr create or gh pr
-        edit whose body declares that it closes an issue into a base branch
-        GitHub will not resolve it on. Silence otherwise, including where the
-        default branch cannot be read. hooks/pr-reference.sh is what calls it.
+        edit whose body declares that it closes an issue: into a base GitHub
+        will not resolve it on, or into the default branch unless the body says
+        the diff is the whole proof. Silence where the base cannot be compared
+        with the default branch. hooks/pr-reference.sh is what calls it.
 
   mellions pr-merge-check
         Reads a PreToolUse payload on stdin and denies a gh pr merge whose

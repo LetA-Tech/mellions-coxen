@@ -8,9 +8,10 @@
 # a denial becomes a tool result the session must answer, which advisory text
 # delivered alongside the call is not shown to do.
 #
-# Whether a close is warranted on the default branch is a question of
-# authority, and that is the closure Skill's and the partnership's, not this
-# hook's: a body with no --base, or a base that is the default branch, passes.
+# On the default branch the keyword is live and closes the issue at the merge,
+# before any deploy and before the proof comment mellions-issue-closure
+# requires — a promotion listing what each merged pull request fixed does it.
+# It is denied there too, unless the body declares the diff is the whole proof.
 #
 # The decision is a parse and not a search — which commands open a pull
 # request, what each hands GitHub as the body, which of that is prose rather

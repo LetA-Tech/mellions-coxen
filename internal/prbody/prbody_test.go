@@ -186,9 +186,8 @@ Refs #715"`, false},
 		{"no issue number", "", `gh pr create --base dev --body "this closes the gap"`, false},
 		{"not a keyword", "", `gh pr create --base dev --body "lands without closing #7"`, false},
 
-		// The base decides, because GitHub does.
-		{"no --base", "", `gh pr create --body "Closes #7"`, false},
-		{"--base is the default", "", `gh pr create --base main --body "Closes #7"`, false},
+		// The base decides, because GitHub does. The default branch has its
+		// own table, TestDenyOnTheDefaultBranch.
 		{"pr edit without --base", "", `gh pr edit 12 --body "Closes #7"`, false},
 		{"unknown default branch", nowhere, `gh pr create --base dev --body "Closes #7"`, false},
 
@@ -234,6 +233,108 @@ gh pr create --base dev --body-file ` + unwritten, true},
 				t.Errorf("denial names no keyword:\n%s", reason)
 			}
 		})
+	}
+}
+
+// TestDenyOnTheDefaultBranch: there the keyword is live, and it closes the
+// issue at the merge, before any deploy or proof comment. A promotion listing
+// what each merged pull request fixed is the shape that does it. Only a body
+// that declares the diff is the whole proof keeps its keyword.
+func TestDenyOnTheDefaultBranch(t *testing.T) {
+	dir := t.TempDir()
+	promote := write(t, filepath.Join(dir, "promote.md"), "Promote dev to main for v0.5.19.\n\n- #1612 (fixes #1611)\n- #1609 FinAI repin\n")
+	const into = "into main, the default branch: GitHub closes "
+	cases := []struct {
+		name    string
+		cwd     string
+		command string
+		deny    bool
+		want    string
+	}{
+		{"promotion body, --base main", "", "gh pr create --base main --head dev --title release --body-file " + promote, true, into + "#1611"},
+		{"promotion body, no --base", "", "gh pr create --head dev --body-file " + promote, true, "into the default branch: GitHub closes #1611"},
+		{"promotion body, pr edit --base main", "", "gh pr edit 1613 --base main --body-file " + promote, true, into + "#1611"},
+		{"--base is the default", "", `gh pr create --base main --body "Closes #7"`, true, into + "#7"},
+		{"no --base", "", `gh pr create --body "Closes #7"`, true, "into the default branch: GitHub closes #7"},
+		{"--base=main, glued", "", `gh pr create --base=main --body "Fixes #7 by rewriting the parser"`, true, into + "#7"},
+		{"no --base, default unreadable", nowhere, `gh pr create --body "Closes #7"`, true, "into the default branch: GitHub closes #7"},
+		{"no --base, --repo elsewhere", "", `gh pr create --repo example-org/other --body "Closes #7"`, true, "into the default branch: GitHub closes #7"},
+
+		// The one close the closure Skill lets a merge make.
+		{"whole proof declared", "", `gh pr create --base main --body "Fixes the typo in README. Closes #7
+
+The diff is the whole proof."`, false, ""},
+		{"whole proof, no --base", "", `gh pr create --body "Closes #7; this diff was the **whole** proof"`, false, ""},
+		{"whole proof wrapped", "", `gh pr create --base main --body "Closes #7. The diff is the
+whole proof."`, false, ""},
+		// A quotation of the declaration declares nothing.
+		{"whole proof quoted in a span", "", "gh pr create --base main --body \"Closes #7. Never write `the diff is the whole proof` on a promotion.\"", true, into + "#7"},
+		{"whole proof quoted in a blockquote", "", "gh pr create --base main --body \"Closes #7\n\n> the diff is the whole proof\n\"", true, into + "#7"},
+		{"a weaker claim", "", `gh pr create --base main --body "Closes #7. The diff is most of the proof."`, true, into + "#7"},
+
+		// The declaration does not rescue a keyword that does nothing.
+		{"whole proof on a non-default base", "", `gh pr create --base dev --body "Closes #7. The diff is the whole proof."`, true, "only on the default branch, main"},
+
+		// Nothing declared, nothing denied.
+		{"refs on main", "", `gh pr create --base main --body "- #1612 (Refs #1611)"`, false, ""},
+		// GitHub reads a negated keyword on the default branch as a close.
+		{"negated on main", "", `gh pr create --base main --body "This promotion does not close #1611"`, true, into + "#1611"},
+		{"negated heading, no --base", "", `gh pr create --body "## Does not close #113
+
+Refs #113"`, true, "GitHub closes #113"},
+
+		// The declaration covers this pull request's own diff, in the body
+		// that carries the keyword, and never a promotion's list.
+		{"whole proof beside a promotion list", "", `gh pr create --base main --body "- #1612 (fixes #1611)
+- #1610 README typo: the diff is the whole proof."`, true, into + "#1611"},
+		{"whole proof, squash-subject order", "", `gh pr create --base main --head dev --body "Promote dev.
+- fix(etl): keep attested rows, fixes #1611 (#1612)
+- docs: README typo (#1610). The diff is the whole proof."`, true, into + "#1611"},
+		{"whole proof, pull request on the line above", "", `gh pr create --base main --body "### #1612
+Fixes #1611.
+### #1610
+The diff is the whole proof."`, true, into + "#1611"},
+		{"whole proof, reference across a wrap", "", `gh pr create --base main --body "Carries #1612, which
+fixes #1611. The diff is the whole proof."`, true, into + "#1611"},
+		{"whole proof closing two issues", "", `gh pr create --base main --body "Closes #7, fixes #8. The diff is the whole proof."`, false, ""},
+		{"whole proof in another --body", "", `gh pr create --base main --body "The diff is the whole proof." --body "Closes #7"`, true, into + "#7"},
+		{"whole proof negated", "", `gh pr create --base main --body "Closes #7. Do not write that the diff is the whole proof."`, true, into + "#7"},
+		{"quoted on main", "", "gh pr create --base main --body \"PR #1613 carried `fixes #1611` and closed it early.\"", false, ""},
+		{"pr edit without --base", "", `gh pr edit 1613 --body "- #1612 (fixes #1611)"`, false, ""},
+		{"--base main, default unreadable", nowhere, `gh pr create --base main --body "Closes #7"`, false, ""},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			cwd := c.cwd
+			if cwd == "" {
+				cwd = dir
+			}
+			reason := Deny(payload(t, cwd, "Bash", c.command), stub)
+			if (reason != "") != c.deny {
+				t.Fatalf("deny=%v, want %v\ncommand: %s\nreason: %s", reason != "", c.deny, c.command, reason)
+			}
+			if !c.deny {
+				return
+			}
+			for _, want := range []string{c.want, "Refs #"} {
+				if !strings.Contains(reason, want) {
+					t.Errorf("denial does not say %q:\n%s", want, reason)
+				}
+			}
+		})
+	}
+}
+
+// TestNoBaseLooksNothingUp: a create with no --base is on the default branch
+// by definition, so the decision costs no tracker call.
+func TestNoBaseLooksNothingUp(t *testing.T) {
+	looked := false
+	reason := Deny(payload(t, "/repo", "Bash", `gh pr create --body "Closes #7"`), func(string, string) string {
+		looked = true
+		return "main"
+	})
+	if reason == "" || looked {
+		t.Fatalf("denied=%v looked=%v, want a denial and no lookup", reason != "", looked)
 	}
 }
 
