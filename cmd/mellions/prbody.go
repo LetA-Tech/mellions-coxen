@@ -29,9 +29,8 @@ type decision struct {
 }
 
 // cmdPRBodyCheck reads a PreToolUse payload on stdin and denies a `gh pr
-// create` or `gh pr edit` whose body declares that it closes an issue, on any
-// base, unless it is the default branch and the body says the diff is the
-// whole proof. prbody.Deny is the predicate.
+// create` or `gh pr edit` whose body closes an issue by keyword on a base
+// whose default branch it can compare with; prbody.Deny is the predicate.
 func cmdPRBodyCheck(ctx context.Context, args []string) error {
 	fs := newFlagSet("pr-body-check", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)

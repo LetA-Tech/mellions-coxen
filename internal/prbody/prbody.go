@@ -18,9 +18,9 @@
 // second the merge lands — before any deploy, and before the proof comment
 // mellions-issue-closure requires is on the record. A promotion into the
 // default branch lists what each merged pull request fixed, so its body is
-// where that happens. The keyword is denied there too, unless the body
-// declares that the diff is the whole proof, which is the one close that
-// Skill lets a merge make.
+// where that happens. GitHub reads a negated keyword there as a close too, so
+// every keyword outside code is denied, unless the body declares that the
+// diff is the whole proof, which is the one close that Skill lets a merge make.
 //
 // The question is four smaller ones, and each is a parse rather than a search:
 // which commands in the payload open a pull request, what text each one hands
@@ -86,14 +86,8 @@ func Deny(payload []byte, defaultBranch func(cwd, repo string) string) string {
 		return ""
 	}
 	for _, call := range Calls(ev.Input.Command, ev.Cwd) {
-		var found Close
-		for _, body := range call.Bodies {
-			if c, ok := Declared(body); ok {
-				found = c
-				break
-			}
-		}
-		if found.Text == "" {
+		live, body := firstLive(call.Bodies)
+		if live.Text == "" {
 			continue
 		}
 		// gh pr edit without --base keeps whatever base the pull request
@@ -101,25 +95,41 @@ func Deny(payload []byte, defaultBranch func(cwd, repo string) string) string {
 		if call.Base == "" && call.Verb == "edit" {
 			continue
 		}
-		def := defaultBranch(ev.Cwd, call.Repo)
-		// gh pr create without --base targets the default branch.
-		if call.Base == "" || call.Base == def {
-			if wholeProof(call.Bodies) {
+		// gh pr create without --base targets the default branch, whatever
+		// its name, so there is nothing to look up.
+		onDefault := call.Base == ""
+		def := ""
+		if !onDefault {
+			if def = defaultBranch(ev.Cwd, call.Repo); def == "" {
+				continue
+			}
+			onDefault = call.Base == def
+		}
+		if onDefault {
+			if wholeProof(call.Bodies[body]) {
 				continue
 			}
 			into := "the default branch"
-			if def != "" {
-				into = def + ", the default branch"
+			if call.Base != "" {
+				into = call.Base + ", the default branch"
 			}
-			return "\"" + found.Text + "\" in a pull request into " + into +
-				": GitHub closes " + found.Ref + " the moment this merges, before any deploy and before " +
-				"the proof comment mellions-issue-closure requires is on the record.\n\n" +
-				"Write \"Refs " + found.Ref + "\" instead, and close " + found.Ref +
+			return "\"" + live.Text + "\" in a pull request into " + into +
+				": GitHub closes " + live.Ref + " the moment this merges, before any deploy and before " +
+				"the proof comment mellions-issue-closure requires is on the record. A negation does not " +
+				"stop it: GitHub reads \"does not close " + live.Ref + "\" as a close.\n\n" +
+				"Write \"Refs " + live.Ref + "\" instead, and close " + live.Ref +
 				" by hand once its acceptance is met. A merge that is itself the whole proof — never a " +
 				"promotion carrying other pull requests' work — says \"the diff is the whole proof\" in its body, " +
 				"and the keyword then stands."
 		}
-		if def == "" {
+		var found Close
+		for _, b := range call.Bodies {
+			if c, ok := Declared(b); ok {
+				found = c
+				break
+			}
+		}
+		if found.Text == "" {
 			continue
 		}
 		return "\"" + found.Text + "\" in a pull request into " + call.Base +

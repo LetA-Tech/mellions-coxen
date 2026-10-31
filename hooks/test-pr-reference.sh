@@ -167,6 +167,7 @@ printf 'Promote dev to main.\n\n- #1612 (fixes #1611)\n' >"$tmp/promote.md"
 denies "promotion into main"   "gh pr create --base main --head dev --body-file $tmp/promote.md"
 denies "no --base"             'gh pr create --body "Closes #7"'
 denies "--base is the default" 'gh pr create --base main --body "Closes #7"'
+denies "negated on main"       'gh pr create --base main --body "This promotion does not close #1611"'
 allows "whole proof declared"  'gh pr create --base main --body "Closes #7. The diff is the whole proof."'
 allows "refs on main"          'gh pr create --base main --body "- #1612 (Refs #1611)"'
 allows "pr edit without --base" 'gh pr edit 12 --body "Closes #7"'

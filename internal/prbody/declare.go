@@ -47,11 +47,39 @@ func Declared(body string) (Close, bool) {
 // proof comment: the body says the diff is the whole proof.
 var proofClaim = regexp.MustCompile(`(?i)\b(the|this)\s+diff\s+(is|was)\s+the\s+whole\s+proof\b`)
 
-// wholeProof reports whether any body declares, in its own prose, that the
-// diff is the whole proof. A quotation of the phrase declares nothing.
-func wholeProof(bodies []string) bool {
-	for _, b := range bodies {
-		if proofClaim.MatchString(strip(b)) {
+// prRef is a reference standing before a keyword on its line, which is how a
+// promotion lists another pull request's work: "#1612 (fixes #1611)".
+var prRef = regexp.MustCompile(`#[0-9]+`)
+
+// firstLive returns the first closing reference GitHub resolves on the default
+// branch, and which body holds it. GitHub reads a negated keyword as a close,
+// so only a quotation excuses one there.
+func firstLive(bodies []string) (Close, int) {
+	for i, b := range bodies {
+		s := strip(b)
+		if m := closing.FindStringSubmatchIndex(s); m != nil {
+			return Close{
+				Text: strings.Join(strings.Fields(s[m[0]:m[1]]), " "),
+				Ref:  s[m[2*refGroup]:m[2*refGroup+1]],
+			}, i
+		}
+	}
+	return Close{}, -1
+}
+
+// wholeProof reports whether the body declares, in its own prose and with no
+// negator in its clause, that the diff is the whole proof — and lists no other
+// pull request's work behind a keyword, which no promotion's diff can be.
+func wholeProof(body string) bool {
+	s := strip(body)
+	for _, m := range closing.FindAllStringIndex(s, -1) {
+		line := s[strings.LastIndex(s[:m[0]], "\n")+1 : m[0]]
+		if prRef.MatchString(line) {
+			return false
+		}
+	}
+	for _, m := range proofClaim.FindAllStringIndex(s, -1) {
+		if !negated(clause(s, m[0])) {
 			return true
 		}
 	}

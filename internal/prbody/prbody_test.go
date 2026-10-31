@@ -252,12 +252,13 @@ func TestDenyOnTheDefaultBranch(t *testing.T) {
 		want    string
 	}{
 		{"promotion body, --base main", "", "gh pr create --base main --head dev --title release --body-file " + promote, true, into + "#1611"},
-		{"promotion body, no --base", "", "gh pr create --head dev --body-file " + promote, true, into + "#1611"},
+		{"promotion body, no --base", "", "gh pr create --head dev --body-file " + promote, true, "into the default branch: GitHub closes #1611"},
 		{"promotion body, pr edit --base main", "", "gh pr edit 1613 --base main --body-file " + promote, true, into + "#1611"},
 		{"--base is the default", "", `gh pr create --base main --body "Closes #7"`, true, into + "#7"},
-		{"no --base", "", `gh pr create --body "Closes #7"`, true, into + "#7"},
+		{"no --base", "", `gh pr create --body "Closes #7"`, true, "into the default branch: GitHub closes #7"},
 		{"--base=main, glued", "", `gh pr create --base=main --body "Fixes #7 by rewriting the parser"`, true, into + "#7"},
 		{"no --base, default unreadable", nowhere, `gh pr create --body "Closes #7"`, true, "into the default branch: GitHub closes #7"},
+		{"no --base, --repo elsewhere", "", `gh pr create --repo example-org/other --body "Closes #7"`, true, "into the default branch: GitHub closes #7"},
 
 		// The one close the closure Skill lets a merge make.
 		{"whole proof declared", "", `gh pr create --base main --body "Fixes the typo in README. Closes #7
@@ -276,7 +277,18 @@ whole proof."`, false, ""},
 
 		// Nothing declared, nothing denied.
 		{"refs on main", "", `gh pr create --base main --body "- #1612 (Refs #1611)"`, false, ""},
-		{"negated on main", "", `gh pr create --base main --body "This promotion does not close #1611"`, false, ""},
+		// GitHub reads a negated keyword on the default branch as a close.
+		{"negated on main", "", `gh pr create --base main --body "This promotion does not close #1611"`, true, into + "#1611"},
+		{"negated heading, no --base", "", `gh pr create --body "## Does not close #113
+
+Refs #113"`, true, "GitHub closes #113"},
+
+		// The declaration covers this pull request's own diff, in the body
+		// that carries the keyword, and never a promotion's list.
+		{"whole proof beside a promotion list", "", `gh pr create --base main --body "- #1612 (fixes #1611)
+- #1610 README typo: the diff is the whole proof."`, true, into + "#1611"},
+		{"whole proof in another --body", "", `gh pr create --base main --body "The diff is the whole proof." --body "Closes #7"`, true, into + "#7"},
+		{"whole proof negated", "", `gh pr create --base main --body "Closes #7. Do not write that the diff is the whole proof."`, true, into + "#7"},
 		{"quoted on main", "", "gh pr create --base main --body \"PR #1613 carried `fixes #1611` and closed it early.\"", false, ""},
 		{"pr edit without --base", "", `gh pr edit 1613 --body "- #1612 (fixes #1611)"`, false, ""},
 		{"--base main, default unreadable", nowhere, `gh pr create --base main --body "Closes #7"`, false, ""},
@@ -300,6 +312,19 @@ whole proof."`, false, ""},
 				}
 			}
 		})
+	}
+}
+
+// TestNoBaseLooksNothingUp: a create with no --base is on the default branch
+// by definition, so the decision costs no tracker call.
+func TestNoBaseLooksNothingUp(t *testing.T) {
+	looked := false
+	reason := Deny(payload(t, "/repo", "Bash", `gh pr create --body "Closes #7"`), func(string, string) string {
+		looked = true
+		return "main"
+	})
+	if reason == "" || looked {
+		t.Fatalf("denied=%v looked=%v, want a denial and no lookup", reason != "", looked)
 	}
 }
 
