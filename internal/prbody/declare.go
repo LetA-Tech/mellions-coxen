@@ -86,6 +86,13 @@ func wholeProof(body string) bool {
 			return false
 		}
 	}
+	return claimsProof(body)
+}
+
+// claimsProof reports whether the body's own prose declares, with no negator
+// in its clause, that the diff is the whole proof.
+func claimsProof(body string) bool {
+	s := strip(body)
 	for _, m := range proofClaim.FindAllStringIndex(s, -1) {
 		if !negated(clause(s, m[0])) {
 			return true

@@ -12,6 +12,9 @@
 # before any deploy and before the proof comment mellions-issue-closure
 # requires — a promotion listing what each merged pull request fixed does it.
 # It is denied there too, unless the body declares the diff is the whole proof.
+# A title's keyword is denied on every base: the merge commit carries the title
+# into its message, and GitHub closes the issue when that commit reaches the
+# default branch, at the merge or at the next promotion.
 #
 # The decision is a parse and not a search — which commands open a pull
 # request, what each hands GitHub as the body, which of that is prose rather
