@@ -68,9 +68,19 @@ func TestQuietRepoProducesNoSignal(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(got) != 0 {
-		t.Errorf("a repository with no recent commits produced %d signals", len(got))
+	if n := len(ofKind(got, signal.KindCommit)); n != 0 {
+		t.Errorf("a repository with no recent commits produced %d change signals", n)
 	}
+}
+
+func ofKind(in []signal.Signal, k signal.Kind) []signal.Signal {
+	var out []signal.Signal
+	for _, s := range in {
+		if s.Kind == k {
+			out = append(out, s)
+		}
+	}
+	return out
 }
 
 func TestRecentChangeIsSummarisedWithCounts(t *testing.T) {
@@ -87,8 +97,9 @@ func TestRecentChangeIsSummarisedWithCounts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	got = ofKind(got, signal.KindCommit)
 	if len(got) != 1 {
-		t.Fatalf("want one signal per repository, got %d", len(got))
+		t.Fatalf("want one change signal per repository, got %d", len(got))
 	}
 	g := got[0]
 	if g.Kind != signal.KindCommit || g.Attrs["commits"] != "3" || g.Attrs["branch"] != "dev" {

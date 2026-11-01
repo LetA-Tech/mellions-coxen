@@ -28,7 +28,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
 	"slices"
 	"sort"
 	"strconv"
@@ -37,6 +36,7 @@ import (
 
 	"github.com/LetA-Tech/mellions-coxen/internal/claim"
 	"github.com/LetA-Tech/mellions-coxen/internal/durable"
+	"github.com/LetA-Tech/mellions-coxen/internal/repobinding"
 )
 
 // State is where an assignment stands.
@@ -1046,50 +1046,29 @@ func WorkingBranchCandidates(source string) []string {
 }
 
 // declaredWorkingBranch reads .claude/repo-binding.yaml's development_branch.
-// One key is read with one pattern rather than a YAML dependency: an absent
-// file, an absent key or a shape this does not match all answer "not
-// declared", which is the same answer and costs the caller nothing.
+// An absent file answers "not declared", as an absent key does.
 func declaredWorkingBranch(source string) string {
-	raw, err := os.ReadFile(filepath.Join(source, ".claude", "repo-binding.yaml"))
+	raw, err := os.ReadFile(filepath.Join(source, repobinding.Path))
 	if err != nil {
 		return ""
 	}
-	m := developmentBranchKey.FindSubmatch(raw)
-	if m == nil {
-		return ""
-	}
-	return string(m[1])
+	return repobinding.Parse(raw).DevelopmentBranch
 }
-
-var developmentBranchKey = regexp.MustCompile(`(?m)^development_branch:[ \t]*["']?([A-Za-z0-9._/-]+)`)
 
 // approvalGate reads the approval authorities and approval model that the
 // lane's own tree, at the base it was cut from, declares in
-// .claude/repo-binding.yaml. An absent model reads "not declared": what that
-// defaults to is the repository's proposal method to say.
+// .claude/repo-binding.yaml.
 func approvalGate(tree string) (authorities, model string) {
 	if tree == "" {
 		return "", ""
 	}
-	raw, err := os.ReadFile(filepath.Join(tree, ".claude", "repo-binding.yaml"))
+	raw, err := os.ReadFile(filepath.Join(tree, repobinding.Path))
 	if err != nil {
 		return "", ""
 	}
-	m := approvalAuthoritiesKey.FindSubmatch(raw)
-	if m == nil {
-		return "", ""
-	}
-	model = "not declared"
-	if mm := approvalModelKey.FindSubmatch(raw); mm != nil {
-		model = string(mm[1])
-	}
-	return string(m[1]), model
+	b := repobinding.Parse(raw)
+	return b.Authorities, b.Model
 }
-
-var (
-	approvalAuthoritiesKey = regexp.MustCompile(`(?m)^approval_authorities:[ \t]*(\[[^\]\n]*\])`)
-	approvalModelKey       = regexp.MustCompile(`(?m)^[ \t]*approval_model:[ \t]*["']?([A-Za-z0-9_-]+)`)
-)
 
 // resolveRemoteBranch fetches one branch and resolves it, returning "" when the
 // remote does not carry it. The fetch is what makes the pin current; a branch
