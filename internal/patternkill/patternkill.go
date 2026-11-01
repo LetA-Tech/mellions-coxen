@@ -32,7 +32,7 @@ import (
 func Find(command string) string {
 	cmds := shellsplit.Split(command)
 	for i, c := range cmds {
-		words := shellsplit.Program(c.Words)
+		words := shellsplit.Program(c.Args())
 		if len(words) == 0 {
 			continue
 		}
@@ -51,8 +51,8 @@ func Find(command string) string {
 				return show(words)
 			}
 		case "xargs":
-			if i > 0 && runsKill(args) && lookup(shellsplit.Program(cmds[i-1].Words)) {
-				return show(shellsplit.Program(cmds[i-1].Words)) + " | " + show(words)
+			if i > 0 && runsKill(args) && lookup(shellsplit.Program(cmds[i-1].Args())) {
+				return show(shellsplit.Program(cmds[i-1].Args())) + " | " + show(words)
 			}
 		}
 	}
@@ -211,7 +211,7 @@ func lookupIn(word string) bool {
 	}
 	inner := strings.TrimRight(word[i+2:], ")\"'")
 	for _, c := range shellsplit.Split(inner) {
-		if lookup(shellsplit.Program(c.Words)) {
+		if lookup(shellsplit.Program(c.Args())) {
 			return true
 		}
 	}
@@ -317,7 +317,7 @@ func fedByName(args []string) bool {
 			continue
 		}
 		for _, c := range shellsplit.Split(inner) {
-			if lookup(shellsplit.Program(c.Words)) {
+			if lookup(shellsplit.Program(c.Args())) {
 				return true
 			}
 		}

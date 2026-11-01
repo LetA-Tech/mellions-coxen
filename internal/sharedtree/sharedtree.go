@@ -265,7 +265,7 @@ type Write struct {
 func Find(command, cwd string, e Estate) *Write {
 	dir := abs(cwd, cwd, e.Home)
 	for _, c := range shellsplit.Split(command) {
-		words := unwrap(c.Words)
+		words := unwrap(c.Args())
 		if len(words) == 0 {
 			continue
 		}
@@ -611,7 +611,7 @@ func Reach(command, cwd string, e Estate) *Checkout {
 	}
 	dir := here
 	for _, c := range shellsplit.Split(command) {
-		words := unwrap(c.Words)
+		words := unwrap(c.Args())
 		if len(words) == 0 {
 			continue
 		}

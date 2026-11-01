@@ -47,7 +47,7 @@ func tmpdirVar(s string) bool {
 func Find(command, cwd string) string {
 	dir := cwd
 	for _, c := range shellsplit.Split(command) {
-		words := shellsplit.Program(c.Words)
+		words := shellsplit.Program(c.Args())
 		if len(words) == 0 {
 			continue
 		}

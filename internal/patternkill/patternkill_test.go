@@ -55,7 +55,7 @@ func TestFindRefusesASignalChosenByNameOrPattern(t *testing.T) {
 		`killall go`:                                              `killall go`,
 		`killall -9 -u leta golangci-lint`:                        `killall -9 -u leta golangci-lint`,
 		`kill $(pgrep -f run-required.sh)`:                        `kill $(pgrep -f run-required.sh)`,
-		`kill -9 "$(pgrep -f gate)" 2>/dev/null`:                  `kill -9 $(pgrep -f gate) 2`,
+		`kill -9 "$(pgrep -f gate)" 2>/dev/null`:                  `kill -9 $(pgrep -f gate)`,
 		"kill `pgrep -f gate`":                                    "kill `pgrep -f gate`",
 		`kill $(pidof postgres)`:                                  `kill $(pidof postgres)`,
 		`pgrep -f gate | xargs kill`:                              `pgrep -f gate | xargs kill`,
