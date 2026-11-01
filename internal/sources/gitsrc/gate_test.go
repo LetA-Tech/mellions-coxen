@@ -6,6 +6,7 @@ package gitsrc
 
 import (
 	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -97,12 +98,29 @@ func TestSurveyPrintsEachRepositorysGateAtItsRemoteBranch(t *testing.T) {
 		f.make(t, root)
 		repos = append(repos, f.name)
 	}
+	// A checkout tracking a feature branch is still cut from origin/dev, so
+	// its upstream comes after the declared branches; origin/feature carries
+	// the local-head decoy.
+	fixture{name: "featured", branch: "dev", binding: "approval_authorities: [lucas]\napproval_model: merge-gate\n"}.make(t, root)
+	for _, args := range [][]string{
+		{"update-ref", "refs/remotes/origin/feature", "HEAD"},
+		{"config", "branch.work.remote", "origin"},
+		{"config", "branch.work.merge", "refs/heads/feature"},
+	} {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = filepath.Join(root, "featured")
+		cmd.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_NOSYSTEM=1")
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	repos = append(repos, "featured")
 
 	got, err := New(Options{WorkRoot: root, Repos: repos}).Collect(context.Background(), signal.Scope{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if n := len(ofKind(got, signal.KindGate)); n != len(fixtures) {
+	if n := len(ofKind(got, signal.KindGate)); n != len(repos) {
 		t.Fatalf("want one gate signal per repository, got %d: %+v", n, got)
 	}
 	text := survey.Result{Signals: got, Ran: []string{"git"}}.Render(survey.Default())
@@ -122,6 +140,7 @@ func TestSurveyPrintsEachRepositorysGateAtItsRemoteBranch(t *testing.T) {
 		"unbound":    "no binding — origin/dev carries no .claude/repo-binding.yaml",
 		"mainline":   "approval_authorities [lucas], approval_model pre-proposal at origin/main",
 		"tracked":    "approval_authorities [antony], approval_model merge-gate at origin/release",
+		"featured":   "approval_authorities [lucas], approval_model merge-gate at origin/dev",
 	} {
 		if l := lineFor(repo); !strings.Contains(l, want) {
 			t.Errorf("%s: gate line %q does not say %q", repo, l, want)
@@ -152,5 +171,25 @@ func TestGateIsUnknownWhenNoRemoteBranchResolves(t *testing.T) {
 	g := ofKind(got, signal.KindGate)
 	if len(g) != 1 || g[0].Attrs["model"] != "unknown" || !strings.Contains(g[0].Title, "origin/dev") {
 		t.Fatalf("a checkout with no candidate remote branch was not reported unknown: %+v", g)
+	}
+}
+
+func TestGateIsUnknownWhenGitFailsResolvingABranch(t *testing.T) {
+	run := func(_ context.Context, _ string, args ...string) (string, error) {
+		switch args[0] {
+		case "for-each-ref":
+			return "", errors.New("fatal: not a git repository")
+		case "ls-tree", "show":
+			t.Errorf("read the binding after resolving the branch failed: %v", args)
+		}
+		return "", nil
+	}
+	got, err := New(Options{WorkRoot: t.TempDir(), Repos: []string{"."}, Run: run}).Collect(context.Background(), signal.Scope{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	g := ofKind(got, signal.KindGate)
+	if len(g) != 1 || g[0].Attrs["model"] != "unknown" || !strings.Contains(g[0].Title, "failed") {
+		t.Fatalf("a git failure resolving the branch was not reported unknown: %+v", g)
 	}
 }
