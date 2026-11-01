@@ -597,6 +597,8 @@ func kindHeading(k signal.Kind) string {
 	switch k {
 	case signal.KindObjective:
 		return "Program objectives"
+	case signal.KindGate:
+		return "Approval gates — what each repository's binding lets a lane finish"
 	case signal.KindAssignment:
 		return "Work already in flight"
 	case signal.KindStalePremise:

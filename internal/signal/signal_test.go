@@ -63,6 +63,7 @@ func TestKindsCoversEveryKind(t *testing.T) {
 	declared := []Kind{
 		KindAssignment, KindWorkItem, KindChangeSet, KindBuild, KindAlert,
 		KindCommit, KindStalePremise, KindBlocked, KindObjective, KindFollowUp,
+		KindGate,
 	}
 	in := make(map[Kind]bool, len(Kinds))
 	for _, k := range Kinds {
