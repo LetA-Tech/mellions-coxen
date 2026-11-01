@@ -160,11 +160,11 @@ func callsFrom(command, cwd string) []Call {
 	var out []Call
 	dir := cwd
 	for _, c := range shellsplit.Split(command) {
-		if moved, ok := prbody.Chdir(c.Words, cwd, dir); ok {
+		if moved, ok := prbody.Chdir(c.Args(), cwd, dir); ok {
 			dir = moved
 			continue
 		}
-		args, ok := ghcmd.Args(c.Words, func(noun, verb string) bool {
+		args, ok := ghcmd.Args(c.Args(), func(noun, verb string) bool {
 			return noun == "pr" && verb == "merge"
 		})
 		if !ok {

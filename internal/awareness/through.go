@@ -50,7 +50,7 @@ func (t *through) line(command, dir string, depth int) string {
 		return ""
 	}
 	for _, c := range shellsplit.Split(command) {
-		words := commandWords(c.Words)
+		words := commandWords(c.Args())
 		if len(words) == 0 {
 			continue
 		}

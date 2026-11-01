@@ -15,7 +15,7 @@ func TestReadWriteRedirectTargetIsARead(t *testing.T) {
 	}{
 		{`cat <> .pgpass`, []string{"cat", ".pgpass"}},
 		{`cat <>.pgpass`, []string{"cat", ".pgpass"}},
-		{`cat 0<>.pgpass`, []string{"cat", "0", ".pgpass"}},
+		{`cat 0<>.pgpass`, []string{"cat", ".pgpass"}},
 		{`cat < .pgpass`, []string{"cat", ".pgpass"}},
 	} {
 		cmds := Split(tc.cmd)

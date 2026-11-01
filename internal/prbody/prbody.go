@@ -275,12 +275,12 @@ func calls(command, cwd string, accept func(noun, verb string) bool) []Call {
 	var out []Call
 	dir := cwd
 	for _, c := range cmds {
-		if moved, ok := chdir(c.Words, cwd, dir); ok {
+		if moved, ok := chdir(c.Args(), cwd, dir); ok {
 			dir = moved
 			continue
 		}
 		var verb string
-		args, ok := ghcmd.Args(c.Words, func(noun, v string) bool {
+		args, ok := ghcmd.Args(c.Args(), func(noun, v string) bool {
 			// gh pr new and gh issue new are gh's own aliases of create.
 			if v == "new" && (noun == "pr" || noun == "issue") {
 				v = "create"
