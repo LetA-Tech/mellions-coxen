@@ -117,10 +117,14 @@ remove only the clause meant to hold those back, and watch them go red. Where
 the fix refuses more, run the production predicate, old and new, over what it
 will meet — sessions, rows, sampled future input — and judge each newly refused.
 
-Where the claim is placement — a write inside another operation's
-transaction, lock or publish order — removing the write proves the write, not
-its place: displace it, abort the outer operation after it, wrap no test
-transaction; read `references/placement-arms.md`.
+Where the claim is where something happens — a write inside another
+operation's transaction, lock or publish order; a read from the remote ref
+rather than the checkout, or the tenant's row rather than the default —
+removing it proves it happens, not where. Displace a write, abort the outer
+operation after it, wrap no test transaction (`references/placement-arms.md`).
+For a read, give each source it could plausibly take instead a distinct value
+in the fixture, point the read at each in turn, and watch each arm go red on
+the value assertion; a read with one possible source needs no decoy.
 
 Where the fix is to persisted state — a store, a table, a cache, a file — a
 reading taken the moment a new binary is in place measures state nothing has
