@@ -41,7 +41,9 @@ func cmdPRBodyCheck(ctx context.Context, args []string) error {
 	if len(payload) == 0 {
 		guardUsage("pr-body-check", "It denies a `gh pr create` whose body declares a closing "+
 			"keyword: on a base that is not the default branch, where GitHub resolves none, and on the "+
-			"default branch, where it closes before the proof, unless the body says the diff is the whole proof.")
+			"default branch, where it closes before the proof, unless the body says the diff is the whole proof. "+
+			"A closing keyword in a title is denied on every base, since the merge commit carries it to the "+
+			"default branch, with the same whole-proof exception on the default branch.")
 		return nil
 	}
 	reason := prbody.Deny(payload, func(cwd, repo string) string {

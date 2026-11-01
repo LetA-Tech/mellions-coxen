@@ -65,8 +65,9 @@ Four layers remain distinct:
    falsify, coordinate and hand work over. They are instructions, not an
    authorization system.
 3. **Deterministic Mellions safeguards** inspect PreToolUse payloads and can
-   deny three narrow classes: publishing a closing keyword on a pull request
-   base where GitHub will not resolve it; mutating a configured shared checkout
+   deny three narrow classes: publishing a closing keyword in a pull request
+   body or title that GitHub will not resolve, or will resolve before the
+   proof; mutating a configured shared checkout
    instead of a lane, a clean fast-forward-only pull or merge excepted, or
    reaching other sessions' files or processes through an `rm` glob over a
    shared temporary root or a signal sent by name or pattern; and
