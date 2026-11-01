@@ -271,9 +271,13 @@ mellions secret check [-path file] <command...>
 mellions secret-check
 ```
 
-- `pr-body-check` may deny `gh pr create` or `gh pr edit` when a closing
-  keyword is supplied for a pull request base on which GitHub will not resolve
-  it. Unknown default-branch state is silent.
+- `pr-body-check` may deny `gh pr create` (or `gh pr new`) or `gh pr edit`
+  when a body supplies a closing keyword for a base on which GitHub will not
+  resolve it, or one on the default branch that closes before the proof; and
+  when a `--title` supplies one on any base, since the merge commit carries the
+  title to the default branch. A body that says the diff is the whole proof
+  keeps the keyword on the default branch. Unknown default-branch state is
+  silent for a body.
 - `shared-tree-check` may deny a tree-mutating Git command aimed at a configured
   shared checkout instead of an assignment lane, and an `rm` (recursive or not)
   that globs directly under `/tmp`, `/var/tmp`, `/dev/shm` or `$TMPDIR`.
