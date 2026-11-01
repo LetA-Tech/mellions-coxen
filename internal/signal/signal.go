@@ -55,13 +55,16 @@ const (
 	KindObjective Kind = "objective"
 	// KindFollowUp is something found while doing other work.
 	KindFollowUp Kind = "follow_up"
+	// KindGate is the approval authorities and approval model a repository's
+	// binding declares.
+	KindGate Kind = "gate"
 )
 
 // Kinds is every kind, in the order a survey renders them. Ordering here is
 // presentational grouping only — it says nothing about importance, and must not
 // be read as one.
 var Kinds = []Kind{
-	KindObjective, KindAssignment, KindStalePremise, KindAlert, KindBuild,
+	KindObjective, KindGate, KindAssignment, KindStalePremise, KindAlert, KindBuild,
 	KindBlocked, KindChangeSet, KindWorkItem, KindFollowUp, KindCommit,
 }
 

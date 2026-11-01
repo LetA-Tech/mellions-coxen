@@ -41,9 +41,13 @@ mellions sources
 
 Collects, across every repository in `repos`: open work items, change sets
 under review, failing builds, work blocked on the owner (`owner_labels`),
-recent commits, program objectives, assignments in flight, follow-ups, and
+recent commits, program objectives, assignments in flight, follow-ups,
 **stale premises** — open issues whose cited paths and symbols no longer
-match the tree. Grouped for reading; never ranked, scored or recommended.
+match the tree — and each repository's **approval gate**: the
+`approval_authorities` and `approval_model` its `.claude/repo-binding.yaml`
+declares at `origin/<development branch>` as last fetched, read by the same
+parser `assign open` uses. Grouped for reading; never ranked, scored or
+recommended.
 
 - **when:** a session with nothing in flight (the session-start hook says so
   and refreshes a saved survey in the background); the start of every
@@ -56,7 +60,9 @@ match the tree. Grouped for reading; never ranked, scored or recommended.
   the session-start hook looks. `mellions sources` lists the configured
   sources.
 - **read it right:** `INCOMPLETE` means a source did not answer — unknown,
-  not empty. "… N more collected" means the list was printed short and names
+  not empty. A gate reading `no binding` or `approval_model not declared` is
+  not a delegation: what a lane may finish there is the partnership's and the
+  program's to say. "… N more collected" means the list was printed short and names
   the command that prints the rest. A change set marked `CLAIMED` carries
   the `mellions:claimed` label, or names an open issue in its own repository
   that does after `Refs`, `Fixes`, `Closes` or `Resolves` (as `#N`,
