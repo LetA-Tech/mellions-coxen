@@ -6,9 +6,10 @@
 // request whose body or title declares that it closes an issue, and whether
 // GitHub would resolve that declaration on the base the command names.
 //
-// GitHub resolves a closing keyword only when the pull request merges into the
-// repository's default branch. On any other base the keyword does nothing: the
-// fix merges, the issue quietly stays open, and nothing reports it. That body
+// GitHub resolves a closing keyword in a body only when the pull request merges
+// into the repository's default branch. On any other base the body's keyword
+// does nothing: the fix merges, the issue quietly stays open, and nothing
+// reports it. A title is different, and denyTitle says how. That body
 // is written at a moment no Skill is loaded and no gate can see, so the
 // PreToolUse hook denies the tool call there, where it is typed — a denial
 // becomes a tool result the session must answer, which advisory text delivered
@@ -153,11 +154,23 @@ func Deny(payload []byte, defaultBranch func(cwd, repo string) string) string {
 // or "". A merge commit puts the title in its message, so the keyword closes
 // the issue when that commit reaches the default branch: at this merge on the
 // default branch, at the next promotion from any other. Every base is therefore
-// denied. Only a quotation excuses the keyword, as on the default branch, and
-// only a merge into the default branch whose body declares the diff is the
-// whole proof keeps it.
+// denied, negated or not. A commit message is not Markdown, so a code span or
+// blockquote excuses nothing here. Only a merge into the default branch whose
+// body — the last --body, which is the one gh sends — declares the diff is the
+// whole proof keeps the keyword.
 func denyTitle(call Call, cwd string, defaultBranch func(cwd, repo string) string) string {
-	live, title := firstLive(call.Titles)
+	var live Close
+	title := ""
+	for _, t := range call.Titles {
+		if m := closing.FindStringSubmatchIndex(t); m != nil {
+			live = Close{
+				Text: strings.Join(strings.Fields(t[m[0]:m[1]]), " "),
+				Ref:  t[m[2*refGroup]:m[2*refGroup+1]],
+			}
+			title = t
+			break
+		}
+	}
 	if live.Text == "" {
 		return ""
 	}
@@ -166,11 +179,10 @@ func denyTitle(call Call, cwd string, defaultBranch func(cwd, repo string) strin
 		def := defaultBranch(cwd, call.Repo)
 		onDefault = def != "" && call.Base == def
 	}
-	if onDefault {
-		for _, b := range call.Bodies {
-			if wholeProof(call.Titles[title] + "\n\n" + b) {
-				return ""
-			}
+	if onDefault && len(call.Bodies) > 0 {
+		body := call.Bodies[len(call.Bodies)-1]
+		if claimsProof(body) && wholeProof(title+"\n\n"+body) {
+			return ""
 		}
 	}
 	return "\"" + live.Text + "\" in a pull request title: a merge commit carries the title in its message, and " +

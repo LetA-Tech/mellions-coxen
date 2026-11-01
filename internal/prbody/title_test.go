@@ -11,8 +11,8 @@ import (
 
 // TestDenyATitle: a merge commit carries the title into its message, and GitHub
 // resolves a closing keyword in a commit message once that commit reaches the
-// default branch. mcfo-findata#1582 was closed that way, by the merge commit of
-// a pull request into dev, when the promotion carrying it merged into main.
+// default branch, so a pull request into dev closes the issue at the promotion
+// that carries its merge commit into main.
 func TestDenyATitle(t *testing.T) {
 	const title = "in a pull request title"
 	cases := []struct {
@@ -22,7 +22,7 @@ func TestDenyATitle(t *testing.T) {
 		deny    bool
 		want    string
 	}{
-		{"into dev, the findata#1582 shape", "", `gh pr create --base dev --title "Keep Plaid's category on attested rows (Fixes #1582)" --body "Refs #1582"`, true, title},
+		{"into dev", "", `gh pr create --base dev --title "Keep Plaid's category on attested rows (Fixes #1582)" --body "Refs #1582"`, true, title},
 		{"-t", "", `gh pr create --base dev -t "fix(parser): closes #7" --body "Refs #7"`, true, title},
 		{"--title=, glued", "", `gh pr create --base dev --title="Resolves #7" --body "Refs #7"`, true, title},
 		{"owner/repo reference", "", `gh pr create --base dev --title "fixes LetA-Tech/mcfo-findata#7"`, true, "GitHub closes LetA-Tech/mcfo-findata#7"},
@@ -43,11 +43,18 @@ func TestDenyATitle(t *testing.T) {
 		{"whole proof, pr edit with no --base", "", `gh pr edit 12 --title "Fixes #7" --body "The diff is the whole proof."`, true, title},
 		{"whole proof into dev", "", `gh pr create --base dev --title "Fixes #7" --body "The diff is the whole proof."`, true, title},
 		{"whole proof beside another pull request", "", "gh pr create --base main --title \"Promote dev (fixes #1611)\" --body \"- #1612\n\nThe diff is the whole proof.\"", true, title},
+		{"another pull request in the title", "", `gh pr create --base main --title "Fixes #7 (#1612)" --body "The diff is the whole proof."`, true, title},
+		{"title's own reference named in the body", "", `gh pr create --base main --title "Fixes #7" --body "Refs #7. The diff is the whole proof."`, false, ""},
+		{"proof claimed only in the title", "", `gh pr create --base main --title "Fixes #7: the diff is the whole proof" --body "Refs #7"`, true, title},
+		{"proof claimed in a body gh does not send", "", `gh pr create --base main --title "Fixes #7" --body "The diff is the whole proof." --body "Promote dev: #1612 #1613"`, true, title},
 		{"whole proof, default unreadable", nowhere, `gh pr create --base main --title "Fixes #7" --body "The diff is the whole proof."`, true, title},
 
 		// Nothing declared.
 		{"refs", "", `gh pr create --base dev --title "fix(parser): one lexer (Refs #7)" --body "Refs #7"`, false, ""},
-		{"quoted in a code span", "", "gh pr create --base dev --title \"docs: say `Fixes #7` closes at promotion\" --body \"Refs #7\"", false, ""},
+		// A commit message is not Markdown: nothing in it is a quotation.
+		{"code span", "", "gh pr create --base dev --title \"docs: say `Fixes #7` closes at promotion\" --body \"Refs #7\"", true, title},
+		{"blockquote marker", "", `gh pr create --base dev --title "> Fixes #7"`, true, title},
+		{"fence marker", "", "gh pr create --base dev --title '```Fixes #7'", true, title},
 		{"not a keyword", "", `gh pr create --base dev --title "fixing #7 for the parser"`, false, ""},
 		{"a body value is not a flag", "", `gh pr create --base dev --body -t "Fixes #7"`, false, ""},
 		{"pr view", "", `gh pr view 12 --json title --jq '.title' | grep "Fixes #7"`, false, ""},
