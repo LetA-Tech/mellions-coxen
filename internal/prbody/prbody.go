@@ -46,8 +46,9 @@ import (
 // bodyLimit bounds a --body-file read. A body past this is not a body.
 const bodyLimit = 1 << 20
 
-// Call is one `gh pr create` or `gh pr edit` in a command, with the text it
-// hands GitHub as the body and title and the base and repository it names.
+// Call is one `gh pr create`, `gh pr edit` or `gh pr merge` in a command,
+// with the text it hands GitHub as the body and title and the base and
+// repository it names.
 type Call struct {
 	// Verb is the gh pr or gh issue subcommand: create, edit, merge, comment,
 	// review.
@@ -221,8 +222,8 @@ func denyMergeMessage(call Call) string {
 			"default branch — at this merge if the base is the default branch, at the next promotion if it is not — " +
 			"before any deploy and before the proof comment mellions-issue-closure requires is on the record.\n\n" +
 			"Write \"Refs " + ref + "\" in the merge message instead, and close " + ref +
-			" by hand once its acceptance is met. A merge that closes " + ref + " by itself declares it in the pull " +
-			"request's body, which GitHub resolves without the merge message."
+			" by hand once its acceptance is met. A merge into the default branch that is itself the whole proof " +
+			"declares the close in the pull request's body, never in the merge message."
 	}
 	return ""
 }
