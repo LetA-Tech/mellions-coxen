@@ -20,7 +20,8 @@ import "strings"
 //
 // Stdin lists the indexes in Words of the operands of <, <> and <<<: a file or
 // text a redirection opens for reading, held in place among the words but
-// never the command's name or an option's operand.
+// never the command's name or an option's operand. A redirection target that
+// holds a substitution is indexed there too, since bash runs what it holds.
 type Command struct {
 	Words    []string
 	Heredocs []string
@@ -88,6 +89,9 @@ func lex(command string, i int, stopAtParen bool) ([]*Command, int) {
 	// quoted is whether the pending word holds a quote, an escape or a
 	// substitution: bash reads a descriptor prefix only from literal text.
 	quoted := false
+	// runs is whether the pending word holds a substitution, whose command
+	// bash runs wherever the word sits.
+	runs := false
 
 	endWord := func() {
 		if !hasWord {
@@ -97,6 +101,14 @@ func lex(command string, i int, stopAtParen bool) ([]*Command, int) {
 		w.Reset()
 		hasWord = false
 		quoted = false
+		// A target that runs a command stays a word for the guards that read
+		// what runs, and out of Args, since bash passes it to nothing.
+		target := runs || strings.Contains(s, "`")
+		runs = false
+		keep := func() {
+			cur.Stdin = append(cur.Stdin, len(cur.Words))
+			cur.Words = append(cur.Words, s)
+		}
 		switch {
 		case heredocNext != 0:
 			queue = append(queue, pending{delim: s, strip: heredocNext == 2, owner: cur})
@@ -104,10 +116,20 @@ func lex(command string, i int, stopAtParen bool) ([]*Command, int) {
 		case redirOut:
 			cur.Out = s
 			redirOut = false
+			if target {
+				keep()
+			}
 		case dup != 0:
-			// <& of a word that names no descriptor is an ambiguous redirect,
-			// and bash runs nothing.
-			if dup == '>' && !isDupTarget(s) {
+			// <& of a literal word that names no descriptor is an ambiguous
+			// redirect, and bash runs nothing.
+			switch {
+			case target:
+				if dup == '>' {
+					cur.Out = s
+				}
+				keep()
+			case isDupTarget(s):
+			case dup == '>':
 				cur.Out = s
 			}
 			dup = 0
@@ -151,6 +173,7 @@ func lex(command string, i int, stopAtParen bool) ([]*Command, int) {
 			w.WriteString(text)
 			hasWord = true
 			quoted = true
+			runs = true
 
 		case stopAtParen && c == ')':
 			endCmd()
@@ -198,6 +221,7 @@ func lex(command string, i int, stopAtParen bool) ([]*Command, int) {
 					var text string
 					text, i = substitution(command, i)
 					w.WriteString(text)
+					runs = true
 					continue
 				}
 				w.WriteByte(command[i])
