@@ -2,7 +2,7 @@
 // Built and maintained by LetA Tech Ltd.
 // Contact: leta@letatech.ca
 
-package binding
+package repobinding
 
 import "testing"
 

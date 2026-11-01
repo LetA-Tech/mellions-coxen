@@ -20,8 +20,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/LetA-Tech/mellions-coxen/internal/binding"
 	"github.com/LetA-Tech/mellions-coxen/internal/checkout"
+	"github.com/LetA-Tech/mellions-coxen/internal/repobinding"
 	"github.com/LetA-Tech/mellions-coxen/internal/signal"
 )
 
@@ -178,8 +178,8 @@ func (s *Source) Collect(ctx context.Context, scope signal.Scope) ([]signal.Sign
 // absent model is worded as a delegation.
 func (s *Source) gate(ctx context.Context, repo, dir string) signal.Signal {
 	candidates := []string{"dev"}
-	if raw, err := os.ReadFile(filepath.Join(dir, binding.Path)); err == nil {
-		if b := binding.Parse(raw).DevelopmentBranch; b != "" && b != "dev" {
+	if raw, err := os.ReadFile(filepath.Join(dir, repobinding.Path)); err == nil {
+		if b := repobinding.Parse(raw).DevelopmentBranch; b != "" && b != "dev" {
 			candidates = []string{b, "dev"}
 		}
 	}
@@ -201,20 +201,20 @@ func (s *Source) gate(ctx context.Context, repo, dir string) signal.Signal {
 		return unknown("no origin/" + strings.Join(candidates, " or origin/") + " in the checkout, so its binding was not read")
 	}
 	sig.Attrs["ref"] = ref
-	listed, err := s.opts.Run(ctx, dir, "ls-tree", "--name-only", ref, "--", binding.Path)
+	listed, err := s.opts.Run(ctx, dir, "ls-tree", "--name-only", ref, "--", repobinding.Path)
 	if err != nil {
-		return unknown(fmt.Sprintf("listing %s at %s failed: %v", binding.Path, ref, err))
+		return unknown(fmt.Sprintf("listing %s at %s failed: %v", repobinding.Path, ref, err))
 	}
 	if strings.TrimSpace(listed) == "" {
 		sig.Attrs["model"] = "no binding"
-		sig.Title = fmt.Sprintf("no binding — %s carries no %s, so it names no approval authority; that is not a delegation", ref, binding.Path)
+		sig.Title = fmt.Sprintf("no binding — %s carries no %s, so it names no approval authority; that is not a delegation", ref, repobinding.Path)
 		return sig
 	}
-	raw, err := s.opts.Run(ctx, dir, "show", ref+":"+binding.Path)
+	raw, err := s.opts.Run(ctx, dir, "show", ref+":"+repobinding.Path)
 	if err != nil {
-		return unknown(fmt.Sprintf("reading %s at %s failed: %v", binding.Path, ref, err))
+		return unknown(fmt.Sprintf("reading %s at %s failed: %v", repobinding.Path, ref, err))
 	}
-	b := binding.Parse([]byte(raw))
+	b := repobinding.Parse([]byte(raw))
 	if b.Authorities == "" {
 		sig.Attrs["model"] = "no authorities"
 		sig.Title = fmt.Sprintf("binding names no approval_authorities at %s; that is not a delegation", ref)
@@ -222,7 +222,7 @@ func (s *Source) gate(ctx context.Context, repo, dir string) signal.Signal {
 	}
 	sig.Attrs["authorities"] = b.Authorities
 	sig.Attrs["model"] = b.Model
-	if b.Model == binding.NotDeclared {
+	if b.Model == repobinding.NotDeclared {
 		sig.Title = fmt.Sprintf("approval_authorities %s, approval_model not declared at %s — its default is the proposal method's to say, not a delegation", b.Authorities, ref)
 		return sig
 	}

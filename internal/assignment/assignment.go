@@ -34,9 +34,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/LetA-Tech/mellions-coxen/internal/binding"
 	"github.com/LetA-Tech/mellions-coxen/internal/claim"
 	"github.com/LetA-Tech/mellions-coxen/internal/durable"
+	"github.com/LetA-Tech/mellions-coxen/internal/repobinding"
 )
 
 // State is where an assignment stands.
@@ -1048,11 +1048,11 @@ func WorkingBranchCandidates(source string) []string {
 // declaredWorkingBranch reads .claude/repo-binding.yaml's development_branch.
 // An absent file answers "not declared", as an absent key does.
 func declaredWorkingBranch(source string) string {
-	raw, err := os.ReadFile(filepath.Join(source, binding.Path))
+	raw, err := os.ReadFile(filepath.Join(source, repobinding.Path))
 	if err != nil {
 		return ""
 	}
-	return binding.Parse(raw).DevelopmentBranch
+	return repobinding.Parse(raw).DevelopmentBranch
 }
 
 // approvalGate reads the approval authorities and approval model that the
@@ -1062,11 +1062,11 @@ func approvalGate(tree string) (authorities, model string) {
 	if tree == "" {
 		return "", ""
 	}
-	raw, err := os.ReadFile(filepath.Join(tree, binding.Path))
+	raw, err := os.ReadFile(filepath.Join(tree, repobinding.Path))
 	if err != nil {
 		return "", ""
 	}
-	b := binding.Parse(raw)
+	b := repobinding.Parse(raw)
 	return b.Authorities, b.Model
 }
 

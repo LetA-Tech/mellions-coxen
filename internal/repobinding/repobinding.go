@@ -2,14 +2,14 @@
 // Built and maintained by LetA Tech Ltd.
 // Contact: leta@letatech.ca
 
-// Package binding reads the keys Mellions acts on from a repository's
+// Package repobinding reads the keys Mellions acts on from a repository's
 // .claude/repo-binding.yaml.
 //
 // Each key is read with one pattern rather than a YAML dependency. An absent
 // key and a shape the pattern does not match give the same answer, "not
 // declared", and every caller reads the file through this one parser so a lane
 // and the survey cannot disagree about what a repository declares.
-package binding
+package repobinding
 
 import "regexp"
 
