@@ -16,10 +16,12 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/LetA-Tech/mellions-coxen/internal/assignment"
 	"github.com/LetA-Tech/mellions-coxen/internal/checkout"
 	"github.com/LetA-Tech/mellions-coxen/internal/repobinding"
 	"github.com/LetA-Tech/mellions-coxen/internal/signal"
@@ -171,18 +173,12 @@ func (s *Source) Collect(ctx context.Context, scope signal.Scope) ([]signal.Sign
 }
 
 // gate is one signal per repository naming the approval authorities and
-// approval model its binding declares at origin/<development branch>, as last
-// fetched: the base a lane would be cut from. The development branch is the one
-// the checkout's binding declares, else dev. A binding that cannot be read is
-// reported unknown rather than dropped, and neither an absent binding nor an
-// absent model is worded as a delegation.
+// approval model its binding declares at the remote branch a lane would be cut
+// from, as last fetched: the branches assign open tries, in its order, then the
+// checkout's upstream. A binding that cannot be read is reported unknown rather
+// than dropped, and neither an absent binding nor an absent model is worded as
+// a delegation.
 func (s *Source) gate(ctx context.Context, repo, dir string) signal.Signal {
-	candidates := []string{"dev"}
-	if raw, err := os.ReadFile(filepath.Join(dir, repobinding.Path)); err == nil {
-		if b := repobinding.Parse(raw).DevelopmentBranch; b != "" && b != "dev" {
-			candidates = []string{b, "dev"}
-		}
-	}
 	sig := signal.Signal{Kind: signal.KindGate, Source: "git", ID: "gate", Repo: repo,
 		Attrs: map[string]string{}}
 	unknown := func(why string) signal.Signal {
@@ -190,15 +186,37 @@ func (s *Source) gate(ctx context.Context, repo, dir string) signal.Signal {
 		sig.Title = "unknown — " + why
 		return sig
 	}
+	upstream := ""
+	if out, err := s.opts.Run(ctx, dir, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"); err == nil {
+		upstream = strings.TrimSpace(out)
+	}
+	remote := "origin"
+	upBranch := ""
+	if r, b, ok := strings.Cut(upstream, "/"); ok && r != "" {
+		remote, upBranch = r, b
+	}
+	var candidates []string
+	for _, c := range append(assignment.WorkingBranchCandidates(dir), upBranch) {
+		if c != "" && !slices.Contains(candidates, c) {
+			candidates = append(candidates, c)
+		}
+	}
 	ref := ""
 	for _, c := range candidates {
-		if _, err := s.opts.Run(ctx, dir, "rev-parse", "--verify", "--quiet", "origin/"+c+"^{commit}"); err == nil {
-			ref = "origin/" + c
+		// for-each-ref answers an absent ref with empty output and exit 0, so
+		// only a failure of git itself is an error, and that is unknown.
+		out, err := s.opts.Run(ctx, dir, "for-each-ref", "--format=%(objectname)", "refs/remotes/"+remote+"/"+c)
+		if err != nil {
+			return unknown(fmt.Sprintf("resolving %s/%s failed: %v", remote, c, err))
+		}
+		if strings.TrimSpace(out) != "" {
+			ref = remote + "/" + c
 			break
 		}
 	}
 	if ref == "" {
-		return unknown("no origin/" + strings.Join(candidates, " or origin/") + " in the checkout, so its binding was not read")
+		return unknown(fmt.Sprintf("none of %s/%s is in the checkout, so its binding was not read",
+			remote, strings.Join(candidates, ", "+remote+"/")))
 	}
 	sig.Attrs["ref"] = ref
 	listed, err := s.opts.Run(ctx, dir, "ls-tree", "--name-only", ref, "--", repobinding.Path)

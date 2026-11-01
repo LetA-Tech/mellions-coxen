@@ -55,8 +55,8 @@ const (
 	KindObjective Kind = "objective"
 	// KindFollowUp is something found while doing other work.
 	KindFollowUp Kind = "follow_up"
-	// KindGate is what a repository's binding says a lane may finish on its
-	// own: its approval authorities and approval model.
+	// KindGate is the approval authorities and approval model a repository's
+	// binding declares.
 	KindGate Kind = "gate"
 )
 
