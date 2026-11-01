@@ -311,7 +311,13 @@ func lex(command string, i int, stopAtParen bool) ([]*Command, int) {
 			}
 
 		case c == '>':
-			endBeforeRedirect()
+			// A process substitution takes no descriptor: bash reads
+			// `2>(cmd)` as one word.
+			if strings.HasPrefix(command[i:], ">(") {
+				endWord()
+			} else {
+				endBeforeRedirect()
+			}
 			switch {
 			case strings.HasPrefix(command[i:], ">>"):
 				i += 2
@@ -347,10 +353,12 @@ func isDupTarget(s string) bool {
 }
 
 // isDescriptorPrefix reports whether a word glued to a redirection operator is
-// the descriptor it redirects: a number, or {name} for bash to allocate one.
+// the descriptor it redirects: a number bash can hold in an int, or {name} for
+// bash to allocate one. A larger number is an argument the command receives.
 func isDescriptorPrefix(s string) bool {
 	if allDigits(s) {
-		return true
+		n := strings.TrimLeft(s, "0")
+		return len(n) < 10 || (len(n) == 10 && n <= "2147483647")
 	}
 	if len(s) < 3 || s[0] != '{' || s[len(s)-1] != '}' {
 		return false

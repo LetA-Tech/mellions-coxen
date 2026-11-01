@@ -88,6 +88,10 @@ func TestOnlyALiteralGluedNumberIsADescriptor(t *testing.T) {
 		{`echo 2&>f x`, []string{"echo", "2", "x"}},
 		{`echo 2&>>f x`, []string{"echo", "2", "x"}},
 		{`echo 0<(true) x`, []string{"echo", "0", "(true)", "x"}},
+		{`echo 2147483648>/dev/null x`, []string{"echo", "2147483648", "x"}},
+		{`echo 99999999999>/dev/null x`, []string{"echo", "99999999999", "x"}},
+		{`echo 2147483647>/dev/null x`, []string{"echo", "x"}},
+		{`echo 00002>/dev/null x`, []string{"echo", "x"}},
 		{`echo >&2x y`, []string{"echo", "y"}},
 		{`echo >&2>x y`, []string{"echo", "y"}},
 		{`cat 0<<EOF x` + "\nbody\nEOF\n", []string{"cat", "x"}},
@@ -100,6 +104,9 @@ func TestOnlyALiteralGluedNumberIsADescriptor(t *testing.T) {
 			}
 			t.Errorf("Split(%q) = %q, want one command %q", tc.cmd, got, tc.want)
 		}
+	}
+	if w := Split(`echo 2>(true) x`)[0].Words; len(w) == 0 || w[1] != "2" {
+		t.Errorf("Split(echo 2>(true) x).Words = %q: the 2 of 2>(…) is part of the argument bash passes", w)
 	}
 	if got := Split(`echo >&2x y`)[0].Out; got != "2x" {
 		t.Errorf("Split(echo >&2x y).Out = %q, want 2x: >& of a word that is no descriptor is a file", got)
