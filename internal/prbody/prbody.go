@@ -2,9 +2,10 @@
 // Built and maintained by LetA Tech Ltd.
 // Contact: leta@letatech.ca
 
-// Package prbody decides whether a Bash tool call opens or edits a pull
-// request whose body or title declares that it closes an issue, and whether
-// GitHub would resolve that declaration on the base the command names.
+// Package prbody decides whether a Bash tool call opens, edits or merges a pull
+// request whose body, title or merge commit message declares that it closes an
+// issue, and whether GitHub would resolve that declaration on the base the
+// command names.
 //
 // GitHub resolves a closing keyword in a body only when the pull request merges
 // into the repository's default branch. On any other base the body's keyword
@@ -48,14 +49,16 @@ const bodyLimit = 1 << 20
 // Call is one `gh pr create` or `gh pr edit` in a command, with the text it
 // hands GitHub as the body and title and the base and repository it names.
 type Call struct {
-	// Verb is the gh pr or gh issue subcommand: create, edit, comment, review.
+	// Verb is the gh pr or gh issue subcommand: create, edit, merge, comment,
+	// review.
 	Verb   string
 	Base   string
 	Repo   string
 	Bodies []string
-	// Titles is every --title the call passes. A merge commit's message
-	// carries the title, and GitHub resolves a closing keyword in a commit
-	// message once that commit reaches the default branch.
+	// Titles is every --title the call passes, and for gh pr merge every
+	// --subject (-t there). A merge commit's message carries the title or the
+	// subject, and GitHub resolves a closing keyword in a commit message once
+	// that commit reaches the default branch.
 	Titles []string
 	// Dir is the directory this call runs in: the session's, or wherever the
 	// command's own `cd` moved to before it. A citation is a claim about the
@@ -91,6 +94,12 @@ func Deny(payload []byte, defaultBranch func(cwd, repo string) string) string {
 		return ""
 	}
 	for _, call := range Calls(ev.Input.Command, ev.Cwd) {
+		if call.Verb == "merge" {
+			if reason := denyMergeMessage(call); reason != "" {
+				return reason
+			}
+			continue
+		}
 		if reason := denyTitle(call, ev.Cwd, defaultBranch); reason != "" {
 			return reason
 		}
@@ -194,18 +203,43 @@ func denyTitle(call Call, cwd string, defaultBranch func(cwd, repo string) strin
 		"\"the diff is the whole proof\" in its body, and the keyword then stands; gh pr edit must also name that --base."
 }
 
+// denyMergeMessage returns the reason to refuse a closing keyword in the commit
+// message gh pr merge writes, or "". Its --subject and --body become the merge
+// or squash commit's message, which reaches the default branch at this merge or
+// the next promotion, so every base is denied, negated or not, as a title is.
+// No exemption applies: a pull request's own close is declared in its body,
+// which GitHub resolves whatever the merge commit says.
+func denyMergeMessage(call Call) string {
+	for _, text := range append(append([]string{}, call.Titles...), call.Bodies...) {
+		m := closing.FindStringSubmatchIndex(text)
+		if m == nil {
+			continue
+		}
+		ref := text[m[2*refGroup]:m[2*refGroup+1]]
+		return "\"" + strings.Join(strings.Fields(text[m[0]:m[1]]), " ") + "\" in a gh pr merge --subject or --body: " +
+			"that text is the merge commit's message, and GitHub closes " + ref + " when the commit reaches the " +
+			"default branch — at this merge if the base is the default branch, at the next promotion if it is not — " +
+			"before any deploy and before the proof comment mellions-issue-closure requires is on the record.\n\n" +
+			"Write \"Refs " + ref + "\" in the merge message instead, and close " + ref +
+			" by hand once its acceptance is met. A merge that closes " + ref + " by itself declares it in the pull " +
+			"request's body, which GitHub resolves without the merge message."
+	}
+	return ""
+}
+
 // Calls returns every pull-request call the command makes. A command line that
 // mixes them with other work — a `git commit` whose message quotes a body, an
 // `echo` or a heredoc that writes text about opening a pull request — yields
-// only the `gh pr create` (or `gh pr new`) and `gh pr edit` commands themselves, so a keyword
-// belonging to some other command's text is not read as a pull request body.
+// only the `gh pr create` (or `gh pr new`), `gh pr edit` and `gh pr merge`
+// commands themselves, so a keyword belonging to some other command's text is
+// not read as a pull request body.
 //
 // cwd resolves a relative --body-file. A body-file the same command line is
 // about to write does not exist yet when PreToolUse runs, so the heredoc that
 // writes it is read instead of the stale file.
 func Calls(command, cwd string) []Call {
 	return calls(command, cwd, func(noun, verb string) bool {
-		return noun == "pr" && (verb == "create" || verb == "edit")
+		return noun == "pr" && (verb == "create" || verb == "edit" || verb == "merge")
 	})
 }
 
@@ -261,7 +295,7 @@ func calls(command, cwd string, accept func(noun, verb string) bool) []Call {
 			name, glued, hasGlued := ghcmd.SplitFlag(args[i])
 			var v string
 			switch name {
-			case "--body", "-b", "--body-file", "-F", "--base", "-B", "--repo", "-R", "--title", "-t":
+			case "--body", "-b", "--body-file", "-F", "--base", "-B", "--repo", "-R", "--title", "-t", "--subject":
 				if hasGlued {
 					v = glued
 				} else if i+1 < len(args) {
@@ -276,7 +310,7 @@ func calls(command, cwd string, accept func(noun, verb string) bool) []Call {
 				call.Bodies = append(call.Bodies, v)
 			case "--body-file", "-F":
 				call.Bodies = append(call.Bodies, bodyFile(v, c, written, dir))
-			case "--title", "-t":
+			case "--title", "-t", "--subject":
 				call.Titles = append(call.Titles, v)
 			case "--base", "-B":
 				if call.Base == "" {
