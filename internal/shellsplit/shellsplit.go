@@ -28,6 +28,26 @@ type Command struct {
 	Stdin    []int
 }
 
+// Args returns the words the command runs with: its name and arguments, never
+// a file or text a redirection reads on stdin, which bash does not pass. A
+// guard that reads a subcommand or an operand by position reads these.
+func (c *Command) Args() []string {
+	if len(c.Stdin) == 0 {
+		return c.Words
+	}
+	stdin := make(map[int]bool, len(c.Stdin))
+	for _, i := range c.Stdin {
+		stdin[i] = true
+	}
+	args := make([]string, 0, len(c.Words)-len(c.Stdin))
+	for i, w := range c.Words {
+		if !stdin[i] {
+			args = append(args, w)
+		}
+	}
+	return args
+}
+
 // pending is a heredoc whose delimiter has been read and whose body has not:
 // the body starts on the line after the one declaring it.
 type pending struct {
@@ -61,6 +81,13 @@ func lex(command string, i int, stopAtParen bool) ([]*Command, int) {
 	redirOut := false
 	redirIn := false
 	heredocNext := 0 // 0 none, 1 <<, 2 <<-
+	// dup is the operator, '<' or '>', whose target is the next word: <& and >&
+	// take a descriptor glued or spaced, and >& takes a file where the word is
+	// not one.
+	var dup byte
+	// quoted is whether the pending word holds a quote, an escape or a
+	// substitution: bash reads a descriptor prefix only from literal text.
+	quoted := false
 
 	endWord := func() {
 		if !hasWord {
@@ -69,6 +96,7 @@ func lex(command string, i int, stopAtParen bool) ([]*Command, int) {
 		s := w.String()
 		w.Reset()
 		hasWord = false
+		quoted = false
 		switch {
 		case heredocNext != 0:
 			queue = append(queue, pending{delim: s, strip: heredocNext == 2, owner: cur})
@@ -76,6 +104,13 @@ func lex(command string, i int, stopAtParen bool) ([]*Command, int) {
 		case redirOut:
 			cur.Out = s
 			redirOut = false
+		case dup != 0:
+			// <& of a word that names no descriptor is an ambiguous redirect,
+			// and bash runs nothing.
+			if dup == '>' && !isDupTarget(s) {
+				cur.Out = s
+			}
+			dup = 0
 		default:
 			if redirIn {
 				cur.Stdin = append(cur.Stdin, len(cur.Words))
@@ -84,6 +119,19 @@ func lex(command string, i int, stopAtParen bool) ([]*Command, int) {
 			cur.Words = append(cur.Words, s)
 		}
 	}
+	// endBeforeRedirect ends the word pending at a < or >. Literal digits or a
+	// {name} glued to the operator are the descriptor it redirects, so they are
+	// no word of the command: `git 2>/dev/null reset` runs git reset. A word a
+	// redirection is still waiting for is that redirection's target instead.
+	endBeforeRedirect := func() {
+		if hasWord && !quoted && !redirOut && !redirIn && dup == 0 && heredocNext == 0 &&
+			isDescriptorPrefix(w.String()) {
+			w.Reset()
+			hasWord = false
+			return
+		}
+		endWord()
+	}
 	endCmd := func() {
 		endWord()
 		if len(cur.Words) > 0 || len(cur.Heredocs) > 0 {
@@ -91,6 +139,7 @@ func lex(command string, i int, stopAtParen bool) ([]*Command, int) {
 		}
 		cur = &Command{}
 		redirIn = false
+		dup = 0
 	}
 
 	for i < len(command) {
@@ -101,6 +150,7 @@ func lex(command string, i int, stopAtParen bool) ([]*Command, int) {
 			text, i = substitution(command, i)
 			w.WriteString(text)
 			hasWord = true
+			quoted = true
 
 		case stopAtParen && c == ')':
 			endCmd()
@@ -110,12 +160,14 @@ func lex(command string, i int, stopAtParen bool) ([]*Command, int) {
 			if command[i+1] != '\n' {
 				w.WriteByte(command[i+1])
 				hasWord = true
+				quoted = true
 			}
 			i += 2
 
 		case c == '\'':
 			j := strings.IndexByte(command[i+1:], '\'')
 			hasWord = true
+			quoted = true
 			if j < 0 {
 				w.WriteString(command[i+1:])
 				i = len(command)
@@ -152,6 +204,7 @@ func lex(command string, i int, stopAtParen bool) ([]*Command, int) {
 				i++
 			}
 			hasWord = true
+			quoted = true
 			if i < len(command) {
 				i++
 			}
@@ -197,7 +250,13 @@ func lex(command string, i int, stopAtParen bool) ([]*Command, int) {
 			endCmd()
 
 		case c == '<':
-			endWord()
+			// A process substitution takes no descriptor: bash reads
+			// `0<(cmd)` as one word.
+			if strings.HasPrefix(command[i:], "<(") {
+				endWord()
+			} else {
+				endBeforeRedirect()
+			}
 			switch {
 			case strings.HasPrefix(command[i:], "<<<"):
 				i += 3 // a here-string's word is data, and no body gh reads
@@ -219,15 +278,16 @@ func lex(command string, i int, stopAtParen bool) ([]*Command, int) {
 				i++
 				redirIn = false
 			case strings.HasPrefix(command[i:], "<&"):
-				i = descriptor(command, i+2)
+				i += 2
 				redirIn = false
+				dup = '<'
 			default:
 				i++
 				redirIn = true
 			}
 
 		case c == '>':
-			endWord()
+			endBeforeRedirect()
 			switch {
 			case strings.HasPrefix(command[i:], ">>"):
 				i += 2
@@ -239,7 +299,8 @@ func lex(command string, i int, stopAtParen bool) ([]*Command, int) {
 				i++
 			}
 			if i < len(command) && command[i] == '&' {
-				i = descriptor(command, i+1)
+				i++
+				dup = '>'
 				break
 			}
 			redirOut = true
@@ -254,17 +315,43 @@ func lex(command string, i int, stopAtParen bool) ([]*Command, int) {
 	return out, i
 }
 
-// descriptor skips, from i just past the & of >& or <&, an adjacent descriptor
-// number, a lone - that closes one, or a number then - that moves it, and
-// returns the index past it. A spaced or variable target stays a word.
-func descriptor(command string, i int) int {
-	for i < len(command) && command[i] >= '0' && command[i] <= '9' {
-		i++
+// isDupTarget reports whether the word after >& or <& names a descriptor: a
+// number, a lone - that closes one, or a number then - that moves it.
+func isDupTarget(s string) bool {
+	s = strings.TrimSuffix(s, "-")
+	return s == "" || allDigits(s)
+}
+
+// isDescriptorPrefix reports whether a word glued to a redirection operator is
+// the descriptor it redirects: a number, or {name} for bash to allocate one.
+func isDescriptorPrefix(s string) bool {
+	if allDigits(s) {
+		return true
 	}
-	if i < len(command) && command[i] == '-' {
-		i++
+	if len(s) < 3 || s[0] != '{' || s[len(s)-1] != '}' {
+		return false
 	}
-	return i
+	name := s[1 : len(s)-1]
+	for i := 0; i < len(name); i++ {
+		c := name[i]
+		letter := c == '_' || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
+		if !letter && (i == 0 || c < '0' || c > '9') {
+			return false
+		}
+	}
+	return true
+}
+
+func allDigits(s string) bool {
+	if s == "" {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		if s[i] < '0' || s[i] > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 // substitution reads $(...) beginning at i. It returns the text the
