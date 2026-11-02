@@ -82,7 +82,7 @@ harness provisioning on a host that refuses an unlabelled `docker run -d`
 applies it too, so it marks "findable for teardown", not "mine". The wrapper's
 `--rm` and `--runtime=runsc` tell nothing where `runc` is the only runtime.
 
-A labelled container is a question, not a verdict: a repository's test
+A repository's test
 database belongs to whoever is running that suite, and tearing it down mid-run
 is worse than leaving it up overnight.
 
@@ -129,22 +129,27 @@ are functions.
 `/tmp` here is a small tmpfs under a per-user quota, where Go's build and
 `-race` scratch and any `mktemp`ing suite land by default. Full, writes fail
 `disk quota exceeded` with a silent exit 1, reading as a broken build or
-harness. Put `GOTMPDIR`/`TMPDIR` under `$HOME` for a gate
-wider than a package; keep tree copies off `/tmp`.
+harness. Keep tree copies off `/tmp`.
+
+Any run wider than one package (`-race`, `make check`, a repository gate)
+runs under the host lock. A peer's complete log of that gate at the same
+commit is evidence; read it before running a second. Else run it with
+`run_in_background` and a `timeout` covering wait and run, up to 2 hours.
+Waiters get no queue order; `-w` ends the wait inside your budget:
+
+```bash
+d=$HOME/mellions; mkdir -p $d/locks $d/tmp/go && GOTMPDIR=$d/tmp/go \
+  TMPDIR=$d/tmp/go GOFLAGS='-timeout=30m -p=4' flock -w <secs> -E 75 \
+  $d/locks/race-suite.lock nice bash -c '<gate>'
+```
+
+Exit 75: the lock was never acquired, the gate did not run, nothing waits.
+`test timed out after 10m0s` is the host's until a locked rerun says
+otherwise.
 
 ## Establishing what a session actually receives
 
-A session cannot report what reached it, only what it believes. The request
-on the wire settles it: `scripts/capture-wire.sh`, in the mellions-coxen
-checkout, runs one headless session against a loopback server that records
-the request body and answers 400 — nothing forwarded, no credential written —
-and prints model, system-prompt size and tool count.
-
-The tool array is often the decisive half: a tool absent from it was never offered, which a session reports as a
-prohibition. Capture again with one input changed — model, settings file,
-plugin set — when the question is why two hosts differ, not whether a line
-exists.
-
-The 400 stops the session at its first turn, so hook output and anything
-injected later appear in no capture, and a subagent's prompt is not a
-top-level `claude -p`'s: absence in a capture is absence from turn one.
+A session cannot report what reached it, only what it believes; the request
+on the wire settles it. Capture it with `scripts/capture-wire.sh` in the
+mellions-coxen checkout; `references/wire-capture.md` says what a capture
+shows and cannot.
