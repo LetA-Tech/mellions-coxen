@@ -93,11 +93,11 @@ Discard what no longer holds. A hypothesis the world has already answered is not
 worth carrying, and a next step written against a state that no longer exists is
 worse than no next step.
 
-An owner question an earlier report left open claims he has not answered; he
-often answers first in the live session doing the work. Look for an answer to
-that exact question in the rulings, the tracker and that session, if live; drop
-it only on one you can cite and get recorded, else carry it open, naming whom
-you asked.
+A question an earlier report left open for the owner claims they have not
+answered; they often answer first in the live session doing the work. Look for
+an answer to that exact question in the rulings, the tracker and that session if
+`mellions who` shows it live; drop it only on one you can cite and get recorded,
+else carry it open, naming where you looked.
 
 **5 — Settle anything that began and never finished, before anything else.**
 
