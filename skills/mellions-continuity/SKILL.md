@@ -93,6 +93,12 @@ Discard what no longer holds. A hypothesis the world has already answered is not
 worth carrying, and a next step written against a state that no longer exists is
 worse than no next step.
 
+An owner question an earlier report left open claims he has not answered; he
+often answers first in the live session doing the work. Look for an answer to
+that exact question in the rulings, the tracker and that session, if live; drop
+it only on one you can cite and get recorded, else carry it open, naming whom
+you asked.
+
 **5 — Settle anything that began and never finished, before anything else.**
 
 An action that started and recorded no outcome — a push, a merge, a comment, a
@@ -140,15 +146,6 @@ and the renewal hook carries your slate. Never ask the owner to `/compact`,
 never wait for it, never raise the size mid-piece.
 
 ## What not to do
-
-**Do not replay the record.** A written next step is a proposal from a session
-that could not see today. Evaluate it; do not execute it.
-
-**Do not treat silence as absence.** Everything you could not establish stays
-unknown and gets said out loud before you reason from it.
-
-**Do not write a status document.** What the next session needs is the
-assignment record kept current — one line at the moment you learn something.
 
 **Do not start something new because reconstructing is harder.** Two open
 assignments and a fresh idea is how the two become abandoned. If the work is
