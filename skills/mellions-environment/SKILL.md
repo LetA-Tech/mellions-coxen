@@ -82,7 +82,7 @@ harness provisioning on a host that refuses an unlabelled `docker run -d`
 applies it too, so it marks "findable for teardown", not "mine". The wrapper's
 `--rm` and `--runtime=runsc` tell nothing where `runc` is the only runtime.
 
-A labelled container is a question, not a verdict: a repository's test
+A repository's test
 database belongs to whoever is running that suite, and tearing it down mid-run
 is worse than leaving it up overnight.
 
@@ -131,19 +131,21 @@ are functions.
 `disk quota exceeded` with a silent exit 1, reading as a broken build or
 harness. Keep tree copies off `/tmp`.
 
-The host runs one suite wider than a package at a time: a `-race` run, `make
-check`, a repository's gate. A peer's gate log at the same head is evidence;
-read it before running a second. Otherwise queue for the lock, in the
-background, since the wait can outlast a tool call or a shift:
+Any `-race` run, `make check`, repository gate or run wider than one package
+runs under the host lock. A peer's complete log of that gate at the same
+commit is evidence; read it before running a second. Else run it with
+`run_in_background` and a `timeout` (default 10 minutes) covering wait and
+run; `-w` ends the wait inside your budget:
 
 ```bash
-GOTMPDIR=<scratch> TMPDIR=<scratch> GOFLAGS='-timeout=30m -p=4' \
-  flock ~/mellions/locks/race-suite.lock nice <gate>
+d=$HOME/mellions; mkdir -p $d/locks $d/tmp/go && GOTMPDIR=$d/tmp/go \
+  TMPDIR=$d/tmp/go GOFLAGS='-timeout=30m -p=4' flock -w <secs> -E 75 \
+  $d/locks/race-suite.lock nice bash -c '<gate>'
 ```
 
-Unlocked, it competes with the suite holding the lock, and `go test`'s default
-10-minute alarm kills a package: a red gate caused by the host, not the code.
-A gate still queued when the budget ends is reported queued, not run.
+Exit 75 means the lock was never acquired: report the gate queued, not run.
+`test timed out after 10m0s` from a shared-host run is the host's until a
+locked rerun says otherwise.
 
 ## Establishing what a session actually receives
 
