@@ -131,11 +131,11 @@ are functions.
 `disk quota exceeded` with a silent exit 1, reading as a broken build or
 harness. Keep tree copies off `/tmp`.
 
-Any `-race` run, `make check`, repository gate or run wider than one package
+Any run wider than one package (`-race`, `make check`, a repository gate)
 runs under the host lock. A peer's complete log of that gate at the same
 commit is evidence; read it before running a second. Else run it with
-`run_in_background` and a `timeout` (default 10 minutes) covering wait and
-run; `-w` ends the wait inside your budget:
+`run_in_background` and a `timeout` covering wait and run, up to 2 hours.
+Waiters get no queue order; `-w` ends the wait inside your budget:
 
 ```bash
 d=$HOME/mellions; mkdir -p $d/locks $d/tmp/go && GOTMPDIR=$d/tmp/go \
@@ -143,9 +143,9 @@ d=$HOME/mellions; mkdir -p $d/locks $d/tmp/go && GOTMPDIR=$d/tmp/go \
   $d/locks/race-suite.lock nice bash -c '<gate>'
 ```
 
-Exit 75 means the lock was never acquired: report the gate queued, not run.
-`test timed out after 10m0s` from a shared-host run is the host's until a
-locked rerun says otherwise.
+Exit 75: the lock was never acquired, the gate did not run, nothing waits.
+`test timed out after 10m0s` is the host's until a locked rerun says
+otherwise.
 
 ## Establishing what a session actually receives
 
