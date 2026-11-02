@@ -129,22 +129,25 @@ are functions.
 `/tmp` here is a small tmpfs under a per-user quota, where Go's build and
 `-race` scratch and any `mktemp`ing suite land by default. Full, writes fail
 `disk quota exceeded` with a silent exit 1, reading as a broken build or
-harness. Put `GOTMPDIR`/`TMPDIR` under `$HOME` for a gate
-wider than a package; keep tree copies off `/tmp`.
+harness. Keep tree copies off `/tmp`.
+
+The host runs one suite wider than a package at a time: a `-race` run, `make
+check`, a repository's gate. A peer's gate log at the same head is evidence;
+read it before running a second. Otherwise queue for the lock, in the
+background, since the wait can outlast a tool call or a shift:
+
+```bash
+GOTMPDIR=<scratch> TMPDIR=<scratch> GOFLAGS='-timeout=30m -p=4' \
+  flock ~/mellions/locks/race-suite.lock nice <gate>
+```
+
+Unlocked, it competes with the suite holding the lock, and `go test`'s default
+10-minute alarm kills a package: a red gate caused by the host, not the code.
+A gate still queued when the budget ends is reported queued, not run.
 
 ## Establishing what a session actually receives
 
-A session cannot report what reached it, only what it believes. The request
-on the wire settles it: `scripts/capture-wire.sh`, in the mellions-coxen
-checkout, runs one headless session against a loopback server that records
-the request body and answers 400 — nothing forwarded, no credential written —
-and prints model, system-prompt size and tool count.
-
-The tool array is often the decisive half: a tool absent from it was never offered, which a session reports as a
-prohibition. Capture again with one input changed — model, settings file,
-plugin set — when the question is why two hosts differ, not whether a line
-exists.
-
-The 400 stops the session at its first turn, so hook output and anything
-injected later appear in no capture, and a subagent's prompt is not a
-top-level `claude -p`'s: absence in a capture is absence from turn one.
+A session cannot report what reached it, only what it believes; the request
+on the wire settles it. Capture it with `scripts/capture-wire.sh` in the
+mellions-coxen checkout; `references/wire-capture.md` says what a capture
+shows and cannot.
