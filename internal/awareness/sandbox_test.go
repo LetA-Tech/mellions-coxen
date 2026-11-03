@@ -133,6 +133,7 @@ func TestACommandStringBashRunsStillStartsAContainer(t *testing.T) {
 		`ID=$(docker run -d alpine sleep 60)`,
 		`echo "$(docker run --rm alpine true)"`,
 		"ID=`docker create alpine`",
+		"echo \"id: `docker create alpine`\"",
 		`bash <<'EOF'
 docker run --rm alpine true
 EOF`,
