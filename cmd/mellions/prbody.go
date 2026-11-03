@@ -30,8 +30,9 @@ type decision struct {
 
 // cmdPRBodyCheck reads a PreToolUse payload on stdin and denies a `gh pr
 // create` or `gh pr edit` whose body closes an issue by keyword on a base
-// whose default branch it can compare with, and a title or `gh pr merge`
-// message that does on any base; prbody.Deny is the predicate.
+// whose default branch it can compare with, and a title, `gh pr merge` message
+// or `git commit`/`git merge` message that does on any base; prbody.Deny is the
+// predicate.
 func cmdPRBodyCheck(ctx context.Context, args []string) error {
 	fs := newFlagSet("pr-body-check", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
@@ -46,7 +47,8 @@ func cmdPRBodyCheck(ctx context.Context, args []string) error {
 			"A closing keyword in a title is denied on every base, since the merge commit carries it to the "+
 			"default branch, with the same whole-proof exception on the default branch. A closing keyword in a "+
 			"`gh pr merge` --subject or --body is denied on every base with no exception, since it is the merge "+
-			"commit's message.")
+			"commit's message, and so is one in a `git commit` or `git merge` message, which reaches the default "+
+			"branch at a push or a promotion.")
 		return nil
 	}
 	reason := prbody.Deny(payload, func(cwd, repo string) string {

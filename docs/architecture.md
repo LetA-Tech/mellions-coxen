@@ -66,8 +66,8 @@ Four layers remain distinct:
    authorization system.
 3. **Deterministic Mellions safeguards** inspect PreToolUse payloads and can
    deny three narrow classes: publishing a closing keyword in a pull request
-   body or title that GitHub will not resolve, or will resolve before the
-   proof; mutating a configured shared checkout
+   body, title or merge message, or a commit message, that GitHub will not
+   resolve, or will resolve before the proof; mutating a configured shared checkout
    instead of a lane, a clean fast-forward-only pull or merge excepted, or
    reaching other sessions' files or processes through an `rm` glob over a
    shared temporary root or a signal sent by name or pattern; and
@@ -121,7 +121,7 @@ internal/awareness          what to tell a session, once
 internal/provenance         DISCOVERED / DECLARED / INFERRED / UNKNOWN documents
 internal/program, partner   discovery and rendering
 internal/issuegate          citation resolution behind the stale-premise scan
-internal/prbody             what a gh pr command hands GitHub as a body, and whether it closes
+internal/prbody             what a gh pr or git commit command hands GitHub, and whether it closes
 internal/cite               locally resolvable code-citation validation
 internal/secretread         credential-read command/path classification
 internal/sharedtree         shared-checkout mutation classification
