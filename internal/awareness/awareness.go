@@ -585,7 +585,7 @@ var startsContainer = regexp.MustCompile(
 	`(?i)\bdocker\s+(run|create|start)\b|\b(docker\s+compose|docker-compose|podman-compose)\b[^;&|\n]*?\s(up|run|start|create)([\s;&|)'"<>]|$)|\bpodman\s+run\b`)
 
 // maxRunDepth bounds how many command strings deep runsContainer reads: a
-// shell's -c string, eval's arguments, a heredoc a shell reads, a substitution.
+// shell's -c string, eval's arguments, a heredoc a shell reads, a $(…).
 const maxRunDepth = 4
 
 // shells run the command string a -c option cluster hands them.
@@ -598,9 +598,12 @@ var shells = map[string]bool{
 // It reads each simple command's own words. A word holding whitespace is one
 // quoted argument, which bash hands the program as text, so a container verb
 // inside it starts nothing: the exceptions are the text bash itself runs, a
-// shell's -c string, eval's arguments, a shell's heredoc and the $(…) or
-// backtick text in a word. ssh runs its command on another host, whose
-// containers are that host's to account for.
+// shell's -c string, eval's arguments, a shell's heredoc and the $(…) text in
+// a word. A backtick inside such a word is read as text, because the lexer
+// removes the quoting that says whether bash runs it, and backticked commands
+// in a quoted message or body are the commonest text that names a container
+// start. ssh runs its command on another host, whose containers are that
+// host's to account for.
 func runsContainer(command string, depth int) bool {
 	if depth == 0 {
 		return false
@@ -660,36 +663,29 @@ func commandRunsContainer(c *shellsplit.Command, depth int) bool {
 	return startsContainer.MatchString(strings.Join(tokens, " "))
 }
 
-// substitutions returns the text inside each $(…) and `…` in w, outermost
-// only: what they nest is read when that text is.
+// substitutions returns the text inside each $(…) in w, outermost only: what
+// they nest is read when that text is.
 func substitutions(w string) []string {
 	var out []string
 	for i := 0; i < len(w); i++ {
-		switch {
-		case w[i] == '`':
-			j := strings.IndexByte(w[i+1:], '`')
-			if j < 0 {
-				return append(out, w[i+1:])
-			}
-			out = append(out, w[i+1:i+1+j])
-			i += j + 1
-		case strings.HasPrefix(w[i:], "$("):
-			open, j := 1, i+2
-			for ; j < len(w) && open > 0; j++ {
-				switch w[j] {
-				case '(':
-					open++
-				case ')':
-					open--
-				}
-			}
-			end := j
-			if open == 0 {
-				end--
-			}
-			out = append(out, w[i+2:end])
-			i = j - 1
+		if !strings.HasPrefix(w[i:], "$(") {
+			continue
 		}
+		open, j := 1, i+2
+		for ; j < len(w) && open > 0; j++ {
+			switch w[j] {
+			case '(':
+				open++
+			case ')':
+				open--
+			}
+		}
+		end := j
+		if open == 0 {
+			end--
+		}
+		out = append(out, w[i+2:end])
+		i = j - 1
 	}
 	return out
 }

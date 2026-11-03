@@ -108,6 +108,8 @@ MSG
 Run docker compose up -d before the suite.
 MSG
 )"`,
+		"git commit -m 'fix: `docker run` in a message'",
+		"gh pr create --draft --body \"$(cat <<'MSG'\nThe note fired on `docker run` in a quoted argument.\nMSG\n)\"",
 		// A container on another host is that host's, started on its deploy
 		// path; the note is about what this host lends.
 		`ssh preprod 'docker run --rm alpine true'`,
@@ -133,7 +135,6 @@ func TestACommandStringBashRunsStillStartsAContainer(t *testing.T) {
 		`ID=$(docker run -d alpine sleep 60)`,
 		`echo "$(docker run --rm alpine true)"`,
 		"ID=`docker create alpine`",
-		"echo \"id: `docker create alpine`\"",
 		`bash <<'EOF'
 docker run --rm alpine true
 EOF`,
