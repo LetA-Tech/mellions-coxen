@@ -585,7 +585,7 @@ var startsContainer = regexp.MustCompile(
 	`(?i)\bdocker\s+(run|create|start)\b|\b(docker\s+compose|docker-compose|podman-compose)\b[^;&|\n]*?\s(up|run|start|create)([\s;&|)'"<>]|$)|\bpodman\s+run\b`)
 
 // maxRunDepth bounds how many command strings deep runsContainer reads: a
-// shell's -c string, eval's arguments, a heredoc a shell reads, a $(…).
+// shell's -c string, eval's arguments, what a shell reads on stdin, a $(…).
 const maxRunDepth = 4
 
 // shells run the command string a -c option cluster hands them.
@@ -597,13 +597,11 @@ var shells = map[string]bool{
 //
 // It reads each simple command's own words. A word holding whitespace is one
 // quoted argument, which bash hands the program as text, so a container verb
-// inside it starts nothing: the exceptions are the text bash itself runs, a
-// shell's -c string, eval's arguments, a shell's heredoc and the $(…) text in
-// a word. A backtick inside such a word is read as text, because the lexer
-// removes the quoting that says whether bash runs it, and backticked commands
-// in a quoted message or body are the commonest text that names a container
-// start. ssh runs its command on another host, whose containers are that
-// host's to account for.
+// inside it starts nothing. What bash runs is read as commands in turn: a
+// shell's -c string, eval's arguments, what a shell reads on stdin from a
+// heredoc or here-string, and the live $(…) substitutions the lexer returns.
+// ssh runs its own command on another host, whose containers are that host's
+// to account for; only what bash expands here before ssh starts is read.
 func runsContainer(command string, depth int) bool {
 	if depth == 0 {
 		return false
@@ -619,6 +617,14 @@ func runsContainer(command string, depth int) bool {
 }
 
 func commandRunsContainer(c *shellsplit.Command, depth int) bool {
+	if depth == 0 {
+		return false
+	}
+	for _, inner := range c.Runs {
+		if commandRunsContainer(inner, depth-1) {
+			return true
+		}
+	}
 	args := c.Args()
 	if program := shellsplit.Program(args); len(program) > 0 {
 		switch name := path.Base(program[0]); {
@@ -627,8 +633,12 @@ func commandRunsContainer(c *shellsplit.Command, depth int) bool {
 		case name == "eval":
 			return runsContainer(strings.Join(program[1:], " "), depth-1)
 		case shells[name] && readsStdin(program[1:]):
-			for _, h := range c.Heredocs {
-				if runsContainer(h, depth-1) {
+			stdin := append([]string{}, c.Heredocs...)
+			for _, k := range c.Stdin {
+				stdin = append(stdin, c.Words[k])
+			}
+			for _, text := range stdin {
+				if runsContainer(text, depth-1) {
 					return true
 				}
 			}
@@ -649,52 +659,23 @@ func commandRunsContainer(c *shellsplit.Command, depth int) bool {
 			script = true
 		}
 		shell = shell || shells[path.Base(strings.TrimLeft(w, "("))]
-		if !strings.ContainsAny(w, " \t\n") {
-			tokens = append(tokens, w)
-			continue
+		if strings.ContainsAny(w, " \t\n") {
+			w = "''"
 		}
-		for _, inner := range substitutions(w) {
-			if runsContainer(inner, depth-1) {
-				return true
-			}
-		}
-		tokens = append(tokens, "''")
+		tokens = append(tokens, w)
 	}
 	return startsContainer.MatchString(strings.Join(tokens, " "))
 }
 
-// substitutions returns the text inside each $(…) in w, outermost only: what
-// they nest is read when that text is.
-func substitutions(w string) []string {
-	var out []string
-	for i := 0; i < len(w); i++ {
-		if !strings.HasPrefix(w[i:], "$(") {
-			continue
-		}
-		open, j := 1, i+2
-		for ; j < len(w) && open > 0; j++ {
-			switch w[j] {
-			case '(':
-				open++
-			case ')':
-				open--
-			}
-		}
-		end := j
-		if open == 0 {
-			end--
-		}
-		out = append(out, w[i+2:end])
-		i = j - 1
-	}
-	return out
-}
-
-// readsStdin reports a shell given no script and no -c string, which runs the
-// script on its standard input.
+// readsStdin reports a shell that runs the script on its standard input: one
+// given -s, or given no script and no -c string.
 func readsStdin(args []string) bool {
 	for _, a := range args {
-		if !strings.HasPrefix(a, "-") || (!strings.HasPrefix(a, "--") && strings.Contains(a, "c")) {
+		switch {
+		case strings.HasPrefix(a, "--"):
+		case strings.HasPrefix(a, "-") && strings.Contains(a, "s"):
+			return !strings.Contains(a, "c")
+		case strings.HasPrefix(a, "-") && strings.Contains(a, "c"), !strings.HasPrefix(a, "-"):
 			return false
 		}
 	}

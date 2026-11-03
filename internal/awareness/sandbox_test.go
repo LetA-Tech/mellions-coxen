@@ -110,6 +110,9 @@ MSG
 )"`,
 		"git commit -m 'fix: `docker run` in a message'",
 		"gh pr create --draft --body \"$(cat <<'MSG'\nThe note fired on `docker run` in a quoted argument.\nMSG\n)\"",
+		"gh pr create --body \"$(cat <<'MSG'\nID=$(docker run -d x)\nMSG\n)\"",
+		`gh issue comment 1 --body 'use $(docker run --rm alpine true)'`,
+		`git commit -m "use \$(docker run -d x) to capture"`,
 		// A container on another host is that host's, started on its deploy
 		// path; the note is about what this host lends.
 		`ssh preprod 'docker run --rm alpine true'`,
@@ -138,6 +141,10 @@ func TestACommandStringBashRunsStillStartsAContainer(t *testing.T) {
 		`bash <<'EOF'
 docker run --rm alpine true
 EOF`,
+		`grep x <<< "$(docker run --rm alpine true)"`,
+		`bash <<< 'docker run --rm alpine true'`,
+		"bash -s -- x <<'EOF'\ndocker run --rm alpine true\nEOF",
+		`ssh preprod "echo $(docker run --rm alpine true)"`,
 		`/usr/bin/docker run --rm alpine true`,
 		`"docker" run --rm alpine true`,
 	} {
