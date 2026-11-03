@@ -78,6 +78,7 @@ func TestAHashInsideAWordBashReadsWholeIsText(t *testing.T) {
 		"echo ${x:-${y:- #}} ; ",
 		"[[ \"#a\" =~ x|#a ]] ; ",
 		"[[ x =~ ( #a) ]] ; ",
+		"[[ \"]]\" =~ ( #a) ]] ; ",
 		"(( 1 == $((1)) #)); ",
 		"true\r# ; ",
 	} {

@@ -114,13 +114,13 @@ func lex(command string, i int, stopAtParen bool) ([]*Command, int) {
 		s := w.String()
 		w.Reset()
 		hasWord = false
-		quoted = false
-		switch s {
-		case "[[":
+		switch {
+		case s == "[[":
 			cond = true
-		case "]]":
+		case s == "]]" && !quoted:
 			cond = false
 		}
+		quoted = false
 		// A target that runs a command stays a word for the guards that read
 		// what runs, and out of Args, since bash passes it to nothing.
 		target := runs || strings.Contains(s, "`")
