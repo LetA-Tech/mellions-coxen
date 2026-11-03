@@ -267,69 +267,70 @@ func Publishing(command, cwd string) []Call {
 }
 
 func calls(command, cwd string, accept func(noun, verb string) bool) []Call {
-	cmds := shellsplit.Split(command)
+	return shellsplit.Each(command, func(cmds []*shellsplit.Command) []Call {
 
-	written := map[string]string{}
-	for _, c := range cmds {
-		if c.Out != "" && len(c.Heredocs) > 0 {
-			written[c.Out] = strings.Join(c.Heredocs, "")
-		}
-	}
-
-	var out []Call
-	dir := cwd
-	for _, c := range cmds {
-		if moved, ok := chdir(c.Args(), cwd, dir); ok {
-			dir = moved
-			continue
-		}
-		var verb string
-		args, ok := ghcmd.Args(c.Args(), func(noun, v string) bool {
-			// gh pr new and gh issue new are gh's own aliases of create.
-			if v == "new" && (noun == "pr" || noun == "issue") {
-				v = "create"
+		written := map[string]string{}
+		for _, c := range cmds {
+			if c.Out != "" && len(c.Heredocs) > 0 {
+				written[c.Out] = strings.Join(c.Heredocs, "")
 			}
-			verb = v
-			return accept(noun, v)
-		})
-		if !ok {
-			continue
 		}
-		call := Call{Verb: verb, Dir: dir}
-		for i := 0; i < len(args); i++ {
-			name, glued, hasGlued := ghcmd.SplitFlag(args[i])
-			var v string
-			switch name {
-			case "--body", "-b", "--body-file", "-F", "--base", "-B", "--repo", "-R", "--title", "-t", "--subject":
-				if hasGlued {
-					v = glued
-				} else if i+1 < len(args) {
-					i++
-					v = args[i]
-				}
-			default:
+
+		var out []Call
+		dir := cwd
+		for _, c := range cmds {
+			if moved, ok := chdir(c.Args(), cwd, dir); ok {
+				dir = moved
 				continue
 			}
-			switch name {
-			case "--body", "-b":
-				call.Bodies = append(call.Bodies, v)
-			case "--body-file", "-F":
-				call.Bodies = append(call.Bodies, bodyFile(v, c, written, dir))
-			case "--title", "-t", "--subject":
-				call.Titles = append(call.Titles, v)
-			case "--base", "-B":
-				if call.Base == "" {
-					call.Base = v
+			var verb string
+			args, ok := ghcmd.Args(c.Args(), func(noun, v string) bool {
+				// gh pr new and gh issue new are gh's own aliases of create.
+				if v == "new" && (noun == "pr" || noun == "issue") {
+					v = "create"
 				}
-			case "--repo", "-R":
-				if call.Repo == "" {
-					call.Repo = v
+				verb = v
+				return accept(noun, v)
+			})
+			if !ok {
+				continue
+			}
+			call := Call{Verb: verb, Dir: dir}
+			for i := 0; i < len(args); i++ {
+				name, glued, hasGlued := ghcmd.SplitFlag(args[i])
+				var v string
+				switch name {
+				case "--body", "-b", "--body-file", "-F", "--base", "-B", "--repo", "-R", "--title", "-t", "--subject":
+					if hasGlued {
+						v = glued
+					} else if i+1 < len(args) {
+						i++
+						v = args[i]
+					}
+				default:
+					continue
+				}
+				switch name {
+				case "--body", "-b":
+					call.Bodies = append(call.Bodies, v)
+				case "--body-file", "-F":
+					call.Bodies = append(call.Bodies, bodyFile(v, c, written, dir))
+				case "--title", "-t", "--subject":
+					call.Titles = append(call.Titles, v)
+				case "--base", "-B":
+					if call.Base == "" {
+						call.Base = v
+					}
+				case "--repo", "-R":
+					if call.Repo == "" {
+						call.Repo = v
+					}
 				}
 			}
+			out = append(out, call)
 		}
-		out = append(out, call)
-	}
-	return out
+		return out
+	})
 }
 
 // Chdir is chdir for a guard that reads another gh verb in the same command:

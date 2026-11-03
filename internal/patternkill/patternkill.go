@@ -30,33 +30,34 @@ import (
 // `trap`), a loop over pgrep's output, a pid list in a variable and a lookup
 // more than one pipeline stage before xargs are not seen.
 func Find(command string) string {
-	cmds := shellsplit.Split(command)
-	for i, c := range cmds {
-		words := shellsplit.Program(c.Args())
-		if len(words) == 0 {
-			continue
+	return shellsplit.First(command, func(cmds []*shellsplit.Command) string {
+		for i, c := range cmds {
+			words := shellsplit.Program(c.Args())
+			if len(words) == 0 {
+				continue
+			}
+			args := uncommented(words[1:])
+			switch filepath.Base(words[0]) {
+			case "pkill":
+				if !inert(args) && !pidScoped(args) {
+					return show(words)
+				}
+			case "killall":
+				if !inert(args) {
+					return show(words)
+				}
+			case "kill":
+				if fedByName(args) || everyProcess(args) {
+					return show(words)
+				}
+			case "xargs":
+				if i > 0 && runsKill(args) && lookup(shellsplit.Program(cmds[i-1].Args())) {
+					return show(shellsplit.Program(cmds[i-1].Args())) + " | " + show(words)
+				}
+			}
 		}
-		args := uncommented(words[1:])
-		switch filepath.Base(words[0]) {
-		case "pkill":
-			if !inert(args) && !pidScoped(args) {
-				return show(words)
-			}
-		case "killall":
-			if !inert(args) {
-				return show(words)
-			}
-		case "kill":
-			if fedByName(args) || everyProcess(args) {
-				return show(words)
-			}
-		case "xargs":
-			if i > 0 && runsKill(args) && lookup(shellsplit.Program(cmds[i-1].Args())) {
-				return show(shellsplit.Program(cmds[i-1].Args())) + " | " + show(words)
-			}
-		}
-	}
-	return ""
+		return ""
+	})
 }
 
 // Reason is what the session is told when Find names a command.
@@ -210,9 +211,11 @@ func lookupIn(word string) bool {
 		return false
 	}
 	inner := strings.TrimRight(word[i+2:], ")\"'")
-	for _, c := range shellsplit.Split(inner) {
-		if lookup(shellsplit.Program(c.Args())) {
-			return true
+	for _, cmds := range shellsplit.Readings(inner) {
+		for _, c := range cmds {
+			if lookup(shellsplit.Program(c.Args())) {
+				return true
+			}
 		}
 	}
 	return false
@@ -316,9 +319,11 @@ func fedByName(args []string) bool {
 		default:
 			continue
 		}
-		for _, c := range shellsplit.Split(inner) {
-			if lookup(shellsplit.Program(c.Args())) {
-				return true
+		for _, cmds := range shellsplit.Readings(inner) {
+			for _, c := range cmds {
+				if lookup(shellsplit.Program(c.Args())) {
+					return true
+				}
 			}
 		}
 	}

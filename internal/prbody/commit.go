@@ -19,90 +19,91 @@ import (
 // message once that commit reaches the default branch, by a push there or by
 // the promotion that carries a working branch into it.
 func CommitMessages(command, cwd string) []string {
-	cmds := shellsplit.Split(command)
+	return shellsplit.Each(command, func(cmds []*shellsplit.Command) []string {
 
-	written := map[string]string{}
-	for _, c := range cmds {
-		if c.Out != "" && len(c.Heredocs) > 0 {
-			written[c.Out] = strings.Join(c.Heredocs, "")
-		}
-	}
-
-	var out []string
-	dir := cwd
-	for _, c := range cmds {
-		if moved, ok := chdir(c.Args(), cwd, dir); ok {
-			dir = moved
-			continue
-		}
-		words := shellsplit.Program(c.Args())
-		if len(words) < 2 || filepath.Base(words[0]) != "git" {
-			continue
-		}
-		at, args := gitGlobals(words[1:], dir)
-		if len(args) == 0 || (args[0] != "commit" && args[0] != "merge") {
-			continue
-		}
-		args = args[1:]
-		for i := 0; i < len(args); i++ {
-			a := args[i]
-			if a == "--" {
-				break
+		written := map[string]string{}
+		for _, c := range cmds {
+			if c.Out != "" && len(c.Heredocs) > 0 {
+				written[c.Out] = strings.Join(c.Heredocs, "")
 			}
-			if strings.HasPrefix(a, "--") {
-				name, v, glued := strings.Cut(a, "=")
-				switch name {
-				case "--message", "--trailer", "--file":
-				default:
-					continue
+		}
+
+		var out []string
+		dir := cwd
+		for _, c := range cmds {
+			if moved, ok := chdir(c.Args(), cwd, dir); ok {
+				dir = moved
+				continue
+			}
+			words := shellsplit.Program(c.Args())
+			if len(words) < 2 || filepath.Base(words[0]) != "git" {
+				continue
+			}
+			at, args := gitGlobals(words[1:], dir)
+			if len(args) == 0 || (args[0] != "commit" && args[0] != "merge") {
+				continue
+			}
+			args = args[1:]
+			for i := 0; i < len(args); i++ {
+				a := args[i]
+				if a == "--" {
+					break
 				}
-				if !glued {
-					if i+1 >= len(args) {
+				if strings.HasPrefix(a, "--") {
+					name, v, glued := strings.Cut(a, "=")
+					switch name {
+					case "--message", "--trailer", "--file":
+					default:
 						continue
 					}
-					i++
-					v = args[i]
-				}
-				switch name {
-				case "--message":
-					out = append(out, messageText(v))
-				case "--trailer":
-					// git writes a trailer given as Key=value as "Key: value".
-					if k, rest, ok := strings.Cut(v, "="); ok && !strings.Contains(k, ":") {
-						v = k + ": " + rest
+					if !glued {
+						if i+1 >= len(args) {
+							continue
+						}
+						i++
+						v = args[i]
 					}
-					out = append(out, messageText(v))
-				default:
-					out = append(out, bodyFile(v, c, written, at))
-				}
-				continue
-			}
-			if len(a) < 2 || a[0] != '-' {
-				continue
-			}
-			// A short-option cluster such as -am: the first option that takes
-			// a value takes the rest of the cluster, or the next word.
-			for j := 1; j < len(a); j++ {
-				opt := a[j]
-				if !strings.ContainsRune("mFcCtSu", rune(opt)) {
+					switch name {
+					case "--message":
+						out = append(out, messageText(v))
+					case "--trailer":
+						// git writes a trailer given as Key=value as "Key: value".
+						if k, rest, ok := strings.Cut(v, "="); ok && !strings.Contains(k, ":") {
+							v = k + ": " + rest
+						}
+						out = append(out, messageText(v))
+					default:
+						out = append(out, bodyFile(v, c, written, at))
+					}
 					continue
 				}
-				v := a[j+1:]
-				if v == "" && opt != 'S' && opt != 'u' && i+1 < len(args) {
-					i++
-					v = args[i]
+				if len(a) < 2 || a[0] != '-' {
+					continue
 				}
-				switch opt {
-				case 'm':
-					out = append(out, messageText(v))
-				case 'F':
-					out = append(out, bodyFile(v, c, written, at))
+				// A short-option cluster such as -am: the first option that takes
+				// a value takes the rest of the cluster, or the next word.
+				for j := 1; j < len(a); j++ {
+					opt := a[j]
+					if !strings.ContainsRune("mFcCtSu", rune(opt)) {
+						continue
+					}
+					v := a[j+1:]
+					if v == "" && opt != 'S' && opt != 'u' && i+1 < len(args) {
+						i++
+						v = args[i]
+					}
+					switch opt {
+					case 'm':
+						out = append(out, messageText(v))
+					case 'F':
+						out = append(out, bodyFile(v, c, written, at))
+					}
+					break
 				}
-				break
 			}
 		}
-	}
-	return out
+		return out
+	})
 }
 
 // messageText returns the part of a message argument this can read as text:

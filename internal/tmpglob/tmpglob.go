@@ -45,35 +45,37 @@ func tmpdirVar(s string) bool {
 // a glob in a loop list, `find -delete`, `xargs rm` and a command inside a
 // string (`bash -c`, `trap`, `$( )`) are not seen.
 func Find(command, cwd string) string {
-	dir := cwd
-	for _, c := range shellsplit.Split(command) {
-		words := shellsplit.Program(c.Args())
-		if len(words) == 0 {
-			continue
-		}
-		if (words[0] == "cd" || words[0] == "pushd") && len(words) > 1 {
-			if filepath.IsAbs(words[1]) {
-				dir = filepath.Clean(words[1])
-			} else if tmpdirVar(words[1]) {
-				dir = words[1]
-			} else if dir != "" && !strings.HasPrefix(words[1], "-") &&
-				!strings.HasPrefix(words[1], "$") && !strings.HasPrefix(words[1], "~") {
-				dir = filepath.Join(dir, words[1])
-			} else {
-				dir = ""
+	return shellsplit.First(command, func(cmds []*shellsplit.Command) string {
+		dir := cwd
+		for _, c := range cmds {
+			words := shellsplit.Program(c.Args())
+			if len(words) == 0 {
+				continue
 			}
-			continue
-		}
-		if filepath.Base(words[0]) != "rm" {
-			continue
-		}
-		for _, op := range operands(words[1:]) {
-			if globsRoot(op, dir) {
-				return op
+			if (words[0] == "cd" || words[0] == "pushd") && len(words) > 1 {
+				if filepath.IsAbs(words[1]) {
+					dir = filepath.Clean(words[1])
+				} else if tmpdirVar(words[1]) {
+					dir = words[1]
+				} else if dir != "" && !strings.HasPrefix(words[1], "-") &&
+					!strings.HasPrefix(words[1], "$") && !strings.HasPrefix(words[1], "~") {
+					dir = filepath.Join(dir, words[1])
+				} else {
+					dir = ""
+				}
+				continue
+			}
+			if filepath.Base(words[0]) != "rm" {
+				continue
+			}
+			for _, op := range operands(words[1:]) {
+				if globsRoot(op, dir) {
+					return op
+				}
 			}
 		}
-	}
-	return ""
+		return ""
+	})
 }
 
 // Reason is what the session is told when Find names an operand.

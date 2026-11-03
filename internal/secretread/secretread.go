@@ -374,97 +374,99 @@ func ScanPath(p string) []Finding {
 // them from the words — so writing a document that discusses a credential file
 // by name is silent, which is what makes the guard survivable.
 func ScanBash(command string) []Finding {
-	var out []Finding
-	// A variable that holds a credential's VALUE, read by a substitution. Using
-	// it is the idiom; printing it is the leak.
-	holdsValue := map[string]bool{}
-	// A variable that holds a credential's PATH, assigned literally. It carries
-	// the path default rather than the value default: `F=.db_connection; cat
-	// "$F"` opens the file exactly as `cat .db_connection` does.
-	holdsPath := map[string]bool{}
+	return shellsplit.Each(command, func(cmds []*shellsplit.Command) []Finding {
+		var out []Finding
+		// A variable that holds a credential's VALUE, read by a substitution. Using
+		// it is the idiom; printing it is the leak.
+		holdsValue := map[string]bool{}
+		// A variable that holds a credential's PATH, assigned literally. It carries
+		// the path default rather than the value default: `F=.db_connection; cat
+		// "$F"` opens the file exactly as `cat .db_connection` does.
+		holdsPath := map[string]bool{}
 
-	for _, c := range shellsplit.Split(command) {
-		words, argc := commandFirst(c)
-		if len(words) == 0 {
-			continue
-		}
+		for _, c := range cmds {
+			words, argc := commandFirst(c)
+			if len(words) == 0 {
+				continue
+			}
 
-		// Leading NAME=value assignments. One whose value reads a credential is
-		// the safe capture form; remember the name so a later print of it in the
-		// same command line is still caught.
-		i := 0
-		for ; i < len(words); i++ {
-			if !assignment.MatchString(words[i]) {
+			// Leading NAME=value assignments. One whose value reads a credential is
+			// the safe capture form; remember the name so a later print of it in the
+			// same command line is still caught.
+			i := 0
+			for ; i < len(words); i++ {
+				if !assignment.MatchString(words[i]) {
+					break
+				}
+				name, value, _ := strings.Cut(words[i], "=")
+				switch {
+				case containsSecretRead(value):
+					holdsValue[name] = true
+				case IsSecretPath(value):
+					holdsPath[name] = true
+				}
+			}
+
+			// Everything from here is an ordinary command. Wrappers do not change
+			// what it does with its arguments.
+			for i < len(words) {
+				w := path.Base(words[i])
+				if wrappers[w] {
+					i++
+					continue
+				}
+				if n, ok := prefixOperands(w, words[i:]); ok {
+					i += n
+					continue
+				}
 				break
 			}
-			name, value, _ := strings.Cut(words[i], "=")
-			switch {
-			case containsSecretRead(value):
-				holdsValue[name] = true
-			case IsSecretPath(value):
-				holdsPath[name] = true
-			}
-		}
-
-		// Everything from here is an ordinary command. Wrappers do not change
-		// what it does with its arguments.
-		for i < len(words) {
-			w := path.Base(words[i])
-			if wrappers[w] {
-				i++
+			if i >= len(words) {
 				continue
 			}
-			if n, ok := prefixOperands(w, words[i:]); ok {
-				i += n
+			reader := path.Base(words[i])
+			args := words[i+1:]
+
+			if consumers[reader] {
 				continue
 			}
-			break
-		}
-		if i >= len(words) {
-			continue
-		}
-		reader := path.Base(words[i])
-		args := words[i+1:]
 
-		if consumers[reader] {
-			continue
-		}
-
-		// A variable holding a credential, printed back out. The capture was
-		// safe; handing it to a printer is the same leak one step later.
-		consumed := consumedFlags[reader]
-		for ai, a := range args {
-			for name := range holdsValue {
-				if printers[reader] && names(a, name) {
-					out = append(out, Finding{Path: "$" + name, Reader: reader, Value: true})
-				}
-			}
-			for name := range holdsPath {
-				if !safeReaders[reader] && names(a, name) {
-					out = append(out, Finding{Path: "$" + name, Reader: reader, Held: true})
-				}
-			}
-			// An option operand the reader consumes rather than prints. A stdin
-			// operand is never one, wherever it was written.
-			if ai > 0 && consumed[args[ai-1]] && i+1+ai < argc {
-				continue
-			}
-			if found := secretsInWord(a); len(found) > 0 {
-				// A path, however it is spelled: the command opens the file
-				// itself. Only the enumerated non-emitters are exonerated.
-				if !safeReaders[reader] {
-					for _, f := range found {
-						out = append(out, Finding{Path: f, Reader: reader})
+			// A variable holding a credential, printed back out. The capture was
+			// safe; handing it to a printer is the same leak one step later.
+			consumed := consumedFlags[reader]
+			for ai, a := range args {
+				for name := range holdsValue {
+					if printers[reader] && names(a, name) {
+						out = append(out, Finding{Path: "$" + name, Reader: reader, Value: true})
 					}
 				}
-				continue
-			}
-			if containsSecretRead(a) && printers[reader] {
-				out = append(out, Finding{Path: secretInside(a), Reader: reader, Substituted: true})
+				for name := range holdsPath {
+					if !safeReaders[reader] && names(a, name) {
+						out = append(out, Finding{Path: "$" + name, Reader: reader, Held: true})
+					}
+				}
+				// An option operand the reader consumes rather than prints. A stdin
+				// operand is never one, wherever it was written.
+				if ai > 0 && consumed[args[ai-1]] && i+1+ai < argc {
+					continue
+				}
+				if found := secretsInWord(a); len(found) > 0 {
+					// A path, however it is spelled: the command opens the file
+					// itself. Only the enumerated non-emitters are exonerated.
+					if !safeReaders[reader] {
+						for _, f := range found {
+							out = append(out, Finding{Path: f, Reader: reader})
+						}
+					}
+					continue
+				}
+				if containsSecretRead(a) && printers[reader] {
+					out = append(out, Finding{Path: secretInside(a), Reader: reader, Substituted: true})
+				}
 			}
 		}
-	}
-	return dedupe(out)
+		return dedupe(out)
+	})
 }
 
 // commandFirst returns a command's words with its stdin operands moved after

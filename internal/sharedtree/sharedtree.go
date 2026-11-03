@@ -263,47 +263,49 @@ type Write struct {
 // The command line is walked left to right because a `cd` decides where every
 // later invocation runs; neither token alone identifies the target tree.
 func Find(command, cwd string, e Estate) *Write {
-	dir := abs(cwd, cwd, e.Home)
-	for _, c := range shellsplit.Split(command) {
-		words := unwrap(c.Args())
-		if len(words) == 0 {
-			continue
-		}
-		switch words[0] {
-		case "cd", "pushd":
-			if len(words) > 1 && !strings.HasPrefix(words[1], "-") {
-				dir = abs(words[1], dir, e.Home)
-			}
-			continue
-		case "git":
-		default:
-			continue
-		}
-		at, args := target(words[1:], dir, e.Home)
-		verb, rest := subcommand(args)
-		if verb == "" {
-			continue
-		}
-		instead, ok := writes(verb, rest)
-		if !ok {
-			continue
-		}
-		repo, checkout, ok := shared(at, e)
-		if !ok {
-			continue
-		}
-		if fastForwardUpdate(verb, rest) {
-			if !dirtyTree(at, e) {
+	return shellsplit.First(command, func(cmds []*shellsplit.Command) *Write {
+		dir := abs(cwd, cwd, e.Home)
+		for _, c := range cmds {
+			words := unwrap(c.Args())
+			if len(words) == 0 {
 				continue
 			}
-			// A fast-forward update, declined for one reason only, so the
-			// refusal says that reason rather than the generic one.
-			return &Write{Verb: verb, Dir: at, Repo: repo, Checkout: checkout,
-				Instead: instead, Deploy: true}
+			switch words[0] {
+			case "cd", "pushd":
+				if len(words) > 1 && !strings.HasPrefix(words[1], "-") {
+					dir = abs(words[1], dir, e.Home)
+				}
+				continue
+			case "git":
+			default:
+				continue
+			}
+			at, args := target(words[1:], dir, e.Home)
+			verb, rest := subcommand(args)
+			if verb == "" {
+				continue
+			}
+			instead, ok := writes(verb, rest)
+			if !ok {
+				continue
+			}
+			repo, checkout, ok := shared(at, e)
+			if !ok {
+				continue
+			}
+			if fastForwardUpdate(verb, rest) {
+				if !dirtyTree(at, e) {
+					continue
+				}
+				// A fast-forward update, declined for one reason only, so the
+				// refusal says that reason rather than the generic one.
+				return &Write{Verb: verb, Dir: at, Repo: repo, Checkout: checkout,
+					Instead: instead, Deploy: true}
+			}
+			return &Write{Verb: verb, Dir: at, Repo: repo, Checkout: checkout, Instead: instead}
 		}
-		return &Write{Verb: verb, Dir: at, Repo: repo, Checkout: checkout, Instead: instead}
-	}
-	return nil
+		return nil
+	})
 }
 
 // Reason is what the session is told, and it has to answer three things at
@@ -609,29 +611,31 @@ func Reach(command, cwd string, e Estate) *Checkout {
 		// Standing in it is a different fact, and something else says it.
 		return nil
 	}
-	dir := here
-	for _, c := range shellsplit.Split(command) {
-		words := unwrap(c.Args())
-		if len(words) == 0 {
-			continue
-		}
-		at := dir
-		switch words[0] {
-		case "cd", "pushd":
-			if len(words) > 1 && !strings.HasPrefix(words[1], "-") {
-				dir = abs(words[1], dir, e.Home)
-				at = dir
+	return shellsplit.First(command, func(cmds []*shellsplit.Command) *Checkout {
+		dir := here
+		for _, c := range cmds {
+			words := unwrap(c.Args())
+			if len(words) == 0 {
+				continue
 			}
-		case "git":
-			at, _ = target(words[1:], dir, e.Home)
-		default:
-			continue
+			at := dir
+			switch words[0] {
+			case "cd", "pushd":
+				if len(words) > 1 && !strings.HasPrefix(words[1], "-") {
+					dir = abs(words[1], dir, e.Home)
+					at = dir
+				}
+			case "git":
+				at, _ = target(words[1:], dir, e.Home)
+			default:
+				continue
+			}
+			if repo, root, ok := shared(at, e); ok {
+				return &Checkout{Repo: repo, Dir: root}
+			}
 		}
-		if repo, root, ok := shared(at, e); ok {
-			return &Checkout{Repo: repo, Dir: root}
-		}
-	}
-	return nil
+		return nil
+	})
 }
 
 // fastForwardUpdate reports the one write this package allows into a shared
