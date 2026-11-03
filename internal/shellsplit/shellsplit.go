@@ -65,9 +65,9 @@ type pending struct {
 //
 // It is a lexer and not a shell: it resolves quoting, drops comments, splits
 // at the operators that separate one command from the next, and reads heredoc
-// bodies as the data they are rather than as more command line. Nothing is expanded, so a
-// body reaching gh through a variable is not seen — what is seen is what the
-// command line itself carries.
+// bodies as the data they are rather than as more command line. Nothing is
+// expanded, so a body reaching gh through a variable is not seen — what is
+// seen is what the command line itself carries.
 func Split(command string) []*Command {
 	cmds, _ := lex(command, 0, false, true)
 	return cmds
@@ -137,7 +137,7 @@ func lex(command string, i int, stopAtParen, comments bool) ([]*Command, int) {
 		w.Reset()
 		hasWord = false
 		switch {
-		case s == "[[":
+		case s == "[[" && !quoted:
 			cond = true
 		case s == "]]" && !quoted && condParen == 0:
 			cond = false

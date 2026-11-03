@@ -32,6 +32,8 @@ func TestACommentIsNoSyntax(t *testing.T) {
 		{"echo ` #x`; git reset --hard", [][]string{{"echo", "`", "#x`"}, {"git", "reset", "--hard"}}},
 		{"(( 1 # 1 )); git reset --hard", [][]string{{"((", "1", "#", "1", "))"}, {"git", "reset", "--hard"}}},
 		{"((x)) # ; git reset --hard", [][]string{{"((x))"}}},
+		// A quoted [[ opens no conditional, so the comment after it is one.
+		{"echo '[[' # it's\ngh pr merge 7", [][]string{{"echo", "[["}, {"gh", "pr", "merge", "7"}}},
 	}
 	for _, c := range cases {
 		var got [][]string
