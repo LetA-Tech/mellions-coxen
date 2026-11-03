@@ -22,7 +22,7 @@ import (
 // skipped and the program is matched on its base name, so
 // `GH_TOKEN=… /usr/bin/gh pr create` is the same command as `gh pr create`.
 func Args(words []string, accept func(noun, verb string) bool) ([]string, bool) {
-	for len(words) > 0 && isAssignment(words[0]) {
+	for len(words) > 0 && IsAssignment(words[0]) {
 		words = words[1:]
 	}
 	if len(words) < 3 || filepath.Base(words[0]) != "gh" {
@@ -34,7 +34,9 @@ func Args(words []string, accept func(noun, verb string) bool) ([]string, bool) 
 	return words[3:], true
 }
 
-func isAssignment(w string) bool {
+// IsAssignment reports whether a word is a leading NAME=value environment
+// assignment, which the shell applies to the command after it.
+func IsAssignment(w string) bool {
 	i := strings.IndexByte(w, '=')
 	if i <= 0 {
 		return false

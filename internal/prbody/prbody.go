@@ -4,8 +4,8 @@
 
 // Package prbody decides whether a Bash tool call opens, edits or merges a pull
 // request whose body, title or merge commit message declares that it closes an
-// issue, and whether GitHub would resolve that declaration on the base the
-// command names.
+// issue, or writes a git commit message that does, and whether GitHub would
+// resolve that declaration on the base the command names.
 //
 // GitHub resolves a closing keyword in a body only when the pull request merges
 // into the repository's default branch. On any other base the body's keyword
@@ -93,6 +93,9 @@ func Deny(payload []byte, defaultBranch func(cwd, repo string) string) string {
 	}
 	if json.Unmarshal(payload, &ev) != nil || ev.ToolName != "Bash" {
 		return ""
+	}
+	if reason := denyCommitMessage(CommitMessages(ev.Input.Command, ev.Cwd)); reason != "" {
+		return reason
 	}
 	for _, call := range Calls(ev.Input.Command, ev.Cwd) {
 		if call.Verb == "merge" {
