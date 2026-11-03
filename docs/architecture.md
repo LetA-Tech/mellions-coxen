@@ -121,7 +121,7 @@ internal/awareness          what to tell a session, once
 internal/provenance         DISCOVERED / DECLARED / INFERRED / UNKNOWN documents
 internal/program, partner   discovery and rendering
 internal/issuegate          citation resolution behind the stale-premise scan
-internal/prbody             what a gh pr command hands GitHub as a body, and whether it closes
+internal/prbody             what a gh pr or git commit command hands GitHub, and whether it closes
 internal/cite               locally resolvable code-citation validation
 internal/secretread         credential-read command/path classification
 internal/sharedtree         shared-checkout mutation classification

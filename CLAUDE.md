@@ -40,7 +40,7 @@ internal/provenance     DISCOVERED/DECLARED/INFERRED/UNKNOWN documents
 internal/program        discovery of what the work is for
 internal/partner        discovery of who the engineer works with
 internal/issuegate      citation resolution (stale-premise scan)
-internal/prbody         what a gh pr command hands GitHub as a body, and whether it closes
+internal/prbody         what a gh pr or git commit command hands GitHub, and whether it closes
 scripts/shift.sh        one unattended shift; deploy/ its settings and schedule
 ```
 
