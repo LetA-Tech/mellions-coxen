@@ -27,8 +27,8 @@ func TestACommentIsNoSyntax(t *testing.T) {
 		{"echo a # b \\\necho c", [][]string{{"echo", "a"}, {"echo", "c"}}},
 		// A # that does not start an unquoted word is text.
 		{"echo a#b $# x# \\#y '#' \"#\" ''#z", [][]string{{"echo", "a#b", "$#", "x#", "#y", "#", "#", "#z"}}},
-		// bash reads no comment inside backticks or a (( command, so the rest of
-		// the line runs.
+		// A # inside backticks or a (( command is kept as text, so what follows
+		// it on the line is still read.
 		{"echo ` #x`; git reset --hard", [][]string{{"echo", "`", "#x`"}, {"git", "reset", "--hard"}}},
 		{"(( 1 # 1 )); git reset --hard", [][]string{{"((", "1", "#", "1", "))"}, {"git", "reset", "--hard"}}},
 		{"((x)) # ; git reset --hard", [][]string{{"((x))"}}},
@@ -65,5 +65,31 @@ func TestACommentOnAHeredocLineLeavesTheBody(t *testing.T) {
 	}
 	if got := cmds[1].Args(); !reflect.DeepEqual(got, []string{"echo", "after"}) {
 		t.Errorf("second command = %q, want echo after", got)
+	}
+}
+
+// Where bash reads one word across a blank this lexer splits at, a # after
+// that blank starts no comment, and the command after it is one bash runs.
+func TestAHashInsideAWordBashReadsWholeIsText(t *testing.T) {
+	for _, prefix := range []string{
+		"echo ${x:- #foo} ; ",
+		"echo ${x// #/y} ; ",
+		"echo ${x:-a\n#b} ; ",
+		"echo ${x:-${y:- #}} ; ",
+		"[[ \"#a\" =~ x|#a ]] ; ",
+		"[[ x =~ ( #a) ]] ; ",
+		"(( 1 == $((1)) #)); ",
+		"true\r# ; ",
+	} {
+		command := prefix + "gh pr merge 5"
+		found := false
+		for _, cmd := range Split(command) {
+			if reflect.DeepEqual(cmd.Args(), []string{"gh", "pr", "merge", "5"}) {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("Split(%q) has no gh pr merge 5, which bash runs", command)
+		}
 	}
 }
