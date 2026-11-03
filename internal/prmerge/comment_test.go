@@ -17,6 +17,7 @@ func TestAMergeIsReadPastAComment(t *testing.T) {
 		{"gh pr merge # merge it once it's green", []string{"", "#"}},
 		{"gh pr merge 7 # (then 8)", []string{"7"}},
 		{"echo done # ; gh pr merge 9", []string{"9"}},
+		{"gh pr merge 7; gh pr merge 7 # again", []string{"7", "7"}},
 	}
 	for _, c := range cases {
 		got := Calls(c.command)

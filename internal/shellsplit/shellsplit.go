@@ -551,12 +551,15 @@ func readHeredocs(s string, i int, queue []pending) int {
 }
 
 // Each runs f over every reading of command, each from the start, and returns
-// every distinct thing f found in any of them.
+// all f found in the first reading and, from each later one, what it found
+// that the first did not.
 func Each[T any](command string, f func([]*Command) []T) []T {
-	var out []T
-	for _, cmds := range Readings(command) {
+	readings := Readings(command)
+	out := f(readings[0])
+	first := len(out)
+	for _, cmds := range readings[1:] {
 		for _, v := range f(cmds) {
-			if !slices.ContainsFunc(out, func(o T) bool { return reflect.DeepEqual(o, v) }) {
+			if !slices.ContainsFunc(out[:first], func(o T) bool { return reflect.DeepEqual(o, v) }) {
 				out = append(out, v)
 			}
 		}
