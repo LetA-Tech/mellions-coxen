@@ -84,6 +84,7 @@ func TestAHashInsideAWordBashReadsWholeIsText(t *testing.T) {
 		"[[ x =~ ( ]] #a) ]] ; ",
 		"echo ${x:-`echo }` #} ; ",
 		"(( $(( (1+(2)) )) # )) ; ",
+		"echo $(( \"(\" ))\n",
 	} {
 		command := prefix + "gh pr merge 5"
 		found := false

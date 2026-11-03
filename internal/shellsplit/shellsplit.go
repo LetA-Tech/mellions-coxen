@@ -464,6 +464,13 @@ func substitution(command string, i int) (string, int) {
 		depth := 2
 		for j := i + 3; j < len(command); j++ {
 			switch command[j] {
+			case '\'', '"':
+				// A quoted parenthesis is no nesting.
+				k := strings.IndexByte(command[j+1:], command[j])
+				if k < 0 {
+					return command[i:], len(command)
+				}
+				j += k + 1
 			case '(':
 				depth++
 			case ')':
