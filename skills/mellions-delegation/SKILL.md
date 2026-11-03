@@ -26,8 +26,7 @@ completion       the condition, not the steps to reach it
 ```
 
 Specify the problem and boundary, not the reasoning. Honor owner concurrency
-limits; coordinate shared files, devices, heavy jobs and merges. The lead stays
-accountable alongside independent review and Git support.
+limits; coordinate shared files, devices, heavy jobs and merges.
 
 ## The boundary is a path, not a paragraph
 
@@ -53,7 +52,7 @@ native model names; reassign if cause or design reopens.
 
 Verify before building on it: confidence is not evidence, and
 `mellions-deep-research` is how. A diff is not a fix: ask what it ran, and what
-it saw. When a report is thin, say what is missing before building on it.
+it saw. When a report is thin, say what is missing first.
 
 A chained run (script, loop, pipeline) returns its last step's report; what
 an earlier step left behind or asked of you reaches you only if the chain passes
@@ -62,8 +61,8 @@ footprint.
 
 ## Reviewing a peer's change set
 
-A session you did not open cannot be widened, and its report reaches you as an
-artifact: a pull request. The duty is the same.
+A session you did not open reaches you as an artifact, a pull request; the duty
+is the same.
 
 **A peer's draft left ready is available work.** Evidence in the body and a
 handoff on the change set say it is waiting, not abandoned, and unattended
@@ -90,9 +89,12 @@ swept, not obeyed. Draft state separates none of these.
 comment is not what another host sees; the claim is.
 
 **One review per coordinated set, before merge.** Read the requirement before
-the diff; the body is the author's account. For a schema or credential change,
-optionally take that reading from a subagent that has not seen the diff, given
-the original claim rather than a tidied one.
+the diff, with the approvals binding it: an approved proposal on the issue or
+one it cites, and its non-goals and out-of-scope list. A change crossing one is
+not ready however sound: name the approval and leave the call to its authority
+unless a later approval superseded it. The body is the author's account. For a
+schema or credential change, optionally take that reading from a subagent that
+has not seen the diff, given the original claim rather than a tidied one.
 The base is `git merge-base <target> <head>`, not the metadata's target tip:
 a branch behind its target appears to remove newer production changes at that tip.
 
@@ -101,7 +103,7 @@ validation under `mellions-deep-research`'s input-validity rule; independently
 settle gaps and risky claims. Required gates and falsification apply to the head
 reconciled with the current target; a stale branch can pass alone and fail merged.
 The orchestrator verifies the fixes a review asked for; there is no second
-review round. Reopen completed conclusions where their inputs changed. At publishing, read the target's tip and PR state/head
+review round. At publishing, read the target's tip and PR state/head
 (`gh pr view --json state,headRefOid`; a ref read can miss a deleted head): a
 changed input requires affected checks or a verdict scoped to verified pins.
 Say if the PR is no longer open. A cited test the tree lacks is an account.
