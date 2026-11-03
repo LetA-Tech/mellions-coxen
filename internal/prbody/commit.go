@@ -6,15 +6,16 @@ package prbody
 
 import (
 	"path/filepath"
+	"regexp"
 	"strings"
 
-	"github.com/LetA-Tech/mellions-coxen/internal/ghcmd"
 	"github.com/LetA-Tech/mellions-coxen/internal/shellsplit"
 )
 
-// CommitMessages returns the message text of every `git commit` and `git merge`
-// in the command: each -m/--message and --trailer value, and each -F/--file
-// read the way bodyFile reads a body-file. GitHub resolves a closing keyword in a commit
+// CommitMessages returns the message text of every `git commit` and
+// `git merge` in the command, behind any wrapper shellsplit.Program removes:
+// each -m/--message and --trailer value, and each -F/--file read the way
+// bodyFile reads a body-file. GitHub resolves a closing keyword in a commit
 // message once that commit reaches the default branch, by a push there or by
 // the promotion that carries a working branch into it.
 func CommitMessages(command, cwd string) []string {
@@ -30,14 +31,11 @@ func CommitMessages(command, cwd string) []string {
 	var out []string
 	dir := cwd
 	for _, c := range cmds {
-		words := c.Args()
-		if moved, ok := chdir(words, cwd, dir); ok {
+		if moved, ok := chdir(c.Args(), cwd, dir); ok {
 			dir = moved
 			continue
 		}
-		for len(words) > 0 && ghcmd.IsAssignment(words[0]) {
-			words = words[1:]
-		}
+		words := shellsplit.Program(c.Args())
 		if len(words) < 2 || filepath.Base(words[0]) != "git" {
 			continue
 		}
@@ -65,9 +63,16 @@ func CommitMessages(command, cwd string) []string {
 					i++
 					v = args[i]
 				}
-				if name != "--file" {
-					out = append(out, v)
-				} else {
+				switch name {
+				case "--message":
+					out = append(out, messageText(v))
+				case "--trailer":
+					// git writes a trailer given as Key=value as "Key: value".
+					if k, rest, ok := strings.Cut(v, "="); ok && !strings.Contains(k, ":") {
+						v = k + ": " + rest
+					}
+					out = append(out, messageText(v))
+				default:
 					out = append(out, bodyFile(v, c, written, at))
 				}
 				continue
@@ -89,7 +94,7 @@ func CommitMessages(command, cwd string) []string {
 				}
 				switch opt {
 				case 'm':
-					out = append(out, v)
+					out = append(out, messageText(v))
 				case 'F':
 					out = append(out, bodyFile(v, c, written, at))
 				}
@@ -99,6 +104,34 @@ func CommitMessages(command, cwd string) []string {
 	}
 	return out
 }
+
+// messageText returns the part of a message argument this can read as text:
+// what precedes the first $( and every heredoc after it. A substitution's
+// output is not known before it runs, so its code is not read as the message;
+// a heredoc inside one is the text it prints. A backtick is read as text, since
+// the lexer does not say whether single quotes made it literal.
+func messageText(v string) string {
+	i := strings.Index(v, "$(")
+	if i < 0 {
+		return v
+	}
+	parts := []string{v[:i]}
+	lines := strings.Split(v[i:], "\n")
+	for n := 0; n < len(lines); n++ {
+		m := heredocStart.FindStringSubmatch(lines[n])
+		if m == nil {
+			continue
+		}
+		var body []string
+		for n++; n < len(lines) && strings.TrimSpace(lines[n]) != m[1]; n++ {
+			body = append(body, lines[n])
+		}
+		parts = append(parts, strings.Join(body, "\n"))
+	}
+	return strings.Join(parts, "\n")
+}
+
+var heredocStart = regexp.MustCompile(`<<-?[ \t]*['"]?([A-Za-z_][A-Za-z0-9_]*)['"]?`)
 
 // gitGlobals reads the global options in front of a git subcommand and returns
 // the directory the invocation runs in, with the words from the subcommand on.

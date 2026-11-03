@@ -4,8 +4,9 @@
 
 // Package prbody decides whether a Bash tool call opens, edits or merges a pull
 // request whose body, title or merge commit message declares that it closes an
-// issue, or writes a git commit message that does, and whether GitHub would
-// resolve that declaration on the base the command names.
+// issue, and whether GitHub would resolve that declaration on the base the
+// command names; and whether a git commit or merge message declares one, which
+// GitHub resolves on whatever branch the commit is written.
 //
 // GitHub resolves a closing keyword in a body only when the pull request merges
 // into the repository's default branch. On any other base the body's keyword

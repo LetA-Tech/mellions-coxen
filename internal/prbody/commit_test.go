@@ -51,6 +51,12 @@ func TestDenyACommitMessage(t *testing.T) {
 		{"env and path", `GIT_AUTHOR_NAME=x /usr/bin/git -c core.editor=true commit -m "Fixes #7"`, true, commit},
 		{"git merge -m", `git merge --no-ff -m "Merge the parser fix (Fixes #7)" feature`, true, commit},
 		{"chained with a create", `git add -A && git commit -m "Closes #7 in the fixtures" && gh pr create --base dev --body "Refs #7"`, true, commit},
+		{"--trailer Key=value", `git commit -m "one lexer" --trailer "Fixes=#7"`, true, commit},
+		{"subshell", `(git commit -m "Fixes #7")`, true, commit},
+		{"brace group", `{ git commit -m "Fixes #7"; }`, true, commit},
+		{"timeout wrapper", `timeout 60 git commit -m "Fixes #7"`, true, commit},
+		{"env wrapper", `env GIT_EDITOR=true git commit -m "Fixes #7"`, true, commit},
+		{"text before a substitution", `git commit -m "Fixes #7 at $(date -u +%H:%M)"`, true, commit},
 		// A commit message is not Markdown and a negation does not stop
 		// GitHub, so nothing in it is excused, as in a title.
 		{"negated", `git commit -m "This does not close #7"`, true, commit},
@@ -65,6 +71,8 @@ func TestDenyACommitMessage(t *testing.T) {
 		{"git log grep", `git log --grep "Fixes #7"`, false, ""},
 		{"git tag message", `git tag -a v1 -m "Fixes #7"`, false, ""},
 		{"echo of a commit", `echo 'git commit -m "Closes #7"'`, false, ""},
+		// A substitution's code is not the message it prints.
+		{"message computed by sed", `git commit -q --amend -m "$(git log -1 --format=%B | sed 's/^Fixes #300\. Part of #296\.$/Refs #300. Part of #296./')"`, false, ""},
 		{"grep for a keyword", `git log --format=%B | grep -n "Closes #"`, false, ""},
 	}
 	for _, c := range cases {
