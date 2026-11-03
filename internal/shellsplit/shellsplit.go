@@ -95,10 +95,13 @@ func lex(command string, i int, stopAtParen bool) ([]*Command, int) {
 	// Inside a backtick, ${…}, [[ … ]] or (( … )) bash reads one word, or its
 	// own grammar, across the blanks this lexer splits at, so a # there may not
 	// start a comment. While one is open a # is kept as text: tick is an open
-	// backtick, brace the ${ depth, cond an open [[, arith the (( paren depth.
+	// backtick, brace the ${ depth, cond an open [[ and condParen the paren
+	// depth inside it, arith the (( paren depth. Each closes only where bash
+	// closes it, so an imprecise count keeps text rather than hiding it.
 	tick := false
 	brace := 0
 	cond := false
+	condParen := 0
 	arith := 0
 	// comment reports whether the # at i starts a comment. bash reads no blank
 	// in a carriage return, though this lexer ends a word there.
@@ -117,7 +120,7 @@ func lex(command string, i int, stopAtParen bool) ([]*Command, int) {
 		switch {
 		case s == "[[":
 			cond = true
-		case s == "]]" && !quoted:
+		case s == "]]" && !quoted && condParen == 0:
 			cond = false
 		}
 		quoted = false
@@ -371,12 +374,16 @@ func lex(command string, i int, stopAtParen bool) ([]*Command, int) {
 				tick = !tick
 			case c == '$' && i+1 < len(command) && command[i+1] == '{':
 				brace++
-			case c == '}' && brace > 0:
+			case c == '}' && brace > 0 && !tick:
 				brace--
 			case c == '(' && (arith > 0 || (!hasWord && strings.HasPrefix(command[i:], "(("))):
 				arith++
 			case c == ')' && arith > 0:
 				arith--
+			case c == '(' && cond:
+				condParen++
+			case c == ')' && condParen > 0:
+				condParen--
 			}
 			w.WriteByte(c)
 			hasWord = true
@@ -454,9 +461,16 @@ func allDigits(s string) bool {
 // $((…)) is arithmetic and names no command.
 func substitution(command string, i int) (string, int) {
 	if strings.HasPrefix(command[i:], "$((") {
-		if j := strings.Index(command[i+3:], "))"); j >= 0 {
-			next := i + 3 + j + 2
-			return command[i:next], next
+		depth := 2
+		for j := i + 3; j < len(command); j++ {
+			switch command[j] {
+			case '(':
+				depth++
+			case ')':
+				if depth--; depth == 0 {
+					return command[i : j+1], j + 1
+				}
+			}
 		}
 		return command[i:], len(command)
 	}
