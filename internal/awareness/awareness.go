@@ -18,11 +18,14 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"path"
 	"regexp"
 	"slices"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/LetA-Tech/mellions-coxen/internal/shellsplit"
 )
 
 // Note is one thing worth telling a session, and what it can do about it.
@@ -581,6 +584,104 @@ func ShellQuote(s string) string {
 var startsContainer = regexp.MustCompile(
 	`(?i)\bdocker\s+(run|create|start)\b|\b(docker\s+compose|docker-compose|podman-compose)\b[^;&|\n]*?\s(up|run|start|create)([\s;&|)'"<>]|$)|\bpodman\s+run\b`)
 
+// maxRunDepth bounds how many command strings deep runsContainer reads: a
+// shell's -c string, eval's arguments, what a shell reads on stdin, a $(…).
+const maxRunDepth = 4
+
+// shells run the command string a -c option cluster hands them.
+var shells = map[string]bool{
+	"bash": true, "sh": true, "zsh": true, "dash": true, "ksh": true, "su": true,
+}
+
+// runsContainer reports whether bash, running command here, starts a container.
+//
+// It reads each simple command's own words. A word holding whitespace is one
+// quoted argument, which bash hands the program as text, so a container verb
+// inside it starts nothing. What bash runs is read as commands in turn: a
+// shell's -c string, eval's arguments, what a shell reads on stdin from a
+// heredoc or here-string, and the live $(…) substitutions the lexer returns.
+// ssh runs its own command on another host, whose containers are that host's
+// to account for; only what bash expands here before ssh starts is read.
+func runsContainer(command string, depth int) bool {
+	if depth == 0 {
+		return false
+	}
+	for _, cmds := range shellsplit.Readings(command) {
+		for _, c := range cmds {
+			if commandRunsContainer(c, depth) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func commandRunsContainer(c *shellsplit.Command, depth int) bool {
+	if depth == 0 {
+		return false
+	}
+	for _, inner := range c.Runs {
+		if commandRunsContainer(inner, depth-1) {
+			return true
+		}
+	}
+	args := c.Args()
+	if program := shellsplit.Program(args); len(program) > 0 {
+		switch name := path.Base(program[0]); {
+		case name == "ssh":
+			return false
+		case name == "eval":
+			return runsContainer(strings.Join(program[1:], " "), depth-1)
+		case shells[name] && readsStdin(program[1:]):
+			stdin := append([]string{}, c.Heredocs...)
+			for _, k := range c.Stdin {
+				stdin = append(stdin, c.Words[k])
+			}
+			for _, text := range stdin {
+				if runsContainer(text, depth-1) {
+					return true
+				}
+			}
+		}
+	}
+	tokens := make([]string, 0, len(args))
+	shell, script := false, false
+	for _, w := range args {
+		switch {
+		case script && !strings.HasPrefix(w, "-"):
+			script = false
+			if runsContainer(w, depth-1) {
+				return true
+			}
+			tokens = append(tokens, "''")
+			continue
+		case shell && len(w) > 1 && w[0] == '-' && w[1] != '-' && strings.Contains(w, "c"):
+			script = true
+		}
+		shell = shell || shells[path.Base(strings.TrimLeft(w, "("))]
+		if strings.ContainsAny(w, " \t\n") {
+			w = "''"
+		}
+		tokens = append(tokens, w)
+	}
+	return startsContainer.MatchString(strings.Join(tokens, " "))
+}
+
+// readsStdin reports a shell that runs the script on its standard input: one
+// given -s, or given no script and no -c string.
+func readsStdin(args []string) bool {
+	for _, a := range args {
+		switch {
+		case strings.HasPrefix(a, "--"):
+		case strings.HasPrefix(a, "-") && strings.Contains(a, "s"):
+			return !strings.Contains(a, "c")
+		case strings.HasPrefix(a, "-") && strings.Contains(a, "c"), !strings.HasPrefix(a, "-"):
+			return false
+		}
+	}
+	return true
+}
+
 // sandboxNote is said once, the first time a session brings a container up,
 // typed or through a script or make target it runs.
 //
@@ -597,7 +698,7 @@ func sandboxNote(command, through string) (Note, bool) {
 	switch {
 	case command == "":
 		return Note{}, false
-	case startsContainer.MatchString(command):
+	case runsContainer(command, maxRunDepth):
 	case through != "":
 		because = "This session is starting a container, through " + quotedPath(through) +
 			", on a host it shares with other lanes."

@@ -26,11 +26,16 @@ import (
 // text a redirection opens for reading, held in place among the words but
 // never the command's name or an option's operand. A redirection target that
 // holds a substitution is indexed there too, since bash runs what it holds.
+//
+// Runs is what bash runs for the $(…) substitutions the command's words and
+// redirections hold, read where quoting leaves them live: never one inside
+// single quotes or escaped. They stay out of Words, which hold their text.
 type Command struct {
 	Words    []string
 	Heredocs []string
 	Out      string
 	Stdin    []int
+	Runs     []*Command
 }
 
 // Args returns the words the command runs with: its name and arguments, never
@@ -221,7 +226,9 @@ func lex(command string, i int, stopAtParen, comments bool) ([]*Command, int) {
 
 		case c == '$' && i+1 < len(command) && command[i+1] == '(':
 			var text string
-			text, i = substitution(command, i, comments)
+			var inner []*Command
+			text, inner, i = substitution(command, i, comments)
+			cur.Runs = append(cur.Runs, inner...)
 			w.WriteString(text)
 			hasWord = true
 			quoted = true
@@ -271,7 +278,9 @@ func lex(command string, i int, stopAtParen, comments bool) ([]*Command, int) {
 				// command across words the caller never sees.
 				if command[i] == '$' && i+1 < len(command) && command[i+1] == '(' {
 					var text string
-					text, i = substitution(command, i, comments)
+					var inner []*Command
+					text, inner, i = substitution(command, i, comments)
+					cur.Runs = append(cur.Runs, inner...)
 					w.WriteString(text)
 					runs = true
 					continue
@@ -472,19 +481,19 @@ func allDigits(s string) bool {
 // read as absent, because "" is indistinguishable from an argument nobody
 // wrote.
 //
-// The commands inside stay inside. A caller asking whether a read reaches the
-// transcript needs to know it was captured, and inner commands returned as
-// ordinary ones lose exactly that: `"$(cat .pgpass)"` puts a secret in a
+// The commands inside are returned apart from the outer ones, never among
+// them. A caller asking whether a read reaches the transcript needs to know it
+// was captured, and inner commands returned as ordinary ones lose exactly that: `"$(cat .pgpass)"` puts a secret in a
 // variable, which is the idiom the secret guard steers toward.
 //
 // $((…)) is arithmetic and names no command.
-func substitution(command string, i int, comments bool) (string, int) {
+func substitution(command string, i int, comments bool) (string, []*Command, int) {
 	if strings.HasPrefix(command[i:], "$((") && !comments {
 		if j := strings.Index(command[i+3:], "))"); j >= 0 {
 			next := i + 3 + j + 2
-			return command[i:next], next
+			return command[i:next], nil, next
 		}
-		return command[i:], len(command)
+		return command[i:], nil, len(command)
 	}
 	if strings.HasPrefix(command[i:], "$((") {
 		depth := 2
@@ -494,18 +503,18 @@ func substitution(command string, i int, comments bool) (string, int) {
 				// A quoted parenthesis is no nesting.
 				k := strings.IndexByte(command[j+1:], command[j])
 				if k < 0 {
-					return command[i:], len(command)
+					return command[i:], nil, len(command)
 				}
 				j += k + 1
 			case '(':
 				depth++
 			case ')':
 				if depth--; depth == 0 {
-					return command[i : j+1], j + 1
+					return command[i : j+1], nil, j + 1
 				}
 			}
 		}
-		return command[i:], len(command)
+		return command[i:], nil, len(command)
 	}
 	inner, next := lex(command, i+2, true, comments)
 	var b strings.Builder
@@ -515,9 +524,9 @@ func substitution(command string, i int, comments bool) (string, int) {
 		}
 	}
 	if b.Len() == 0 {
-		return command[i:next], next
+		return command[i:next], inner, next
 	}
-	return b.String(), next
+	return b.String(), inner, next
 }
 
 // readHeredocs consumes the queued heredoc bodies starting at i, which is the
