@@ -157,54 +157,56 @@ func Calls(command string) []Call { return callsFrom(command, "") }
 // callsFrom is Calls with each call's directory followed through the `cd`s
 // before it, from the session's cwd.
 func callsFrom(command, cwd string) []Call {
-	var out []Call
-	dir := cwd
-	for _, c := range shellsplit.Split(command) {
-		if moved, ok := prbody.Chdir(c.Args(), cwd, dir); ok {
-			dir = moved
-			continue
-		}
-		args, ok := ghcmd.Args(c.Args(), func(noun, verb string) bool {
-			return noun == "pr" && verb == "merge"
-		})
-		if !ok {
-			continue
-		}
-		var call Call
-		if dir != cwd {
-			call.Dir = dir
-		}
-		for i := 0; i < len(args); i++ {
-			name, glued, hasGlued := ghcmd.SplitFlag(args[i])
-			if name == "--repo" || name == "-R" {
-				if hasGlued {
-					call.Repo = glued
-				} else if i+1 < len(args) {
-					i++
-					call.Repo = args[i]
-				}
+	return shellsplit.Each(command, func(cmds []*shellsplit.Command) []Call {
+		var out []Call
+		dir := cwd
+		for _, c := range cmds {
+			if moved, ok := prbody.Chdir(c.Args(), cwd, dir); ok {
+				dir = moved
 				continue
 			}
-			if strings.HasPrefix(name, "-") {
-				// A flag that takes a value must not have its value read as
-				// the selector. These are gh's value-taking merge flags; a
-				// valueless flag falls through and consumes nothing.
-				switch name {
-				case "--body", "-b", "--body-file", "-F", "--subject", "-t",
-					"--match-head-commit", "--author-email":
-					if !hasGlued && i+1 < len(args) {
+			args, ok := ghcmd.Args(c.Args(), func(noun, verb string) bool {
+				return noun == "pr" && verb == "merge"
+			})
+			if !ok {
+				continue
+			}
+			var call Call
+			if dir != cwd {
+				call.Dir = dir
+			}
+			for i := 0; i < len(args); i++ {
+				name, glued, hasGlued := ghcmd.SplitFlag(args[i])
+				if name == "--repo" || name == "-R" {
+					if hasGlued {
+						call.Repo = glued
+					} else if i+1 < len(args) {
 						i++
+						call.Repo = args[i]
 					}
+					continue
 				}
-				continue
+				if strings.HasPrefix(name, "-") {
+					// A flag that takes a value must not have its value read as
+					// the selector. These are gh's value-taking merge flags; a
+					// valueless flag falls through and consumes nothing.
+					switch name {
+					case "--body", "-b", "--body-file", "-F", "--subject", "-t",
+						"--match-head-commit", "--author-email":
+						if !hasGlued && i+1 < len(args) {
+							i++
+						}
+					}
+					continue
+				}
+				if call.Selector == "" {
+					call.Selector = args[i]
+				}
 			}
-			if call.Selector == "" {
-				call.Selector = args[i]
-			}
+			out = append(out, call)
 		}
-		out = append(out, call)
-	}
-	return out
+		return out
+	})
 }
 
 // refuse is the decision on one pull request's state.
