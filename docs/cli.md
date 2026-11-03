@@ -279,7 +279,10 @@ mellions secret-check
   (`-t`), `--body` (`-b`) or `--body-file` (`-F`) supplies one, on any base and
   with no exemption, since that text is the merge commit's message. A body
   that says the diff is the whole proof keeps the keyword on the default
-  branch. Unknown default-branch state is silent for a body.
+  branch. Unknown default-branch state is silent for a body. It also denies
+  `git commit` and `git merge` when a `-m`/`--message`, `--trailer` or
+  `-F`/`--file` message supplies one, on any branch and with no exemption,
+  since GitHub closes the issue when that commit reaches the default branch.
 - `shared-tree-check` may deny a tree-mutating Git command aimed at a configured
   shared checkout instead of an assignment lane, and an `rm` (recursive or not)
   that globs directly under `/tmp`, `/var/tmp`, `/dev/shm` or `$TMPDIR`.

@@ -195,9 +195,9 @@ Refs #715"`, false},
 		// request body, however much of one it carries.
 		{"gh pr list", "", `gh pr list --state all --json body | grep -i "Closes #"`, false},
 		{"gh pr view", "", `gh pr view 89 --json body`, false},
-		{"not a pr command", "", `git commit -m "Closes #7"`, false},
+		{"not a pr command", "", `git commit -m "Refs #7"`, false},
 		{"echo of a pr command", "", `echo 'gh pr create --base dev --body "Closes #7"'`, false},
-		{"commit chained with a create", "", `git add -A && git commit -m "Closes #7 in the fixtures" && git push -u origin HEAD && gh pr create --base dev --body-file ` + plainFile, false},
+		{"commit chained with a create", "", `git add -A && git commit -m "Refs #7 in the fixtures" && git push -u origin HEAD && gh pr create --base dev --body-file ` + plainFile, false},
 		{"heredoc writing a probe script", "", `cat > ` + filepath.Join(dir, "probe.sh") + ` <<'SH'
 gh pr create --base dev --body "closes #7"
 gh pr create --base dev --body "Does not close #7"

@@ -201,10 +201,21 @@ allows "gh pr view"            'gh pr view 89 --json body'
 
 # Whose text it is. A command that opens no pull request has no pull request
 # body, however much of one it carries.
-allows "not a pr command"      'git commit -m "Closes #7"'
+allows "not a pr command"      'git commit -m "Refs #7"'
 allows "echo of a pr command"  'echo '"'"'gh pr create --base dev --body "Closes #7"'"'"''
 printf 'Refs #7\n\nWhy this is not a close.\n' >"$tmp/plain.md"
-allows "commit then create"    "git add -A && git commit -m \"Closes #7 in the fixtures\" && git push -u origin HEAD && gh pr create --base dev --body-file $tmp/plain.md"
+allows "commit then create"    "git add -A && git commit -m \"Refs #7 in the fixtures\" && git push -u origin HEAD && gh pr create --base dev --body-file $tmp/plain.md"
+
+# A commit message reaches the default branch at a push or a promotion, and
+# GitHub closes the issue then, so its keyword is denied on every branch.
+denies "commit message"        'git commit -m "fix(parser): one lexer (Fixes #7)"'
+denies "commit then create, keyword in the commit" "git add -A && git commit -m \"Closes #7 in the fixtures\" && gh pr create --base dev --body-file $tmp/plain.md"
+denies "commit message heredoc" "git commit -m \"\$(cat <<'EOF'
+fix(parser): one lexer
+
+Closes #7
+EOF
+)\""
 allows "heredoc writing a probe" "cat > $tmp/probe.sh <<'SH'
 gh pr create --base dev --body \"closes #7\"
 SH"
