@@ -98,3 +98,33 @@ func TestAHashInsideAWordBashReadsWholeIsText(t *testing.T) {
 		}
 	}
 }
+
+// Readings keeps the reading blind to comments wherever the comment rule
+// changes what is read, so a command the rule wrongly drops is in one of them.
+func TestAReadingKeepsWhatTheCommentRuleWouldHide(t *testing.T) {
+	for _, prefix := range []string{
+		"echo $( [[ x =~ ( (a) #b) ]] ); ",
+		"echo $( echo ${x:-(a) #} ); ",
+		"echo $( (( (1) + 1 #)) ); ",
+		"echo ${x:-<(echo }) #)}; ",
+	} {
+		command := prefix + "gh pr merge 5"
+		found := false
+		for _, cmds := range Readings(command) {
+			for _, cmd := range cmds {
+				if reflect.DeepEqual(cmd.Args(), []string{"gh", "pr", "merge", "5"}) {
+					found = true
+				}
+			}
+		}
+		if !found {
+			t.Errorf("Readings(%q) has no gh pr merge 5, which bash runs", command)
+		}
+	}
+	if got := len(Readings("gh pr merge 5; echo ok")); got != 1 {
+		t.Errorf("a command line with no comment has %d readings, want 1", got)
+	}
+	if got := Readings("echo ok # it's fine\ngh pr merge 7"); len(got) != 2 || len(got[0]) != 2 {
+		t.Errorf("Readings = %d readings, want the comment reading of 2 commands and the literal one", len(got))
+	}
+}

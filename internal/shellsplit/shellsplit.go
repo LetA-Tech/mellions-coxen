@@ -13,7 +13,11 @@
 // shell.
 package shellsplit
 
-import "strings"
+import (
+	"reflect"
+	"slices"
+	"strings"
+)
 
 // Command is one command in a compound: its words with quoting removed, the
 // bodies of the heredocs it declares, and the file it redirects stdout to.
@@ -65,14 +69,29 @@ type pending struct {
 // body reaching gh through a variable is not seen — what is seen is what the
 // command line itself carries.
 func Split(command string) []*Command {
-	cmds, _ := lex(command, 0, false)
+	cmds, _ := lex(command, 0, false, true)
 	return cmds
+}
+
+// Readings returns every reading of command a guard acts on: the one Split
+// returns and, where it differs, the one that takes no # as a comment. Where
+// the comment rule misjudges bash, a command it drops is still in the second,
+// so a guard that walks each reading from the start sees all a lexer blind to
+// comments sees.
+func Readings(command string) [][]*Command {
+	read := Split(command)
+	literal, _ := lex(command, 0, false, false)
+	if reflect.DeepEqual(read, literal) {
+		return [][]*Command{read}
+	}
+	return [][]*Command{read, literal}
 }
 
 // lex reads simple commands from i and returns the index it stopped at.
 // stopAtParen ends the read at an unquoted ")", which is how a command
-// substitution closes; it is what makes the lexer re-entrant.
-func lex(command string, i int, stopAtParen bool) ([]*Command, int) {
+// substitution closes; it is what makes the lexer re-entrant. comments is
+// whether an unquoted # starting a word comments out the rest of the line.
+func lex(command string, i int, stopAtParen, comments bool) ([]*Command, int) {
 	var out []*Command
 	cur := &Command{}
 	var w strings.Builder
@@ -190,7 +209,7 @@ func lex(command string, i int, stopAtParen bool) ([]*Command, int) {
 	for i < len(command) {
 		c := command[i]
 		switch {
-		case c == '#' && comment(i):
+		case c == '#' && comments && comment(i):
 			// An unquoted # starting a word comments out the rest of the line,
 			// a ) included, so nothing in it is a word, a quote or an operator.
 			// The newline still ends the command and starts any heredoc body.
@@ -202,7 +221,7 @@ func lex(command string, i int, stopAtParen bool) ([]*Command, int) {
 
 		case c == '$' && i+1 < len(command) && command[i+1] == '(':
 			var text string
-			text, i = substitution(command, i)
+			text, i = substitution(command, i, comments)
 			w.WriteString(text)
 			hasWord = true
 			quoted = true
@@ -252,7 +271,7 @@ func lex(command string, i int, stopAtParen bool) ([]*Command, int) {
 				// command across words the caller never sees.
 				if command[i] == '$' && i+1 < len(command) && command[i+1] == '(' {
 					var text string
-					text, i = substitution(command, i)
+					text, i = substitution(command, i, comments)
 					w.WriteString(text)
 					runs = true
 					continue
@@ -459,7 +478,14 @@ func allDigits(s string) bool {
 // variable, which is the idiom the secret guard steers toward.
 //
 // $((…)) is arithmetic and names no command.
-func substitution(command string, i int) (string, int) {
+func substitution(command string, i int, comments bool) (string, int) {
+	if strings.HasPrefix(command[i:], "$((") && !comments {
+		if j := strings.Index(command[i+3:], "))"); j >= 0 {
+			next := i + 3 + j + 2
+			return command[i:next], next
+		}
+		return command[i:], len(command)
+	}
 	if strings.HasPrefix(command[i:], "$((") {
 		depth := 2
 		for j := i + 3; j < len(command); j++ {
@@ -481,7 +507,7 @@ func substitution(command string, i int) (string, int) {
 		}
 		return command[i:], len(command)
 	}
-	inner, next := lex(command, i+2, true)
+	inner, next := lex(command, i+2, true, comments)
 	var b strings.Builder
 	for _, c := range inner {
 		for _, h := range c.Heredocs {
@@ -522,4 +548,30 @@ func readHeredocs(s string, i int, queue []pending) int {
 		p.owner.Heredocs = append(p.owner.Heredocs, body.String())
 	}
 	return i
+}
+
+// Each runs f over every reading of command, each from the start, and returns
+// every distinct thing f found in any of them.
+func Each[T any](command string, f func([]*Command) []T) []T {
+	var out []T
+	for _, cmds := range Readings(command) {
+		for _, v := range f(cmds) {
+			if !slices.ContainsFunc(out, func(o T) bool { return reflect.DeepEqual(o, v) }) {
+				out = append(out, v)
+			}
+		}
+	}
+	return out
+}
+
+// First runs f over each reading of command, each from the start, and returns
+// the first result that is not the zero value.
+func First[T comparable](command string, f func([]*Command) T) T {
+	var zero T
+	for _, cmds := range Readings(command) {
+		if v := f(cmds); v != zero {
+			return v
+		}
+	}
+	return zero
 }
