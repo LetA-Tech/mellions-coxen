@@ -59,7 +59,7 @@ type pending struct {
 
 // Split lexes a Bash command line into its simple commands.
 //
-// It is a lexer and not a shell: it resolves quoting, splits at the operators
+// It is a lexer and not a shell: it resolves quoting, drops comments, splits at the operators
 // that separate one command from the next, and reads heredoc bodies as the
 // data they are rather than as more command line. Nothing is expanded, so a
 // body reaching gh through a variable is not seen — what is seen is what the
@@ -92,6 +92,11 @@ func lex(command string, i int, stopAtParen bool) ([]*Command, int) {
 	// runs is whether the pending word holds a substitution, whose command
 	// bash runs wherever the word sits.
 	runs := false
+	// tick is whether an unquoted backtick is open, and arith whether a ((
+	// arithmetic command is: bash reads no comment inside either, so a # there
+	// is text and what follows it on the line still runs.
+	tick := false
+	arith := false
 
 	endWord := func() {
 		if !hasWord {
@@ -101,6 +106,9 @@ func lex(command string, i int, stopAtParen bool) ([]*Command, int) {
 		w.Reset()
 		hasWord = false
 		quoted = false
+		if arith && strings.HasSuffix(s, "))") {
+			arith = false
+		}
 		// A target that runs a command stays a word for the guards that read
 		// what runs, and out of Args, since bash passes it to nothing.
 		target := runs || strings.Contains(s, "`")
@@ -167,6 +175,16 @@ func lex(command string, i int, stopAtParen bool) ([]*Command, int) {
 	for i < len(command) {
 		c := command[i]
 		switch {
+		case c == '#' && !hasWord && !tick && !arith:
+			// An unquoted # starting a word comments out the rest of the line,
+			// a ) included, so nothing in it is a word, a quote or an operator.
+			// The newline still ends the command and starts any heredoc body.
+			if j := strings.IndexByte(command[i:], '\n'); j >= 0 {
+				i += j
+			} else {
+				i = len(command)
+			}
+
 		case c == '$' && i+1 < len(command) && command[i+1] == '(':
 			var text string
 			text, i = substitution(command, i)
@@ -336,6 +354,12 @@ func lex(command string, i int, stopAtParen bool) ([]*Command, int) {
 			redirOut = true
 
 		default:
+			switch {
+			case c == '`':
+				tick = !tick
+			case c == '(' && !hasWord && strings.HasPrefix(command[i:], "(("):
+				arith = true
+			}
 			w.WriteByte(c)
 			hasWord = true
 			i++
