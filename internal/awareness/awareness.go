@@ -18,11 +18,14 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"path"
 	"regexp"
 	"slices"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/LetA-Tech/mellions-coxen/internal/shellsplit"
 )
 
 // Note is one thing worth telling a session, and what it can do about it.
@@ -581,6 +584,127 @@ func ShellQuote(s string) string {
 var startsContainer = regexp.MustCompile(
 	`(?i)\bdocker\s+(run|create|start)\b|\b(docker\s+compose|docker-compose|podman-compose)\b[^;&|\n]*?\s(up|run|start|create)([\s;&|)'"<>]|$)|\bpodman\s+run\b`)
 
+// maxRunDepth bounds how many command strings deep runsContainer reads: a
+// shell's -c string, eval's arguments, a heredoc a shell reads, a substitution.
+const maxRunDepth = 4
+
+// shells run the command string a -c option cluster hands them.
+var shells = map[string]bool{
+	"bash": true, "sh": true, "zsh": true, "dash": true, "ksh": true, "su": true,
+}
+
+// runsContainer reports whether bash, running command here, starts a container.
+//
+// It reads each simple command's own words. A word holding whitespace is one
+// quoted argument, which bash hands the program as text, so a container verb
+// inside it starts nothing: the exceptions are the text bash itself runs, a
+// shell's -c string, eval's arguments, a shell's heredoc and the $(…) or
+// backtick text in a word. ssh runs its command on another host, whose
+// containers are that host's to account for.
+func runsContainer(command string, depth int) bool {
+	if depth == 0 {
+		return false
+	}
+	for _, cmds := range shellsplit.Readings(command) {
+		for _, c := range cmds {
+			if commandRunsContainer(c, depth) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func commandRunsContainer(c *shellsplit.Command, depth int) bool {
+	args := c.Args()
+	if program := shellsplit.Program(args); len(program) > 0 {
+		switch name := path.Base(program[0]); {
+		case name == "ssh":
+			return false
+		case name == "eval":
+			return runsContainer(strings.Join(program[1:], " "), depth-1)
+		case shells[name] && readsStdin(program[1:]):
+			for _, h := range c.Heredocs {
+				if runsContainer(h, depth-1) {
+					return true
+				}
+			}
+		}
+	}
+	tokens := make([]string, 0, len(args))
+	shell, script := false, false
+	for _, w := range args {
+		switch {
+		case script && !strings.HasPrefix(w, "-"):
+			script = false
+			if runsContainer(w, depth-1) {
+				return true
+			}
+			tokens = append(tokens, "''")
+			continue
+		case shell && len(w) > 1 && w[0] == '-' && w[1] != '-' && strings.Contains(w, "c"):
+			script = true
+		}
+		shell = shell || shells[path.Base(strings.TrimLeft(w, "("))]
+		if !strings.ContainsAny(w, " \t\n") {
+			tokens = append(tokens, w)
+			continue
+		}
+		for _, inner := range substitutions(w) {
+			if runsContainer(inner, depth-1) {
+				return true
+			}
+		}
+		tokens = append(tokens, "''")
+	}
+	return startsContainer.MatchString(strings.Join(tokens, " "))
+}
+
+// substitutions returns the text inside each $(…) and `…` in w, outermost
+// only: what they nest is read when that text is.
+func substitutions(w string) []string {
+	var out []string
+	for i := 0; i < len(w); i++ {
+		switch {
+		case w[i] == '`':
+			j := strings.IndexByte(w[i+1:], '`')
+			if j < 0 {
+				return append(out, w[i+1:])
+			}
+			out = append(out, w[i+1:i+1+j])
+			i += j + 1
+		case strings.HasPrefix(w[i:], "$("):
+			open, j := 1, i+2
+			for ; j < len(w) && open > 0; j++ {
+				switch w[j] {
+				case '(':
+					open++
+				case ')':
+					open--
+				}
+			}
+			end := j
+			if open == 0 {
+				end--
+			}
+			out = append(out, w[i+2:end])
+			i = j - 1
+		}
+	}
+	return out
+}
+
+// readsStdin reports a shell given no script and no -c string, which runs the
+// script on its standard input.
+func readsStdin(args []string) bool {
+	for _, a := range args {
+		if !strings.HasPrefix(a, "-") || (!strings.HasPrefix(a, "--") && strings.Contains(a, "c")) {
+			return false
+		}
+	}
+	return true
+}
+
 // sandboxNote is said once, the first time a session brings a container up,
 // typed or through a script or make target it runs.
 //
@@ -597,7 +721,7 @@ func sandboxNote(command, through string) (Note, bool) {
 	switch {
 	case command == "":
 		return Note{}, false
-	case startsContainer.MatchString(command):
+	case runsContainer(command, maxRunDepth):
 	case through != "":
 		because = "This session is starting a container, through " + quotedPath(through) +
 			", on a host it shares with other lanes."
