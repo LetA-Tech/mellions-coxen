@@ -263,49 +263,205 @@ type Write struct {
 // The command line is walked left to right because a `cd` decides where every
 // later invocation runs; neither token alone identifies the target tree.
 func Find(command, cwd string, e Estate) *Write {
-	return shellsplit.First(command, func(cmds []*shellsplit.Command) *Write {
-		dir := abs(cwd, cwd, e.Home)
-		for _, c := range cmds {
-			words := unwrap(c.Args())
-			if len(words) == 0 {
-				continue
-			}
-			switch words[0] {
-			case "cd", "pushd":
-				if len(words) > 1 && !strings.HasPrefix(words[1], "-") {
-					dir = abs(words[1], dir, e.Home)
-				}
-				continue
-			case "git":
-			default:
-				continue
-			}
-			at, args := target(words[1:], dir, e.Home)
-			verb, rest := subcommand(args)
-			if verb == "" {
-				continue
-			}
-			instead, ok := writes(verb, rest)
-			if !ok {
-				continue
-			}
-			repo, checkout, ok := shared(at, e)
-			if !ok {
-				continue
-			}
-			if fastForwardUpdate(verb, rest) {
-				if !dirtyTree(at, e) {
-					continue
-				}
-				// A fast-forward update, declined for one reason only, so the
-				// refusal says that reason rather than the generic one.
-				return &Write{Verb: verb, Dir: at, Repo: repo, Checkout: checkout,
-					Instead: instead, Deploy: true}
-			}
-			return &Write{Verb: verb, Dir: at, Repo: repo, Checkout: checkout, Instead: instead}
-		}
+	k := &walker{e: e, seen: map[string]*Write{}}
+	return k.find(command, abs(cwd, cwd, e.Home), 0)
+}
+
+// maxDepth is how many shells deep a script is read. Past it the walk is
+// silent, so no command line costs more than the hook's timeout to read.
+const maxDepth = 16
+
+// walker reads one command line. seen holds each nested script's verdict by
+// directory and text: every reading of a line carries the same nested script,
+// and reading it again per reading doubles the work at every level.
+type walker struct {
+	e    Estate
+	seen map[string]*Write
+}
+
+// find walks every reading of command from dir.
+func (k *walker) find(command, dir string, depth int) *Write {
+	if depth > maxDepth {
 		return nil
+	}
+	key := dir + "\x00" + command
+	if w, ok := k.seen[key]; ok {
+		return w
+	}
+	w := shellsplit.First(command, func(cmds []*shellsplit.Command) *Write {
+		return k.walk(cmds, dir, depth)
 	})
+	k.seen[key] = w
+	return w
+}
+
+// walk reads cmds left to right from dir. What a command makes bash run in a
+// child — its $(…) substitutions, a shell's -c string or stdin script, the
+// command xargs runs — is walked from the directory that command runs in, and
+// a cd inside it moves no later command.
+func (k *walker) walk(cmds []*shellsplit.Command, dir string, depth int) *Write {
+	e := k.e
+	for _, c := range cmds {
+		if w := k.walk(c.Runs, dir, depth); w != nil {
+			return w
+		}
+		// xargs is read before unwrap, which would drop a {} placeholder that an
+		// option such as -I takes as its value. Its stdin is xargs' own input.
+		raw := c.Args()
+		words := shellsplit.Program(raw)
+		cdir := chdir(raw[:len(raw)-len(words)], dir, e.Home)
+		stdin := true
+		for len(words) > 0 && words[0] == "xargs" {
+			words = shellsplit.Program(xargsCommand(words[1:]))
+			stdin = false
+		}
+		words = unwrap(words)
+		if len(words) == 0 {
+			continue
+		}
+		for _, script := range shellScripts(c, words, stdin) {
+			if w := k.find(script, cdir, depth+1); w != nil {
+				return w
+			}
+		}
+		switch words[0] {
+		case "cd", "pushd":
+			if len(words) > 1 && !strings.HasPrefix(words[1], "-") {
+				dir = abs(words[1], dir, e.Home)
+			}
+			continue
+		case "git":
+		default:
+			continue
+		}
+		at, args := target(words[1:], cdir, e.Home)
+		verb, rest := subcommand(args)
+		if verb == "" {
+			continue
+		}
+		instead, ok := writes(verb, rest)
+		if !ok {
+			continue
+		}
+		repo, checkout, ok := shared(at, e)
+		if !ok {
+			continue
+		}
+		if fastForwardUpdate(verb, rest) {
+			if !dirtyTree(at, e) {
+				continue
+			}
+			// A fast-forward update, declined for one reason only, so the
+			// refusal says that reason rather than the generic one.
+			return &Write{Verb: verb, Dir: at, Repo: repo, Checkout: checkout,
+				Instead: instead, Deploy: true}
+		}
+		return &Write{Verb: verb, Dir: at, Repo: repo, Checkout: checkout, Instead: instead}
+	}
+	return nil
+}
+
+// chdir returns the directory a command's tree is in, from the words
+// shellsplit.Program drops before its program: GIT_WORK_TREE=, env -C and
+// sudo -D move it from dir.
+func chdir(prefix []string, dir, home string) string {
+	wrapper := ""
+	for i := 0; i < len(prefix); i++ {
+		switch w := prefix[i]; {
+		case strings.HasPrefix(w, "GIT_WORK_TREE="):
+			dir = abs(strings.TrimPrefix(w, "GIT_WORK_TREE="), dir, home)
+		case w == "env" || w == "sudo":
+			wrapper = w
+		case (wrapper == "env" && w == "-C") || (wrapper == "sudo" && w == "-D"):
+			if i+1 < len(prefix) {
+				i++
+				dir = abs(prefix[i], dir, home)
+			}
+		case wrapper != "" && strings.HasPrefix(w, "--chdir="):
+			dir = abs(strings.TrimPrefix(w, "--chdir="), dir, home)
+		}
+	}
+	return dir
+}
+
+// shells are the programs that run a -c string, or with no script operand
+// read their script from stdin.
+var shells = map[string]bool{"bash": true, "sh": true, "dash": true, "zsh": true, "ksh": true}
+
+// shellValued are the shell options whose value is the next word.
+var shellValued = map[string]bool{"-o": true, "+o": true, "-O": true, "+O": true,
+	"--rcfile": true, "--init-file": true}
+
+// shellScripts returns what a shell command runs as a command line: the
+// operand after -c, or, with -s or no script operand, the here-strings,
+// heredocs and < operands it reads on stdin when stdin is the shell's own. A
+// script file it names is not read.
+func shellScripts(c *shellsplit.Command, words []string, stdin bool) []string {
+	if !shells[filepath.Base(words[0])] {
+		return nil
+	}
+	cmode, smode := false, false
+	for i := 1; i < len(words); i++ {
+		w := words[i]
+		switch {
+		case w == "--" || w == "-":
+			if cmode {
+				return words[i+1 : min(i+2, len(words))]
+			}
+			if i+1 < len(words) && !smode {
+				return nil
+			}
+			i = len(words)
+		case shellValued[w]:
+			i++
+		case strings.HasPrefix(w, "--"):
+		case len(w) > 1 && (w[0] == '-' || w[0] == '+'):
+			if w[0] == '-' {
+				cmode = cmode || strings.ContainsRune(w[1:], 'c')
+				smode = smode || strings.ContainsRune(w[1:], 's')
+			}
+			// A cluster ending in o or O takes the next word as its value.
+			if last := w[len(w)-1]; last == 'o' || last == 'O' {
+				i++
+			}
+		case cmode:
+			return []string{w}
+		case smode:
+			i = len(words)
+		default:
+			return nil
+		}
+	}
+	if cmode || !stdin {
+		return nil
+	}
+	var out []string
+	for _, i := range c.Stdin {
+		out = append(out, c.Words[i])
+	}
+	return append(out, c.Heredocs...)
+}
+
+// xargsValued are xargs' options whose value is the next word.
+var xargsValued = map[string]bool{"-a": true, "-d": true, "-E": true, "-I": true,
+	"-L": true, "-n": true, "-P": true, "-s": true, "--arg-file": true,
+	"--delimiter": true, "--max-args": true, "--max-procs": true,
+	"--max-chars": true, "--process-slot-var": true}
+
+// xargsCommand returns the command xargs runs, after its own options.
+func xargsCommand(words []string) []string {
+	for i := 0; i < len(words); i++ {
+		switch w := words[i]; {
+		case w == "--":
+			return words[i+1:]
+		case xargsValued[w]:
+			i++
+		case strings.HasPrefix(w, "-"):
+		default:
+			return words[i:]
+		}
+	}
+	return nil
 }
 
 // Reason is what the session is told, and it has to answer three things at
