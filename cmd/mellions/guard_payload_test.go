@@ -5,7 +5,12 @@
 package main
 
 import (
+	"context"
+	"encoding/json"
+	"io"
 	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -29,7 +34,7 @@ func TestAGuardRunByHandDoesNotWaitOnAPipe(t *testing.T) {
 	t.Setenv("MELLIONS_HOOK", "")
 
 	done := make(chan []byte, 1)
-	go func() { done <- readPayload(read) }()
+	go func() { raw, _ := readPayload(read); done <- raw }()
 	select {
 	case got := <-done:
 		if len(got) != 0 {
@@ -55,7 +60,7 @@ func TestAHookStillGetsItsPayload(t *testing.T) {
 	go func() { _, _ = write.WriteString(body); _ = write.Close() }()
 
 	done := make(chan []byte, 1)
-	go func() { done <- readPayload(read) }()
+	go func() { raw, _ := readPayload(read); done <- raw }()
 	select {
 	case got := <-done:
 		if string(got) != body {
@@ -75,7 +80,187 @@ func TestATerminalCarriesNoPayload(t *testing.T) {
 		t.Skip("no /dev/null to stand in for a descriptor")
 	}
 	t.Cleanup(func() { _ = tty.Close() })
-	if got := readPayload(tty); len(got) != 0 {
-		t.Fatalf("read %d bytes from an empty descriptor", len(got))
+	got, err := readPayload(tty)
+	if len(got) != 0 || err != nil {
+		t.Fatalf("a character device gave %d bytes and err %v, want no payload expected", len(got), err)
+	}
+}
+
+// everyGuard is each command that answers a PreToolUse payload. A new guard that
+// reads its call any way other than guardPayload belongs in this table.
+var everyGuard = map[string]func() error{
+	"secret-check":      func() error { return cmdSecretCheck(nil) },
+	"pr-body-check":     func() error { return cmdPRBodyCheck(context.Background(), nil) },
+	"shared-tree-check": func() error { return cmdSharedTreeCheck(nil) },
+	"pr-merge-check":    func() error { return cmdPRMergeCheck(context.Background(), nil) },
+	"cite-check":        func() error { return cmdCiteCheck(context.Background(), nil) },
+}
+
+// runGuard hands payload to a guard the way hooks/lib.sh does and returns what
+// it printed on stdout, which is all the runtime reads.
+func runGuard(t *testing.T, guard func() error, hook, payload string) string {
+	t.Helper()
+	t.Setenv("MELLIONS_HOOK", hook)
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("MELLIONS_CONFIG", filepath.Join(t.TempDir(), "none.json"))
+	inR, inW, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	outR, outW, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	stdin, stdout, stderr := os.Stdin, os.Stdout, os.Stderr
+	devnull, err := os.OpenFile(os.DevNull, os.O_WRONLY, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Stdin, os.Stdout, os.Stderr = inR, outW, devnull
+	defer func() {
+		os.Stdin, os.Stdout, os.Stderr = stdin, stdout, stderr
+		_ = devnull.Close()
+		_ = inR.Close()
+	}()
+	go func() { _, _ = inW.WriteString(payload); _ = inW.Close() }()
+	printed := make(chan string, 1)
+	go func() { b, _ := io.ReadAll(outR); printed <- string(b) }()
+	runErr := guard()
+	_ = outW.Close()
+	if runErr != nil {
+		t.Fatalf("guard returned %v", runErr)
+	}
+	return <-printed
+}
+
+// A decision the runtime can act on, read as the runtime reads it.
+func decided(t *testing.T, out string) (deny bool, reason string) {
+	t.Helper()
+	if out == "" {
+		return false, ""
+	}
+	var d decision
+	if err := json.Unmarshal([]byte(out), &d); err != nil {
+		t.Fatalf("stdout is not a decision the runtime can parse: %v\n%s", err, out)
+	}
+	return d.Output.Decide == "deny", d.Output.Reason
+}
+
+// The runtime reads a guard's silence as allow, so a payload a guard cannot read
+// whole is refused by every guard and is never silence. Over the cap is the one
+// case that needs no late writer: the read used to cut it to invalid JSON.
+func TestEveryGuardRefusesAPayloadItCannotRead(t *testing.T) {
+	whole := bashPayload(t, "cat .db_connection")
+	over := bashPayload(t, "echo "+strings.Repeat("x", maxGuardPayload))
+	for name, c := range map[string]string{
+		"cut by two bytes": whole[:len(whole)-2],
+		"cut in half":      whole[:len(whole)/2],
+		"not json":         "cat .db_connection",
+		"nothing":          "",
+		"an array":         `[]`,
+		"a string":         `"cat .db_connection"`,
+		"null":             `null`,
+		"names no tool":    `{"tool_input":{"command":"cat .db_connection"}}`,
+		"a command number": `{"tool_name":"Bash","tool_input":{"command":7}}`,
+		"input as a word":  `{"tool_name":"Bash","tool_input":"cat .db_connection"}`,
+		"over the bound":   over,
+	} {
+		for guard, run := range everyGuard {
+			t.Run(name+"/"+guard, func(t *testing.T) {
+				deny, reason := decided(t, runGuard(t, run, "1", c))
+				if !deny || !strings.Contains(reason, "not examined") {
+					t.Errorf("want the unread refusal, got deny=%v reason=%q", deny, reason)
+				}
+				if name == "over the bound" && !strings.Contains(reason, "16 MiB") {
+					t.Errorf("an oversized payload was not refused as one: %q", reason)
+				}
+				if strings.Contains(reason, ".db_connection") {
+					t.Errorf("the refusal echoed the payload: %q", reason)
+				}
+			})
+		}
+	}
+}
+
+// The other direction: the refusal must not spread to a payload a guard can
+// read. Every guard stays silent on an ordinary call, on a tool it has no field
+// for, and when no hook is running at all.
+func TestEveryGuardStaysSilentOnWhatItCanRead(t *testing.T) {
+	for name, c := range map[string]struct{ hook, payload string }{
+		"an ordinary command": {"1", bashPayload(t, "echo hi")},
+		"a tool with no command": {"1",
+			`{"tool_name":"Agent","cwd":"/home/you","tool_input":{"prompt":"look","count":3}}`},
+		"a field no guard reads": {"1",
+			`{"tool_name":"Bash","extra":[1,2],"tool_input":{"command":"echo hi","timeout":5}}`},
+		"run by hand, a payload piped": {"", bashPayload(t, "cat .db_connection")},
+		"run by hand, garbage piped":   {"", "not json"},
+	} {
+		for guard, run := range everyGuard {
+			t.Run(name+"/"+guard, func(t *testing.T) {
+				if out := runGuard(t, run, c.hook, c.payload); out != "" {
+					t.Errorf("want silence, got:\n%s", out)
+				}
+			})
+		}
+	}
+}
+
+// A payload past the old 1 MiB cut is decided on what it says, by the guard's own
+// reason rather than the unread refusal.
+func TestAGuardDecidesALargePayloadWhole(t *testing.T) {
+	pad := "; : " + strings.Repeat("x", 1100*1024)
+	for guard, c := range map[string]struct {
+		run     func() error
+		command string
+		says    string
+	}{
+		"secret-check":      {everyGuard["secret-check"], "cat .db_connection" + pad, "read a credential"},
+		"pr-body-check":     {everyGuard["pr-body-check"], `git commit -m "Closes #7"` + pad, "#7"},
+		"shared-tree-check": {everyGuard["shared-tree-check"], "pkill -f worker" + pad, "pkill"},
+	} {
+		t.Run(guard, func(t *testing.T) {
+			deny, reason := decided(t, runGuard(t, c.run, "1", bashPayload(t, c.command)))
+			if !deny || strings.Contains(reason, "not examined") || !strings.Contains(reason, c.says) {
+				t.Errorf("want the guard's own denial naming %q, got deny=%v reason=%.200q", c.says, deny, reason)
+			}
+		})
+	}
+}
+
+// A hook the runtime kills is allowed by the runtime, so hooks/lib.sh's own
+// bounds (2 s of silence, 8 s for the binary) must end first for each guard.
+func TestTheRuntimeOutwaitsEveryGuardsOwnBound(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("..", "..", "hooks", "hooks.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var m struct {
+		Hooks struct {
+			PreToolUse []struct {
+				Hooks []struct {
+					Command string `json:"command"`
+					Timeout int    `json:"timeout"`
+				} `json:"hooks"`
+			} `json:"PreToolUse"`
+		} `json:"hooks"`
+	}
+	if err := json.Unmarshal(raw, &m); err != nil {
+		t.Fatal(err)
+	}
+	seen := map[string]bool{}
+	for _, group := range m.Hooks.PreToolUse {
+		for _, h := range group.Hooks {
+			for _, script := range []string{"secret-check.sh", "pr-reference.sh", "shared-tree.sh"} {
+				if strings.Contains(h.Command, script) {
+					seen[script] = true
+					if h.Timeout <= 2+8 {
+						t.Errorf("%s: the runtime kills it at %d s, inside lib.sh's own bound of 10 s", script, h.Timeout)
+					}
+				}
+			}
+		}
+	}
+	if len(seen) != 3 {
+		t.Errorf("found %v, want all three guard scripts registered", seen)
 	}
 }

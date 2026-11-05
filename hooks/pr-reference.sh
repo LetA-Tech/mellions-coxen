@@ -26,6 +26,5 @@
 # says out loud at the top of the session.
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 [[ -x "$mellions" ]] || exit 0
-[[ -n "$payload" ]] || exit 0
-run pr-body-check
+guard pr-body-check
 exit 0

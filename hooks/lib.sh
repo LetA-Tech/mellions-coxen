@@ -20,9 +20,26 @@ mellions="${MELLIONS_BIN:-$(command -v mellions || true)}"
 # which on PreCompact is a compaction waiting on nothing. `read -d ''` is a
 # builtin, so the bound holds on a host with no `timeout`, and it consumes to
 # EOF, so a payload that is there arrives whole.
+#
+# The bound is on silence, not on the whole read: bash takes a pipe a byte at a
+# time, about 1 MB/s on a loaded host, so a large tool call can still be arriving
+# when a read of a fixed length ends. payload_state is what a guard decides on:
+# terminal (no read happened), whole (the descriptor ended), late (silence).
 payload=""
+payload_state=terminal
 if [[ ! -t 0 ]]; then
-  IFS= read -r -d '' -t 2 payload 2>/dev/null || true
+  payload_state=whole
+  while :; do
+    payload_chunk=""
+    IFS= read -r -d '' -t 2 payload_chunk 2>/dev/null
+    payload_rc=$?
+    payload+=$payload_chunk
+    (( payload_rc > 128 )) || break
+    if [[ -z "$payload_chunk" ]]; then
+      payload_state=late
+      break
+    fi
+  done
 fi
 
 # run <args...>: the binary with the hook payload on stdin, bounded.
@@ -40,6 +57,40 @@ run() {
   else
     MELLIONS_HOOK=1 "$mellions" "$@" < <(printf '%s' "$payload") 2>/dev/null
   fi
+}
+
+# refuse <reason>: the deny the binary would print, for a guard that never got as
+# far as asking it. The reason is printed as written, so it carries no quote or
+# backslash.
+refuse() {
+  printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"%s"}}\n' "$1"
+}
+
+# guard <subcommand>: a PreToolUse guard's answer.
+#
+# The runtime reads silence as allow, so silence is only for a guard that
+# examined the call. No payload, a late one, and a binary that did not finish
+# are each a refusal. A person at a terminal is not the runtime and gets nothing.
+guard() {
+  local out rc
+  case "$payload_state" in
+    terminal) return 0 ;;
+    late)
+      refuse "This tool call was not examined: its hook payload stopped arriving for 2 s, so the guard refused it rather than let it through unread. Nothing about the call itself was judged. Retry it."
+      return 0 ;;
+  esac
+  if [[ -z "$payload" ]]; then
+    refuse "This tool call was not examined: no hook payload arrived, so the guard refused it rather than let it through unread. Nothing about the call itself was judged. Retry it."
+    return 0
+  fi
+  out=$(run "$@")
+  rc=$?
+  if [[ $rc -ne 0 ]]; then
+    refuse "This tool call was not examined: mellions $1 exited $rc before deciding, so the guard refused it rather than let it through unread. Nothing about the call itself was judged. Retry it; if it repeats, the installed binary is what needs looking at."
+    return 0
+  fi
+  [[ -z "$out" ]] || printf '%s\n' "$out"
+  return 0
 }
 
 # bounded <bytes>: pass stdin through, cut at the limit and say on stderr that

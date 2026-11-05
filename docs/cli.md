@@ -261,6 +261,8 @@ These commands are the CLI side of the three narrow safeguards in
 [`architecture.md`](architecture.md). The `*-check` forms read a runtime
 PreToolUse payload when `MELLIONS_HOOK` says one is present; hand-running one
 without a payload prints usage rather than claiming that it checked anything.
+With `MELLIONS_HOOK` set, a payload that is absent, undecodable, names no tool or
+exceeds 16 MiB is denied, since the runtime reads a guard's silence as allow.
 
 ```text
 mellions pr-body-check

@@ -107,8 +107,9 @@ type Estate struct {
 }
 
 // Deny returns the reason to refuse a PreToolUse payload, or "" to stay
-// silent. Anything it cannot read is silence: a deny on a guess costs a
+// silent. A command it cannot read is silence: a deny on a guess costs a
 // session a command it was entitled to run, in a tree this package cannot see.
+// A payload that does not decode is the caller's to refuse before asking.
 func Deny(payload []byte, e Estate) string {
 	var ev struct {
 		ToolName string `json:"tool_name"`

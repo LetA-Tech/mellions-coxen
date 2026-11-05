@@ -7,6 +7,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -39,17 +40,16 @@ func cmdPRBodyCheck(ctx context.Context, args []string) error {
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	payload := readPayload(os.Stdin)
-	if len(payload) == 0 {
-		guardUsage("pr-body-check", "It denies a `gh pr create` whose body declares a closing "+
-			"keyword: on a base that is not the default branch, where GitHub resolves none, and on the "+
-			"default branch, where it closes before the proof, unless the body says the diff is the whole proof. "+
-			"A closing keyword in a title is denied on every base, since the merge commit carries it to the "+
-			"default branch, with the same whole-proof exception on the default branch. A closing keyword in a "+
-			"`gh pr merge` --subject or --body is denied on every base with no exception, since it is the merge "+
-			"commit's message, and so is one in a `git commit` or `git merge` message, which reaches the default "+
-			"branch at a push or a promotion.")
-		return nil
+	payload, _, done, err := guardPayload(os.Stdin, "pr-body-check", "It denies a `gh pr create` whose body declares a closing "+
+		"keyword: on a base that is not the default branch, where GitHub resolves none, and on the "+
+		"default branch, where it closes before the proof, unless the body says the diff is the whole proof. "+
+		"A closing keyword in a title is denied on every base, since the merge commit carries it to the "+
+		"default branch, with the same whole-proof exception on the default branch. A closing keyword in a "+
+		"`gh pr merge` --subject or --body is denied on every base with no exception, since it is the merge "+
+		"commit's message, and so is one in a `git commit` or `git merge` message, which reaches the default "+
+		"branch at a push or a promotion.")
+	if done {
+		return err
 	}
 	reason := prbody.Deny(payload, func(cwd, repo string) string {
 		return defaultBranch(ctx, cwd, repo)
@@ -66,8 +66,13 @@ func cmdPRBodyCheck(ctx context.Context, args []string) error {
 	return enc.Encode(d)
 }
 
+// maxGuardPayload bounds a guard's read. It sits far above any tool call a model
+// can emit; what matters is that a payload past it is refused, not cut.
+const maxGuardPayload = 16 << 20
+
 // readPayload reads the runtime's payload, bounded, and only where a hook says
-// one is coming.
+// one is coming. A nil payload and a nil error mean none was to be expected; an
+// error means a hook said one was coming and this is not it.
 //
 // The guards this serves are PreToolUse hooks, and a person, a script, cron or
 // CI runs the same binary. `!isatty` is true both for a pipe the runtime wrote
@@ -81,19 +86,73 @@ func cmdPRBodyCheck(ctx context.Context, args []string) error {
 // delivery path. The guards did not, which is a comment asserting a property
 // the code did not have. They do now: without the variable there is no payload,
 // so a hand-run guard returns rather than waiting on a pipe.
-func readPayload(r *os.File) []byte {
+func readPayload(r *os.File) ([]byte, error) {
 	if os.Getenv("MELLIONS_HOOK") == "" {
-		return nil
+		return nil, nil
 	}
 	info, err := r.Stat()
-	if err != nil || info.Mode()&os.ModeCharDevice != 0 {
-		return nil
-	}
-	raw, err := io.ReadAll(io.LimitReader(r, 1<<20))
 	if err != nil {
-		return nil
+		return nil, fmt.Errorf("its descriptor could not be read: %w", err)
 	}
-	return raw
+	if info.Mode()&os.ModeCharDevice != 0 {
+		return nil, nil
+	}
+	raw, err := io.ReadAll(io.LimitReader(r, maxGuardPayload+1))
+	switch {
+	case err != nil:
+		return nil, fmt.Errorf("reading it failed: %w", err)
+	case len(raw) == 0:
+		return nil, errors.New("none arrived")
+	case len(raw) > maxGuardPayload:
+		return nil, fmt.Errorf("it is over the %d MiB a guard reads", maxGuardPayload>>20)
+	}
+	return raw, nil
+}
+
+// guardEvent is every field of a runtime payload any guard reads. Each guard's
+// own decode reads a subset of it, so a payload that decodes here decodes there.
+type guardEvent struct {
+	ToolName string `json:"tool_name"`
+	Cwd      string `json:"cwd"`
+	Session  string `json:"session_id"`
+	Input    struct {
+		Command  string `json:"command"`
+		File     string `json:"file_path"`
+		Path     string `json:"path"`
+		Notebook string `json:"notebook_path"`
+	} `json:"tool_input"`
+}
+
+// guardPayload is what every guard reads its call through. It returns the raw
+// payload and its decoded event, or done where the guard has nothing to decide:
+// it has printed its usage to a person, or refused the call.
+//
+// The runtime reads a guard's silence as allow, so a payload the guard cannot
+// read whole is refused here: truncated JSON looks like nothing to deny.
+func guardPayload(r *os.File, name, what string) (raw []byte, ev guardEvent, done bool, err error) {
+	raw, why := readPayload(r)
+	if why == nil && raw == nil {
+		guardUsage(name, what)
+		return nil, ev, true, nil
+	}
+	if why == nil {
+		why = json.Unmarshal(raw, &ev)
+	}
+	if why == nil && ev.ToolName == "" {
+		why = errors.New("it names no tool")
+	}
+	if why == nil {
+		return raw, ev, false, nil
+	}
+	var d decision
+	d.Output.Event = preToolUseEvent
+	d.Output.Decide = "deny"
+	d.Output.Reason = "This tool call was not examined: mellions " + name + " could not read its hook " +
+		"payload (" + why.Error() + "), so the guard refused it rather than let it through unread. " +
+		"Nothing about the call itself was judged. Retry it."
+	enc := json.NewEncoder(os.Stdout)
+	enc.SetEscapeHTML(false)
+	return nil, ev, true, enc.Encode(d)
 }
 
 // guardUsage is what a guard says when a person runs it with no payload.

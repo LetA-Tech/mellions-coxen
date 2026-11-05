@@ -34,6 +34,5 @@
 # session.
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 [[ -x "$mellions" ]] || exit 0
-[[ -n "$payload" ]] || exit 0
-run shared-tree-check
+guard shared-tree-check
 exit 0

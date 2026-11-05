@@ -114,21 +114,13 @@ func cmdCiteCheck(ctx context.Context, args []string) error {
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	payload := readPayload(os.Stdin)
-	if len(payload) == 0 {
-		guardUsage("cite-check", "It denies a `gh` command publishing a body that cites a "+
-			"path:line this checkout resolves and the body does not quote. To check a body "+
-			"by hand: `mellions cite check -file <path>`.")
-		return nil
+	_, ev, done, err := guardPayload(os.Stdin, "cite-check", "It denies a `gh` command publishing a body that cites a "+
+		"path:line this checkout resolves and the body does not quote. To check a body "+
+		"by hand: `mellions cite check -file <path>`.")
+	if done {
+		return err
 	}
-	var ev struct {
-		ToolName string `json:"tool_name"`
-		Cwd      string `json:"cwd"`
-		Input    struct {
-			Command string `json:"command"`
-		} `json:"tool_input"`
-	}
-	if json.Unmarshal(payload, &ev) != nil || ev.ToolName != "Bash" {
+	if ev.ToolName != "Bash" {
 		return nil
 	}
 	// This runs on every Bash call, so nothing costs anything until the command
