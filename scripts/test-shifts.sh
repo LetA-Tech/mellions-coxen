@@ -1124,6 +1124,13 @@ else
     [ $((SECONDS - na_start)) -lt 40 ] || bad "Na5: a hung profile was waited out: $((SECONDS - na_start))s"
   fi
 
+  # Na6: a job the profile leaves in the background does not hold the shift's start.
+  mkdir -p "$tmp/na/p6" "$tmp/na/h6"; printf 'sleep 45 &\n' > "$tmp/na/p6/.profile"
+  na_start=$SECONDS
+  run_na "$tmp/na/h6" "$tmp/na/p6" ""
+  [ -n "$saw" ] || bad "Na6: a background job stopped the session: $(tail -3 "$tmp/na.out")"
+  [ $((SECONDS - na_start)) -lt 30 ] || bad "Na6: a profile's background job was waited out: $((SECONDS - na_start))s"
+
   note "Na: a node only the login profile knows reaches the session last on PATH, once; one already there stands; no name, an alias or a hung profile changes nothing"
 fi
 

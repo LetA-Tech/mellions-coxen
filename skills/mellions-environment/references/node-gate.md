@@ -4,9 +4,11 @@
 
 A session's `command -v node` reads its own PATH, not the host. cron reads no login
 profile, so a version manager's node is off a cron-started PATH while `bash -lc
-'command -v node'` finds it. A shift appends that directory itself; `pnpm is not on
-PATH` from a hook in a shift means the login shell did not name one either, so read
-that before installing anything.
+'command -v node'` finds it. A shift with no node appends the directory its login shell
+names, when the probe answers within 10 s. A hook's `pnpm is not on PATH` proves neither
+way what the host has: ask `bash -lc` before installing anything. Where it names one
+and this session lacks it, add it for the commands below:
+`export PATH="$PATH:$(dirname "$(bash -lc 'command -v node' 2>/dev/null | tail -1)")"`.
 
 ## Running the hook
 

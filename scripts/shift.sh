@@ -277,8 +277,12 @@ fi
 # cannot start, on a host that has both. The login shell names it; it goes last on PATH.
 if ! command -v node >/dev/null 2>&1; then
   node_probe=()
-  [ "${#TIMEOUT[@]}" -eq 0 ] || node_probe=("${TIMEOUT[0]}" 10)
-  login_node=$(${node_probe[@]+"${node_probe[@]}"} bash -lc 'command -v node' </dev/null 2>/dev/null | tail -1)
+  [ "${#TIMEOUT[@]}" -eq 0 ] || node_probe=("${TIMEOUT[0]}" -k 2 10)
+  # A file, not a pipe: a job the profile leaves in the background would hold a pipe open.
+  node_answer=$(mktemp) || node_answer=/dev/null
+  ${node_probe[@]+"${node_probe[@]}"} bash -lc 'command -v node' </dev/null >"$node_answer" 2>/dev/null
+  login_node=$(tail -1 "$node_answer")
+  [ "$node_answer" = /dev/null ] || rm -f "$node_answer"
   case "$login_node" in
     /*/node) [ ! -x "$login_node" ] || export PATH="$PATH:${login_node%/*}" ;;
   esac
