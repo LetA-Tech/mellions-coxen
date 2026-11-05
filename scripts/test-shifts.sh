@@ -123,6 +123,8 @@ for v in $(env | sed -n 's/^\(MELLIONS_[A-Za-z0-9_]*\)=.*/\1/p'); do unset "$v";
 # as a lane's own choice — and L1 reads the caller's directory instead of the
 # one the shift made. The suite has to start from an unset one to set it.
 unset GOTMPDIR
+# Same for the background wait shift.sh exports: L1b asserts what an unset one becomes.
+unset CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS
 # Same for the user bus: the M scenarios need to start from what cron hands a shift.
 unset XDG_RUNTIME_DIR DBUS_SESSION_BUS_ADDRESS
 export CLAUDE_BIN="$STUB_DIR/claude" MELLIONS_BIN="$STUB_DIR/mellions"
@@ -833,6 +835,7 @@ cat > "$STUB_DIR/claude-l" <<'STUB'
 #!/usr/bin/env bash
 cat > /dev/null
 printf '%s\n' "${GOTMPDIR-<unset>}" >> "$STUB_DIR/l.gotmpdir"
+printf '%s\n' "${CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS-<unset>}" >> "$STUB_DIR/l.bgwait"
 printf '{"type":"result","result":"ready — the stub shift replied"}\n'
 STUB
 chmod +x "$STUB_DIR/claude-l"
@@ -853,6 +856,17 @@ run_l "$lhome"
 [ "$saw" = "$lhome/tmp/go" ] \
   || bad "L1: the session was handed GOTMPDIR=$saw, so its builds still scratch in /tmp: $(tail -3 "$tmp/l.out")"
 [ -d "$lhome/tmp/go" ] || bad "L1: $lhome/tmp/go was never created, so Go falls back to /tmp"
+
+# L1b: the session's background work is kept for its budget, not the runtime's ten
+# minutes, and an explicit value is whoever set it's to choose.
+: > "$STUB_DIR/l.bgwait"
+run_l "$tmp/l1b/home" MELLIONS_BUDGET=45m
+[ "$(cat "$STUB_DIR/l.bgwait")" = 2700000 ] \
+  || bad "L1b: a 45m session was handed a background wait of $(cat "$STUB_DIR/l.bgwait") ms: $(tail -3 "$tmp/l.out")"
+: > "$STUB_DIR/l.bgwait"
+run_l "$tmp/l1b/home" CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=0
+[ "$(cat "$STUB_DIR/l.bgwait")" = 0 ] \
+  || bad "L1b: an explicit background wait of 0 became $(cat "$STUB_DIR/l.bgwait")"
 
 # L2: what earlier shifts left there is collected, and only that. A live build
 # holds a directory whose mtime is now, so age is what separates them. A test

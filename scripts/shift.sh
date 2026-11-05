@@ -122,6 +122,11 @@ export MELLIONS_DEADLINE="$deadline_epoch"
 deadline=$(date -u -d "@$deadline_epoch" +"%H:%M UTC" 2>/dev/null \
         || date -u -r "$deadline_epoch" +"%H:%M UTC" 2>/dev/null || echo "unknown")
 
+# A print session stops its background work ten minutes after its last turn unless
+# told otherwise, and an independent review can run longer. The wait gets the budget;
+# TIMEOUT still bounds the session as a whole.
+export CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS="${CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS:-$(( $(budget_seconds "$BUDGET") * 1000 ))}"
+
 TIMEOUT=()
 if command -v timeout >/dev/null 2>&1; then TIMEOUT=(timeout "${MELLIONS_TIMEOUT:-3600}");
 elif command -v gtimeout >/dev/null 2>&1; then TIMEOUT=(gtimeout "${MELLIONS_TIMEOUT:-3600}"); fi
