@@ -30,12 +30,16 @@ import (
 // Runs is what bash runs for the $(…) substitutions the command's words and
 // redirections hold, read where quoting leaves them live: never one inside
 // single quotes or escaped. They stay out of Words, which hold their text.
+//
+// Globs lists the indexes in Words of the words holding an unquoted * or ?,
+// which bash may expand into other words before the command sees them.
 type Command struct {
 	Words    []string
 	Heredocs []string
 	Out      string
 	Stdin    []int
 	Runs     []*Command
+	Globs    []int
 }
 
 // Args returns the words the command runs with: its name and arguments, never
@@ -116,6 +120,8 @@ func lex(command string, i int, stopAtParen, comments bool) ([]*Command, int) {
 	// runs is whether the pending word holds a substitution, whose command
 	// bash runs wherever the word sits.
 	runs := false
+	// globs is whether the pending word holds an unquoted expansion character.
+	globs := false
 	// Inside a backtick, ${…}, [[ … ]] or (( … )) bash reads one word, or its
 	// own grammar, across the blanks this lexer splits at, so a # there may not
 	// start a comment. While one is open a # is kept as text: tick is an open
@@ -185,8 +191,12 @@ func lex(command string, i int, stopAtParen, comments bool) ([]*Command, int) {
 				cur.Stdin = append(cur.Stdin, len(cur.Words))
 				redirIn = false
 			}
+			if globs {
+				cur.Globs = append(cur.Globs, len(cur.Words))
+			}
 			cur.Words = append(cur.Words, s)
 		}
+		globs = false
 	}
 	// endBeforeRedirect ends the word pending at a < or >. Literal digits or a
 	// {name} glued to the operator are the descriptor it redirects, so they are
@@ -412,6 +422,8 @@ func lex(command string, i int, stopAtParen, comments bool) ([]*Command, int) {
 				condParen++
 			case c == ')' && condParen > 0:
 				condParen--
+			case c == '*' || c == '?':
+				globs = true
 			}
 			w.WriteByte(c)
 			hasWord = true
@@ -488,6 +500,10 @@ func allDigits(s string) bool {
 //
 // $((…)) is arithmetic and names no command.
 func substitution(command string, i int, comments bool) (string, []*Command, int) {
+	if strings.HasPrefix(command[i:], "$((") && !closesAsArithmetic(command, i) {
+		inner, next := lex(command, i+2, true, comments)
+		return command[i:next], inner, next
+	}
 	if strings.HasPrefix(command[i:], "$((") && !comments {
 		if j := strings.Index(command[i+3:], "))"); j >= 0 {
 			next := i + 3 + j + 2
@@ -527,6 +543,39 @@ func substitution(command string, i int, comments bool) (string, []*Command, int
 		return command[i:next], inner, next
 	}
 	return b.String(), inner, next
+}
+
+// closesAsArithmetic reports whether the $(( at s[i] is arithmetic: the ) that
+// closes its inner paren is followed by another. Bash reads any other as a
+// command substitution holding a subshell: $((cat f) | wc). One that never closes
+// runs nothing either way.
+func closesAsArithmetic(s string, i int) bool {
+	depth := 2
+	for j := i + 3; j < len(s); j++ {
+		switch s[j] {
+		case '\'', '"':
+			k := strings.IndexByte(s[j+1:], s[j])
+			if k < 0 {
+				return true
+			}
+			j += k + 1
+		case '(':
+			depth++
+		case ')':
+			if depth--; depth == 1 {
+				return j+1 >= len(s) || s[j+1] == ')'
+			}
+		}
+	}
+	return true
+}
+
+// Substitution returns the commands the $(…) beginning at s[i] runs, read with
+// no # as a comment, and the index just past its ")". $((…)) is arithmetic and
+// runs none.
+func Substitution(s string, i int) ([]*Command, int) {
+	_, inner, next := substitution(s, i, false)
+	return inner, next
 }
 
 // readHeredocs consumes the queued heredoc bodies starting at i, which is the
