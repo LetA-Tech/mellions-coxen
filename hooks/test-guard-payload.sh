@@ -66,7 +66,7 @@ do
   out=$(bash "$hook" <"$tmp/empty.json" 2>/dev/null)
   unread_refusal "$out" || bad "$name: an empty payload was not refused: ${out:-<silence>}"
   started=$(date +%s)
-  out=$(timeout 10 bash "$hook" <&- 2>/dev/null); rc=$?
+  out=$(bash "$hook" <&- 2>/dev/null); rc=$?
   [[ $rc -eq 0 ]] || bad "$name: a closed descriptor gave rc=$rc"
   unread_refusal "$out" || bad "$name: a closed descriptor was not refused: ${out:-<silence>}"
   [[ $(( $(date +%s) - started )) -le 1 ]] || bad "$name: a closed descriptor waited"
@@ -112,6 +112,59 @@ own_denial "$out" || bad "a slow but steady payload was not decided whole: ${out
 # whichever read's timer the silence fell in. Two reads can span up to 4 s of it.
 out=$(bash "$hook" < <(head -c 20 "$f"; sleep 4.5) 2>/dev/null)
 unread_refusal "$out" || bad "a payload that stopped arriving was not refused: ${out:-<silence>}"
+
+# Whole, on a descriptor nobody closes: the payload is all there and is decided,
+# not refused for the silence after it. The decode is what tells whole from cut.
+out=$(bash "$hook" < <(cat "$f"; sleep 5) 2>/dev/null)
+own_denial "$out" || bad "a whole payload on an open descriptor was not decided: ${out:-<silence>}"
+out=$(bash "$hook" < <(cat "$tmp/ok.json"; sleep 5) 2>/dev/null)
+[[ -z "$out" ]] || bad "an ordinary payload on an open descriptor was refused: $out"
+
+# The hooks that decide on a time bound get one run together, since each waits it
+# out. lib.sh's bounds are what stands between these and the runtime's kill, and a
+# hook the runtime kills is allowed by the runtime.
+#
+# A drip never falls silent, so only the read's own window can end it.
+drip() { head -c 20 "$f"; for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14; do printf ' '; sleep 1; done; }
+timed() { # timed <label> <command...>: what it printed, then the seconds it took.
+  local label=$1 s=$(date +%s); shift
+  "$@" >"$tmp/$label.out" 2>/dev/null
+  echo $(( $(date +%s) - s )) >"$tmp/$label.secs"
+}
+hook_on_drip() { bash "$hook" < <(drip); }
+timed drip hook_on_drip &
+
+# A binary that hangs and ignores TERM, since the real one catches it: with
+# timeout(1), and on a PATH without it, as on a stock macOS.
+printf '#!/bin/sh\ntrap "" TERM\nexec sleep 30\n' >"$tmp/hangs"; chmod +x "$tmp/hangs"
+bashbin=$(command -v bash)
+bare="$tmp/no-timeout"; mkdir -p "$bare"
+for t in sleep dirname; do ln -s "$(command -v "$t")" "$bare/$t"; done
+hook_hung() { MELLIONS_BIN="$tmp/hangs" bash "$hook" <"$f"; }
+hook_hung_bare() { PATH="$bare" MELLIONS_BIN="$tmp/hangs" "$bashbin" "$hook" <"$f"; }
+command -v timeout >/dev/null 2>&1 && timed hung hook_hung &
+timed hungbare hook_hung_bare &
+wait
+
+unread_refusal "$(cat "$tmp/drip.out")" || bad "a drip was not refused: $(cat "$tmp/drip.out")"
+[[ $(cat "$tmp/drip.secs") -le 10 ]] || bad "a drip took $(cat "$tmp/drip.secs") s, past the read's window"
+if [[ -f "$tmp/hung.out" ]]; then
+  unread_refusal "$(cat "$tmp/hung.out")" || bad "a hung binary was not refused: $(cat "$tmp/hung.out")"
+  [[ $(cat "$tmp/hung.secs") -le 12 ]] || bad "a hung binary took $(cat "$tmp/hung.secs") s"
+fi
+unread_refusal "$(cat "$tmp/hungbare.out")" || bad "a hung binary with no timeout(1) was not refused: $(cat "$tmp/hungbare.out")"
+[[ $(cat "$tmp/hungbare.secs") -le 12 ]] || bad "a hung binary with no timeout(1) took $(cat "$tmp/hungbare.secs") s"
+
+# Without timeout(1) the binary still decides: its denial, its silence and its
+# failure all reach the hook, and an answer does not wait for the watchdog.
+s=$(date +%s)
+out=$(PATH="$bare" "$bashbin" "$hook" <"$f" 2>/dev/null)
+own_denial "$out" || bad "with no timeout(1) a denial did not come through: ${out:-<silence>}"
+[[ $(( $(date +%s) - s )) -le 3 ]] || bad "with no timeout(1) an answer waited on the watchdog"
+out=$(PATH="$bare" "$bashbin" "$hook" <"$tmp/ok.json" 2>/dev/null)
+[[ -z "$out" ]] || bad "with no timeout(1) an ordinary command was refused: $out"
+out=$(PATH="$bare" MELLIONS_BIN="$tmp/dies" "$bashbin" "$hook" <"$f" 2>/dev/null)
+unread_refusal "$out" || bad "with no timeout(1) a binary that exited 3 was not refused: ${out:-<silence>}"
 
 # The off switch is the operator's: it holds on a payload that would be refused.
 out=$(MELLIONS_SECRET_CHECK=off bash "$hook" <"$tmp/empty.json" 2>/dev/null)

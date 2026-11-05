@@ -10,6 +10,8 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -88,6 +90,8 @@ func TestATerminalCarriesNoPayload(t *testing.T) {
 
 // everyGuard is each command that answers a PreToolUse payload. A new guard that
 // reads its call any way other than guardPayload belongs in this table.
+func cmdSecretCheckNoArgs() error { return cmdSecretCheck(nil) }
+
 var everyGuard = map[string]func() error{
 	"secret-check":      func() error { return cmdSecretCheck(nil) },
 	"pr-body-check":     func() error { return cmdPRBodyCheck(context.Background(), nil) },
@@ -153,17 +157,18 @@ func TestEveryGuardRefusesAPayloadItCannotRead(t *testing.T) {
 	whole := bashPayload(t, "cat .db_connection")
 	over := bashPayload(t, "echo "+strings.Repeat("x", maxGuardPayload))
 	for name, c := range map[string]string{
-		"cut by two bytes": whole[:len(whole)-2],
-		"cut in half":      whole[:len(whole)/2],
-		"not json":         "cat .db_connection",
-		"nothing":          "",
-		"an array":         `[]`,
-		"a string":         `"cat .db_connection"`,
-		"null":             `null`,
-		"names no tool":    `{"tool_input":{"command":"cat .db_connection"}}`,
-		"a command number": `{"tool_name":"Bash","tool_input":{"command":7}}`,
-		"input as a word":  `{"tool_name":"Bash","tool_input":"cat .db_connection"}`,
-		"over the bound":   over,
+		"cut by two bytes":     whole[:len(whole)-2],
+		"cut in half":          whole[:len(whole)/2],
+		"not json":             "cat .db_connection",
+		"nothing":              "",
+		"an array":             `[]`,
+		"a string":             `"cat .db_connection"`,
+		"null":                 `null`,
+		"names no tool":        `{"tool_input":{"command":"cat .db_connection"}}`,
+		"a command number":     `{"tool_name":"Bash","tool_input":{"command":7}}`,
+		"input as a word":      `{"tool_name":"Bash","tool_input":"cat .db_connection"}`,
+		"over the bound":       over,
+		"a read's path a list": `{"tool_name":"Read","tool_input":{"file_path":["a","b"]}}`,
 	} {
 		for guard, run := range everyGuard {
 			t.Run(name+"/"+guard, func(t *testing.T) {
@@ -182,6 +187,45 @@ func TestEveryGuardRefusesAPayloadItCannotRead(t *testing.T) {
 	}
 }
 
+// A call cut short may be one too large to read in the hook's window, where
+// retrying it unchanged only meets the same refusal; other garbage is not.
+func TestACutPayloadIsToldToSplitOnlyWhereThatCouldHelp(t *testing.T) {
+	whole := bashPayload(t, "echo hi")
+	for name, c := range map[string]struct {
+		payload string
+		split   bool
+	}{
+		"cut":      {whole[:len(whole)/2], true},
+		"not json": {"echo hi", false},
+		"mistyped": {`{"tool_name":"Bash","tool_input":{"command":7}}`, false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, reason := decided(t, runGuard(t, cmdSecretCheckNoArgs, "1", c.payload))
+			if got := strings.Contains(reason, "split one that large"); got != c.split {
+				t.Errorf("split advice %v, want %v: %q", got, c.split, reason)
+			}
+		})
+	}
+}
+
+// guardEvent is the one decode the credential guard reads a path through, so each
+// field it names has to reach the decision.
+func TestTheCredentialGuardReadsEveryPathTheEventCarries(t *testing.T) {
+	for name, payload := range map[string]string{
+		"Read file_path":        `{"tool_name":"Read","tool_input":{"file_path":"/srv/.db_connection"}}`,
+		"Grep path":             `{"tool_name":"Grep","tool_input":{"pattern":"x","path":"/srv/.db_connection"}}`,
+		"NotebookRead notebook": `{"tool_name":"NotebookRead","tool_input":{"notebook_path":"/srv/.db_connection"}}`,
+		"Bash command":          `{"tool_name":"Bash","tool_input":{"command":"cat /srv/.db_connection"}}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			deny, reason := decided(t, runGuard(t, cmdSecretCheckNoArgs, "1", payload))
+			if !deny || strings.Contains(reason, "not examined") {
+				t.Errorf("want the guard's own denial, got deny=%v reason=%q", deny, reason)
+			}
+		})
+	}
+}
+
 // The other direction: the refusal must not spread to a payload a guard can
 // read. Every guard stays silent on an ordinary call, on a tool it has no field
 // for, and when no hook is running at all.
@@ -192,6 +236,8 @@ func TestEveryGuardStaysSilentOnWhatItCanRead(t *testing.T) {
 			`{"tool_name":"Agent","cwd":"/home/you","tool_input":{"prompt":"look","count":3}}`},
 		"a field no guard reads": {"1",
 			`{"tool_name":"Bash","extra":[1,2],"tool_input":{"command":"echo hi","timeout":5}}`},
+		"a field of a guarded name on a tool no guard reads": {"1",
+			`{"tool_name":"mcp__fs__ReadMany","tool_input":{"path":["a","b"],"command":7}}`},
 		"run by hand, a payload piped": {"", bashPayload(t, "cat .db_connection")},
 		"run by hand, garbage piped":   {"", "not json"},
 	} {
@@ -230,6 +276,24 @@ func TestAGuardDecidesALargePayloadWhole(t *testing.T) {
 // A hook the runtime kills is allowed by the runtime, so hooks/lib.sh's own
 // bounds (2 s of silence, 8 s for the binary) must end first for each guard.
 func TestTheRuntimeOutwaitsEveryGuardsOwnBound(t *testing.T) {
+	lib, err := os.ReadFile(filepath.Join("..", "..", "hooks", "lib.sh"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	window := regexp.MustCompile(`(?m)^payload_window=(\d+)$`).FindSubmatch(lib)
+	limit := regexp.MustCompile(`timeout -k (\d+) (\d+) "\$mellions"`).FindSubmatch(lib)
+	if window == nil || limit == nil {
+		t.Fatalf("lib.sh no longer states its bounds where this reads them: window %q, timeout %q", window, limit)
+	}
+	// SECONDS counts whole seconds, so the read can run a second past its window.
+	own := 1
+	for _, n := range [][]byte{window[1], limit[1], limit[2]} {
+		v, err := strconv.Atoi(string(n))
+		if err != nil {
+			t.Fatal(err)
+		}
+		own += v
+	}
 	raw, err := os.ReadFile(filepath.Join("..", "..", "hooks", "hooks.json"))
 	if err != nil {
 		t.Fatal(err)
@@ -237,7 +301,8 @@ func TestTheRuntimeOutwaitsEveryGuardsOwnBound(t *testing.T) {
 	var m struct {
 		Hooks struct {
 			PreToolUse []struct {
-				Hooks []struct {
+				Matcher string `json:"matcher"`
+				Hooks   []struct {
 					Command string `json:"command"`
 					Timeout int    `json:"timeout"`
 				} `json:"hooks"`
@@ -247,14 +312,17 @@ func TestTheRuntimeOutwaitsEveryGuardsOwnBound(t *testing.T) {
 	if err := json.Unmarshal(raw, &m); err != nil {
 		t.Fatal(err)
 	}
-	seen := map[string]bool{}
+	seen, registered := map[string]bool{}, map[string]bool{}
 	for _, group := range m.Hooks.PreToolUse {
 		for _, h := range group.Hooks {
 			for _, script := range []string{"secret-check.sh", "pr-reference.sh", "shared-tree.sh"} {
 				if strings.Contains(h.Command, script) {
 					seen[script] = true
-					if h.Timeout <= 2+8 {
-						t.Errorf("%s: the runtime kills it at %d s, inside lib.sh's own bound of 10 s", script, h.Timeout)
+					for _, tool := range strings.Split(group.Matcher, "|") {
+						registered[tool] = true
+					}
+					if h.Timeout <= own {
+						t.Errorf("%s: the runtime kills it at %d s, inside lib.sh's own bound of %d s", script, h.Timeout, own)
 					}
 				}
 			}
@@ -262,5 +330,15 @@ func TestTheRuntimeOutwaitsEveryGuardsOwnBound(t *testing.T) {
 	}
 	if len(seen) != 3 {
 		t.Errorf("found %v, want all three guard scripts registered", seen)
+	}
+	for tool := range registered {
+		if !guardedTools[tool] {
+			t.Errorf("hooks.json registers a guard for %s, which guardedTools does not name", tool)
+		}
+	}
+	for tool := range guardedTools {
+		if !registered[tool] {
+			t.Errorf("guardedTools names %s, for which hooks.json registers no guard", tool)
+		}
 	}
 }

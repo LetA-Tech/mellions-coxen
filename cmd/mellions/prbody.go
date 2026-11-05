@@ -123,6 +123,15 @@ type guardEvent struct {
 	} `json:"tool_input"`
 }
 
+// guardedTools are the tools hooks/hooks.json registers a guard for. A field of
+// guardEvent's name with another type on any other tool (an MCP tool's `path`
+// list, reached by a runtime whose matcher is an unanchored regex) is nothing a
+// guard reads, so it is not a payload the guard failed to read.
+var guardedTools = map[string]bool{
+	"Bash": true, "Read": true, "Grep": true, "NotebookRead": true,
+	"Edit": true, "Write": true, "MultiEdit": true, "NotebookEdit": true,
+}
+
 // guardPayload is what every guard reads its call through. It returns the raw
 // payload and its decoded event, or done where the guard has nothing to decide:
 // it has printed its usage to a person, or refused the call.
@@ -137,6 +146,10 @@ func guardPayload(r *os.File, name, what string) (raw []byte, ev guardEvent, don
 	}
 	if why == nil {
 		why = json.Unmarshal(raw, &ev)
+		var shape *json.UnmarshalTypeError
+		if errors.As(why, &shape) && ev.ToolName != "" && !guardedTools[ev.ToolName] {
+			why = nil
+		}
 	}
 	if why == nil && ev.ToolName == "" {
 		why = errors.New("it names no tool")
@@ -144,12 +157,17 @@ func guardPayload(r *os.File, name, what string) (raw []byte, ev guardEvent, don
 	if why == nil {
 		return raw, ev, false, nil
 	}
+	advice := "Retry it."
+	var syntax *json.SyntaxError
+	if errors.As(why, &syntax) && int(syntax.Offset) >= len(raw) {
+		advice = "Retry it; a call of several MiB can outlast the hook's read, so split one that large."
+	}
 	var d decision
 	d.Output.Event = preToolUseEvent
 	d.Output.Decide = "deny"
 	d.Output.Reason = "This tool call was not examined: mellions " + name + " could not read its hook " +
 		"payload (" + why.Error() + "), so the guard refused it rather than let it through unread. " +
-		"Nothing about the call itself was judged. Retry it."
+		"Nothing about the call itself was judged. " + advice
 	enc := json.NewEncoder(os.Stdout)
 	enc.SetEscapeHTML(false)
 	return nil, ev, true, enc.Encode(d)

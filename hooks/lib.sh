@@ -21,24 +21,27 @@ mellions="${MELLIONS_BIN:-$(command -v mellions || true)}"
 # builtin, so the bound holds on a host with no `timeout`, and it consumes to
 # EOF, so a payload that is there arrives whole.
 #
-# The bound is on silence, not on the whole read: bash takes a pipe a byte at a
-# time, about 1 MB/s on a loaded host, so a large tool call can still be arriving
-# when a read of a fixed length ends. payload_state is what a guard decides on:
-# terminal (no read happened), whole (the descriptor ended), late (silence).
+# Two bounds, because a hook the runtime kills is allowed by the runtime. Silence
+# ends the read after one empty 2 s read, so a descriptor nobody closes costs at
+# most two of them. payload_window ends it whatever is still arriving: bash takes
+# a pipe a byte at a time, about 1 MB/s on a loaded host, so a drip or a call of
+# several MiB is cut here and refused by the binary, whose decode is what tells
+# whole from cut. A JSON object's prefix is never a JSON object.
 payload=""
 payload_state=terminal
+payload_window=6
 if [[ ! -t 0 ]]; then
-  payload_state=whole
+  payload_state=read
+  payload_start=$SECONDS
   while :; do
     payload_chunk=""
-    IFS= read -r -d '' -t 2 payload_chunk 2>/dev/null
+    payload_wait=$(( payload_window - (SECONDS - payload_start) ))
+    (( payload_wait > 0 )) || break
+    (( payload_wait < 2 )) || payload_wait=2
+    IFS= read -r -d '' -t "$payload_wait" payload_chunk 2>/dev/null
     payload_rc=$?
     payload+=$payload_chunk
-    (( payload_rc > 128 )) || break
-    if [[ -z "$payload_chunk" ]]; then
-      payload_state=late
-      break
-    fi
+    (( payload_rc > 128 )) && [[ -n "$payload_chunk" ]] || break
   done
 fi
 
@@ -50,13 +53,31 @@ fi
 # The payload goes in by process substitution, so the status is the binary's:
 # a command that never reads stdin can exit before the writer, and a writer's
 # SIGPIPE in a pipeline would become the status under pipefail.
+#
+# The bound holds with or without timeout(1), which a stock macOS lacks. -k and the
+# KILL are there because the binary catches TERM to cancel its work: a guard stuck
+# outside that work would otherwise outlive the bound until the runtime kills the
+# hook, which reads as allow. Either way a bound that fired is a non-zero status.
 run() {
   [[ -x "$mellions" ]] || return 1
   if command -v timeout >/dev/null 2>&1; then
-    MELLIONS_HOOK=1 timeout 8 "$mellions" "$@" < <(printf '%s' "$payload") 2>/dev/null
-  else
-    MELLIONS_HOOK=1 "$mellions" "$@" < <(printf '%s' "$payload") 2>/dev/null
+    MELLIONS_HOOK=1 timeout -k 1 8 "$mellions" "$@" < <(printf '%s' "$payload") 2>/dev/null
+    return
   fi
+  MELLIONS_HOOK=1 "$mellions" "$@" < <(printf '%s' "$payload") 2>/dev/null &
+  local pid=$! dog rc
+  (
+    n=0
+    while kill -0 "$pid" 2>/dev/null; do
+      (( n++ < 8 )) || { kill -KILL "$pid" 2>/dev/null; break; }
+      sleep 1
+    done
+  ) >/dev/null 2>&1 </dev/null &
+  dog=$!
+  wait "$pid"
+  rc=$?
+  kill "$dog" 2>/dev/null
+  return "$rc"
 }
 
 # refuse <reason>: the deny the binary would print, for a guard that never got as
@@ -69,16 +90,12 @@ refuse() {
 # guard <subcommand>: a PreToolUse guard's answer.
 #
 # The runtime reads silence as allow, so silence is only for a guard that
-# examined the call. No payload, a late one, and a binary that did not finish
-# are each a refusal. A person at a terminal is not the runtime and gets nothing.
+# examined the call. No payload and a binary that did not finish are each a
+# refusal; a cut one is the binary's to refuse. A person at a terminal is not the
+# runtime and gets nothing.
 guard() {
   local out rc
-  case "$payload_state" in
-    terminal) return 0 ;;
-    late)
-      refuse "This tool call was not examined: its hook payload stopped arriving for 2 s, so the guard refused it rather than let it through unread. Nothing about the call itself was judged. Retry it."
-      return 0 ;;
-  esac
+  [[ "$payload_state" == terminal ]] && return 0
   if [[ -z "$payload" ]]; then
     refuse "This tool call was not examined: no hook payload arrived, so the guard refused it rather than let it through unread. Nothing about the call itself was judged. Retry it."
     return 0
