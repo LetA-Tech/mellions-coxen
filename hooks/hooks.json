@@ -58,8 +58,9 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/secret-check.sh\"; exit 0",
-            "timeout": 5
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/secret-check.sh\"",
+            "timeout": 18,
+            "onFailure": "block"
           }
         ]
       },
@@ -78,13 +79,15 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/pr-reference.sh\"; exit 0",
-            "timeout": 5
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/pr-reference.sh\"",
+            "timeout": 18,
+            "onFailure": "block"
           },
           {
             "type": "command",
-            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/shared-tree.sh\"; exit 0",
-            "timeout": 5
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/shared-tree.sh\"",
+            "timeout": 18,
+            "onFailure": "block"
           }
         ]
       },
@@ -93,8 +96,9 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/shared-tree.sh\"; exit 0",
-            "timeout": 5
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/shared-tree.sh\"",
+            "timeout": 18,
+            "onFailure": "block"
           }
         ]
       }

@@ -134,8 +134,8 @@ func TestWhatIsRefusedAndWhatIsNot(t *testing.T) {
 	}
 }
 
-// Only the Bash tool carries a command line, and a payload this cannot read is
-// silence rather than a refusal on a guess.
+// Only the Bash tool carries a command line. A payload that does not decode is
+// silence at this level; the command's guardPayload refuses it before asking.
 func TestSilenceWhereThereIsNothingToRead(t *testing.T) {
 	for _, c := range []struct {
 		name    string

@@ -45,19 +45,18 @@ func cmdPRMergeCheck(ctx context.Context, args []string) error {
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	payload := readPayload(os.Stdin)
-	if len(payload) == 0 {
-		guardUsage("pr-merge-check", "It denies a `gh pr merge` whose mergeability GitHub has "+
-			"not computed, or whose branch is behind its base in files the pull request also "+
-			"changes and whose content differs at the two tips, or in changed files while the "+
-			"pull request's own changes could not be read whole, or whose current body cites "+
-			"a path:line its head commit does not back.")
-		return nil
-	}
 	// Run by hand; a session that has established the merge is right can
 	// silence it rather than argue with a guard that cannot read its reasoning.
 	if strings.EqualFold(os.Getenv("MELLIONS_MERGE_CHECK"), "off") {
 		return nil
+	}
+	payload, _, done, err := guardPayload(os.Stdin, "pr-merge-check", "It denies a `gh pr merge` whose mergeability GitHub has "+
+		"not computed, or whose branch is behind its base in files the pull request also "+
+		"changes and whose content differs at the two tips, or in changed files while the "+
+		"pull request's own changes could not be read whole, or whose current body cites "+
+		"a path:line its head commit does not back.")
+	if done {
+		return err
 	}
 	reason := prmerge.Deny(payload, func(cwd string, call prmerge.Call) (prmerge.State, error) {
 		return mergeState(ctx, cwd, call)

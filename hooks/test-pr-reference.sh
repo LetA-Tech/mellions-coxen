@@ -234,9 +234,10 @@ printf '{"tool_name":"Write","tool_input":{"file_path":"/tmp/b.md","content":"gh
 out=$(MELLIONS_BIN="$bin" bash "$hook" <"$tmp/stdin")
 [[ -z "$out" ]] || bad "fires on a non-Bash tool"
 
-# The runtime may hand the hook a closed descriptor. It must return, not wait.
+# A closed descriptor carries no payload. The hook returns rather than waits,
+# and refuses rather than reads as allow; hooks/test-guard-payload.sh has the rest.
 out=$(MELLIONS_BIN="$bin" bash "$hook" <&- 2>&1); rc=$?
-[[ $rc -eq 0 && -z "$out" ]] || bad "closed stdin: rc=$rc out=$out"
+[[ $rc -eq 0 && "$out" == *'"permissionDecision":"deny"'* ]] || bad "closed stdin: rc=$rc out=$out"
 
 # Deployment: the plugin travels with a checkout and the binary does not, so a
 # host that has one without the other must fall silent rather than fail.

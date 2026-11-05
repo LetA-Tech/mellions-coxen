@@ -18,11 +18,33 @@ mellions="${MELLIONS_BIN:-$(command -v mellions || true)}"
 # a pipe the runtime wrote and for a descriptor that is closed, and on a closed
 # descriptor `cat` does not return — the hook hangs until the runtime kills it,
 # which on PreCompact is a compaction waiting on nothing. `read -d ''` is a
-# builtin, so the bound holds on a host with no `timeout`, and it consumes to
-# EOF, so a payload that is there arrives whole.
+# builtin, so the bound holds on a host with no `timeout`.
+#
+# Two bounds, because a hook the runtime kills is allowed by the runtime. Silence
+# ends the read after one empty 2 s read, so a descriptor nobody closes costs at
+# most two of them. payload_window ends it whatever is still arriving: bash takes
+# a pipe a byte at a time, about 1 MB/s on a loaded host, so a drip or a call of
+# several MiB is cut here and refused by the binary, whose decode is what tells
+# whole from cut. A JSON object's prefix is never a JSON object.
+#
+# bash 3.2, a stock macOS's, drops what a read held when its timer ended, so there
+# a stall or an unclosed descriptor reads as no payload and is refused, not decided.
 payload=""
+payload_state=terminal
+payload_window=6
 if [[ ! -t 0 ]]; then
-  IFS= read -r -d '' -t 2 payload 2>/dev/null || true
+  payload_state=read
+  payload_start=$SECONDS
+  while :; do
+    payload_chunk=""
+    payload_wait=$(( payload_window - (SECONDS - payload_start) ))
+    (( payload_wait > 0 )) || break
+    (( payload_wait < 2 )) || payload_wait=2
+    IFS= read -r -d '' -t "$payload_wait" payload_chunk 2>/dev/null
+    payload_rc=$?
+    payload+=$payload_chunk
+    (( payload_rc > 128 )) && [[ -n "$payload_chunk" ]] || break
+  done
 fi
 
 # run <args...>: the binary with the hook payload on stdin, bounded.
@@ -33,13 +55,61 @@ fi
 # The payload goes in by process substitution, so the status is the binary's:
 # a command that never reads stdin can exit before the writer, and a writer's
 # SIGPIPE in a pipeline would become the status under pipefail.
+#
+# The bound holds with or without timeout(1), which a stock macOS lacks. -k and the
+# KILL are there because the binary catches TERM to cancel its work: a guard stuck
+# outside that work would otherwise outlive the bound until the runtime kills the
+# hook, which reads as allow. Either way a bound that fired is a non-zero status.
 run() {
   [[ -x "$mellions" ]] || return 1
   if command -v timeout >/dev/null 2>&1; then
-    MELLIONS_HOOK=1 timeout 8 "$mellions" "$@" < <(printf '%s' "$payload") 2>/dev/null
-  else
-    MELLIONS_HOOK=1 "$mellions" "$@" < <(printf '%s' "$payload") 2>/dev/null
+    MELLIONS_HOOK=1 timeout -k 1 8 "$mellions" "$@" < <(printf '%s' "$payload") 2>/dev/null
+    return
   fi
+  MELLIONS_HOOK=1 "$mellions" "$@" < <(printf '%s' "$payload") 2>/dev/null &
+  local pid=$! dog rc
+  (
+    n=0
+    while kill -0 "$pid" 2>/dev/null; do
+      (( n++ < 8 )) || { kill -KILL "$pid" 2>/dev/null; break; }
+      sleep 1
+    done
+  ) >/dev/null 2>&1 </dev/null &
+  dog=$!
+  wait "$pid"
+  rc=$?
+  kill "$dog" 2>/dev/null
+  return "$rc"
+}
+
+# refuse <reason>: the deny the binary would print, for a guard that never got as
+# far as asking it. The reason is printed as written, so it carries no quote or
+# backslash.
+refuse() {
+  printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"%s"}}\n' "$1"
+}
+
+# guard <subcommand>: a PreToolUse guard's answer.
+#
+# The runtime reads silence as allow, so silence is only for a guard that
+# examined the call. No payload and a binary that did not finish are each a
+# refusal; a cut one is the binary's to refuse. A person at a terminal is not the
+# runtime and gets nothing.
+guard() {
+  local out rc
+  [[ "$payload_state" == terminal ]] && return 0
+  if [[ -z "$payload" ]]; then
+    refuse "This tool call was not examined: no hook payload arrived, so the guard refused it rather than let it through unread. Nothing about the call itself was judged. Retry it."
+    return 0
+  fi
+  out=$(run "$@")
+  rc=$?
+  if [[ $rc -ne 0 ]]; then
+    refuse "This tool call was not examined: mellions $1 exited $rc before deciding (124 or 137 is its own 8 s bound ending it), so the guard refused it rather than let it through unread. Nothing about the call itself was judged. Retry it; if it repeats, guarded tools stay refused here until a person replaces the installed binary from a terminal."
+    return 0
+  fi
+  [[ -z "$out" ]] || printf '%s\n' "$out"
+  return 0
 }
 
 # bounded <bytes>: pass stdin through, cut at the limit and say on stderr that

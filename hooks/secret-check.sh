@@ -14,7 +14,6 @@
 # applies to that command, never to the hook process the runtime spawns.
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 [[ -x "$mellions" ]] || exit 0
-[[ -n "$payload" ]] || exit 0
 [[ "${MELLIONS_SECRET_CHECK:-on}" == off ]] && exit 0
-run secret-check
+guard secret-check
 exit 0
