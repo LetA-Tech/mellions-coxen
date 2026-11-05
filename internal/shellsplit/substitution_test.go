@@ -21,4 +21,15 @@ func TestSubstitutionReturnsTheCommandsItRuns(t *testing.T) {
 	if cmds, next := Substitution("$((1+2)) x", 0); cmds != nil || next != 8 {
 		t.Errorf("arithmetic Substitution = %v, %d", cmds, next)
 	}
+	// No )) closes it, so bash runs it as a command substitution.
+	for _, s := range []string{"$((cat f) | wc)", "$((cat f) | (cat))", "$((cat f) )"} {
+		if cmds, _ := Substitution(s, 0); len(cmds) == 0 {
+			t.Errorf("Substitution(%q) runs no commands", s)
+		}
+	}
+	for _, s := range []string{"$(( (1+2)*3 ))", "$(( (a+b) * (c+d) ))", "$((1))"} {
+		if cmds, _ := Substitution(s, 0); cmds != nil {
+			t.Errorf("Substitution(%q) runs %d commands, want arithmetic", s, len(cmds))
+		}
+	}
 }

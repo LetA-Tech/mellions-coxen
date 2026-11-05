@@ -362,153 +362,24 @@ func namesInWord(word string) []string {
 	return out
 }
 
-// patternGrammar is what this scan knows of the options of a program whose
-// first operand is a pattern or script rather than a file.
-type patternGrammar struct {
-	// plain are the short options that take no value.
-	plain string
-	// numeric are the short options whose value is a number, glued or next.
-	numeric string
-	// long are the long options that take no value.
-	long map[string]bool
-	// glued are the long options whose value is glued with =.
-	glued []string
-	// walks are the options that read directories beyond the named operands.
-	walks map[string]bool
-}
+// grepReaders and sed open a word as it is spelled: a quoted * in one is no glob,
+// whichever operand it is, unless an option globs its value.
+var grepReaders = map[string]bool{"grep": true, "egrep": true, "fgrep": true}
 
-var grepGrammar = patternGrammar{
-	plain:   "EFGPiywvxcLloqsbHhnTZaIrRUz0123456789",
-	numeric: "ABCm",
-	long: map[string]bool{
-		"--extended-regexp": true, "--fixed-strings": true, "--basic-regexp": true,
-		"--perl-regexp": true, "--ignore-case": true, "--invert-match": true,
-		"--word-regexp": true, "--line-regexp": true, "--count": true,
-		"--files-with-matches": true, "--files-without-match": true,
-		"--only-matching": true, "--quiet": true, "--silent": true,
-		"--no-messages": true, "--with-filename": true, "--no-filename": true,
-		"--line-number": true, "--color": true, "--colour": true,
-		"--recursive": true, "--dereference-recursive": true,
-	},
-	glued: []string{"--color=", "--colour=", "--include=", "--exclude=", "--exclude-dir="},
-	walks: map[string]bool{"r": true, "R": true, "--recursive": true, "--dereference-recursive": true},
-}
-
-var patternGrammars = map[string]patternGrammar{
-	"grep": grepGrammar, "egrep": grepGrammar, "fgrep": grepGrammar,
-	"sed": {
-		plain: "nErsuzi",
-		long: map[string]bool{
-			"--quiet": true, "--silent": true, "--regexp-extended": true,
-			"--in-place": true, "--null-data": true, "--separate": true,
-			"--unbuffered": true,
-		},
-	},
-}
-
-// patternOperands returns the indexes in args of the words reader takes as its
-// pattern or script, and whether it reads directories beyond the operands. Any
-// option outside the grammar yields none: it could take the next word as its
-// value, or make the first operand a file. Options are read wherever they are
-// written, since `grep .env -r dir` and `grep .env -e x` permute.
-func patternOperands(reader string, args []string) (map[int]bool, bool) {
-	g, ok := patternGrammars[reader]
-	if !ok {
-		return nil, false
+// globValue reports whether the option before a word may glob it: a long option
+// with no glued value (`--include '.env*'`), or the -g of the Bash tool's grep.
+func globValue(option string) bool {
+	if option == "--" {
+		return false
 	}
-	patterns := map[int]bool{}
-	first, scripted, walks := -1, false, false
-	for i := 0; i < len(args); i++ {
-		a := args[i]
-		switch {
-		case a == "--":
-			if first < 0 && i+1 < len(args) {
-				first = i + 1
-			}
-			i = len(args)
-		case a == "-" || !strings.HasPrefix(a, "-"):
-			if first < 0 {
-				first = i
-			} else if strings.ContainsAny(a, "$`") {
-				// Bash may expand it to an option, so `grep x $o dir` may walk.
-				walks = true
-			}
-		case strings.HasPrefix(a, "--"):
-			if !g.long[a] && !gluedOption(g, a) {
-				return nil, false
-			}
-			walks = walks || g.walks[a]
-		default:
-			next, script, ok := g.cluster(a[1:], walks)
-			if !ok {
-				return nil, false
-			}
-			walks = next
-			if script == scriptGlued || script == scriptNext {
-				scripted = true
-			}
-			if script == scriptNext || script == valueNext {
-				if i+1 >= len(args) {
-					return nil, false
-				}
-				if script == scriptNext {
-					patterns[i+1] = true
-				}
-				i++
-			}
-		}
-	}
-	if !scripted && first >= 0 {
-		patterns[first] = true
-	}
-	return patterns, walks
+	return strings.HasPrefix(option, "--") && !strings.Contains(option, "=") ||
+		strings.HasPrefix(option, "-") && strings.HasSuffix(option, "g")
 }
 
-// How a short-option cluster ends.
-const (
-	plainEnd = iota
-	valueNext
-	scriptGlued
-	scriptNext
-)
-
-// cluster reads one word of short options. A -e ends it, its value glued or in
-// the next word; so does a numeric option, whose value must be a number.
-func (g patternGrammar) cluster(letters string, walks bool) (bool, int, bool) {
-	for j := 0; j < len(letters); j++ {
-		l := letters[j : j+1]
-		rest := letters[j+1:]
-		switch {
-		case strings.Contains(g.plain, l):
-			walks = walks || g.walks[l]
-		case l == "e":
-			if rest == "" {
-				return walks, scriptNext, true
-			}
-			return walks, scriptGlued, true
-		case strings.Contains(g.numeric, l):
-			if rest == "" {
-				return walks, valueNext, true
-			}
-			return walks, plainEnd, allDigits(rest)
-		default:
-			return walks, plainEnd, false
-		}
-	}
-	return walks, plainEnd, true
-}
-
-func gluedOption(g patternGrammar, a string) bool {
-	for _, p := range g.glued {
-		if strings.HasPrefix(a, p) {
-			return true
-		}
-	}
-	return false
-}
-
-func allDigits(s string) bool {
-	return s != "" && strings.Trim(s, "0123456789") == ""
+// spelled reports whether reader opens or matches args[ai] as it is written.
+func spelled(c *shellsplit.Command, reader string, args []string, ai int) bool {
+	return (grepReaders[reader] || reader == "sed") && !expands(c, args[ai]) &&
+		(ai == 0 || !globValue(args[ai-1]))
 }
 
 // ScanPath classifies a path a tool reads directly, with no shell in between —
@@ -585,7 +456,6 @@ func ScanBash(command string) []Finding {
 			// A variable holding a credential, printed back out. The capture was
 			// safe; handing it to a printer is the same leak one step later.
 			consumed := consumedFlags[reader]
-			patterns, walks := patternOperands(reader, args[:max(argc-i-1, 0)])
 			for ai, a := range args {
 				for name := range holdsValue {
 					if printers[reader] && names(a, name) {
@@ -602,7 +472,14 @@ func ScanBash(command string) []Finding {
 				if ai > 0 && consumed[args[ai-1]] && i+1+ai < argc {
 					continue
 				}
-				if found := operandSecrets(c, reader, a, patterns[ai], walks); len(found) > 0 {
+				found := secretsInWord(a)
+				// A name stays read: a grep may walk without saying so, as a directory
+				// operand does under the Bash tool's grep, and `grep secret .` prints
+				// a .env's lines, while a sed script can name a file it reads.
+				if spelled(c, reader, args, ai) {
+					found = namesInWord(a)
+				}
+				if len(found) > 0 {
 					// A path, however it is spelled: the command opens the file
 					// itself. Only the enumerated non-emitters are exonerated.
 					if !safeReaders[reader] {
@@ -639,22 +516,6 @@ func pastWrappers(words []string, i int) int {
 		break
 	}
 	return i
-}
-
-// operandSecrets returns the credential paths one argument names. A pattern or
-// script is opened by nothing, so it is no glob unless bash can expand it first,
-// and a grep that reads only its named files opens nothing a pattern names. A
-// grep that walks directories keeps the name reading: `grep -r SECRET .` prints
-// the lines of a .env it walks into. So does sed, whose script names files it
-// reads.
-func operandSecrets(c *shellsplit.Command, reader, a string, pattern, walks bool) []string {
-	if !pattern || expands(c, a) {
-		return secretsInWord(a)
-	}
-	if reader == "sed" || walks {
-		return namesInWord(a)
-	}
-	return nil
 }
 
 // expands reports whether the word is written anywhere in the command with an
@@ -702,10 +563,10 @@ func containsSecretRead(word string) bool {
 // Each substitution is lexed as the shell will run it, and its words are
 // classified as a bare argument is, then searched as text: a quoted sed
 // script, grep pattern, `sh -c` or `python3 -c` program or a path with a space
-// is one word the shell hands over whole. Where the text outside every
-// substitution closes a parenthesis it did not open, the lexer closed one early,
-// at the ) of a case arm or inside ${…}, and what bash still runs is in that
-// text, so it is searched too.
+// is one word the shell hands over whole. Text outside every substitution is
+// searched where it may be code the lexer did not read: past a ) that closed one
+// early, at a case arm or inside ${…}, or between backquotes that nest. So is
+// text glued to a substitution, whose output may split it into a word of its own.
 func secretInside(word string) string {
 	if !strings.Contains(word, "$(") && !strings.Contains(word, "`") {
 		return ""
@@ -713,18 +574,18 @@ func secretInside(word string) string {
 	var outside strings.Builder
 	for i := 0; i < len(word); {
 		switch {
-		case strings.HasPrefix(word[i:], "$(("):
-			// Arithmetic runs nothing itself, but a substitution inside it runs.
-			_, next := shellsplit.Substitution(word, i)
-			if f := secretInside(word[i+3 : next]); f != "" {
-				return f
-			}
-			i = next
 		case strings.HasPrefix(word[i:], "$("):
 			cmds, next := shellsplit.Substitution(word, i)
 			if f := secretInCommands(cmds); f != "" {
 				return f
 			}
+			// Arithmetic runs nothing itself, but a substitution inside it runs.
+			if cmds == nil && strings.HasPrefix(word[i:], "$((") {
+				if f := secretInside(word[i+3 : next]); f != "" {
+					return f
+				}
+			}
+			outside.WriteString(substituted)
 			i = next
 		case word[i] == '`':
 			// The lexer does not group a backquoted command, so each pair of
@@ -735,59 +596,53 @@ func secretInside(word string) string {
 					return f
 				}
 			}
+			outside.WriteString(substituted)
 			i = len(word) - len(tail)
 		default:
 			outside.WriteByte(word[i])
 			i++
 		}
 	}
-	if closesUnopened(outside.String()) {
-		return secretInText(outside.String())
+	text := outside.String()
+	if strings.Contains(text, ")") || strings.Count(word, "`") > 2 {
+		return secretInText(strings.ReplaceAll(text, substituted, " "))
+	}
+	for _, tok := range strings.Fields(text) {
+		if strings.Contains(tok, substituted) {
+			if f := secretInText(strings.ReplaceAll(tok, substituted, " ")); f != "" {
+				return f
+			}
+		}
 	}
 	return ""
 }
 
-// closesUnopened reports whether text holds a ) with no ( before it to match.
-func closesUnopened(text string) bool {
-	depth := 0
-	for _, r := range text {
-		switch r {
-		case '(':
-			depth++
-		case ')':
-			if depth--; depth < 0 {
-				return true
-			}
-		}
-	}
-	return false
-}
+// substituted marks where a substitution stood in a word's outside text.
+const substituted = "\x00"
 
 // secretInCommands returns the first credential path the commands' words name,
-// including one read by a substitution nested in a word. A grep's pattern is
-// read as it is at the top level, since grep runs no text. A sed script is not:
-// its e command runs the shell.
+// including one read by a substitution nested in a word. A grep's words are read
+// for names alone, since grep runs no text. A sed script is searched in full: its
+// e command runs the shell.
 func secretInCommands(cmds []*shellsplit.Command) string {
 	for _, c := range cmds {
-		words, argc := commandFirst(c)
+		words, _ := commandFirst(c)
 		at := 0
 		for at < len(words) && assignment.MatchString(words[at]) {
 			at++
 		}
 		at = pastWrappers(words, at)
-		var reader string
-		var patterns map[int]bool
-		var walks bool
-		if at < len(words) {
-			reader = path.Base(words[at])
-			if reader != "sed" {
-				patterns, walks = patternOperands(reader, words[at+1:max(argc, at+1)])
-			}
-		}
+		grep := at < len(words) && grepReaders[path.Base(words[at])]
 		for wi, w := range words {
-			if patterns[wi-at-1] {
-				if found := operandSecrets(c, reader, w, true, walks); len(found) > 0 {
+			if _, v, ok := strings.Cut(w, "="); grep && ok && strings.HasPrefix(w, "--") && secretByGlob(v) {
+				return v
+			}
+			if grep && wi > at && !strings.HasPrefix(w, "-") && spelled(c, path.Base(words[at]), words[at+1:], wi-at-1) {
+				if found := namesInWord(w); len(found) > 0 {
 					return found[0]
+				}
+				if f := nameInText(w); f != "" {
+					return f
 				}
 			} else {
 				if found := secretsInWord(w); len(found) > 0 {
@@ -821,6 +676,31 @@ func secretInCommands(cmds []*shellsplit.Command) string {
 //     any program expands. Any other `.*` stays a glob: `sh -c 'cat .*;'`
 //     prints every dotfile.
 func secretInText(word string) string {
+	if f := nameInText(word); f != "" {
+		return f
+	}
+	for _, tok := range strings.Fields(word) {
+		// A glob is cut at quotes, parentheses, backquotes and the operators a
+		// program's shell ends a word at. Not at >, so a stem keeps it: `>.*` in
+		// a sed script names no file.
+		for _, f := range strings.FieldsFunc(tok, func(r rune) bool {
+			switch r {
+			case '(', ')', '`', '"', '\'', '<', '|', '&', ';':
+				return true
+			}
+			return false
+		}) {
+			if secretByGlob(f) && !regexDots(f) {
+				return f
+			}
+		}
+	}
+	return ""
+}
+
+// nameInText returns a credential's name inside a word's text, or "". A subject
+// word that is not itself a credential's name is none.
+func nameInText(word string) string {
 	for _, tok := range strings.Fields(word) {
 		for _, f := range strings.FieldsFunc(tok, wrapsAPath) {
 			lower := strings.ToLower(f)
@@ -828,16 +708,6 @@ func secretInText(word string) string {
 				continue
 			}
 			if secretByName(f) {
-				return f
-			}
-		}
-		// A glob is cut only at quotes, parentheses and backquotes, so a
-		// stem keeps the operator in front of it: `>.*` in a sed script
-		// names no file.
-		for _, f := range strings.FieldsFunc(tok, func(r rune) bool {
-			return r == '(' || r == ')' || r == '`' || r == '"' || r == '\''
-		}) {
-			if secretByGlob(f) && !regexDots(f) {
 				return f
 			}
 		}
@@ -849,7 +719,7 @@ func secretInText(word string) string {
 // another language's text.
 func wrapsAPath(r rune) bool {
 	switch r {
-	case '(', ')', '\'', '"', '`', ',', '=', ';', '{', '}', '[', ']', '<', '>', '$':
+	case '(', ')', '\'', '"', '`', ',', '=', ';', '{', '}', '[', ']', '<', '>', '$', '|', '&':
 		return true
 	}
 	return false
