@@ -429,6 +429,9 @@ func patternOperands(reader string, args []string) (map[int]bool, bool) {
 		case a == "-" || !strings.HasPrefix(a, "-"):
 			if first < 0 {
 				first = i
+			} else if strings.ContainsAny(a, "$`") {
+				// Bash may expand it to an option, so `grep x $o dir` may walk.
+				walks = true
 			}
 		case strings.HasPrefix(a, "--"):
 			if !g.long[a] && !gluedOption(g, a) {

@@ -22,6 +22,7 @@ func TestScanBash_PatternOperandOpensNoFile(t *testing.T) {
 		`grep -A 3 '.*foo' a.go`,
 		`grep -n AWS_SECRETS_MANAGER_NAME internal/config/config.go`,
 		`grep -n .env Makefile`,
+		`grep -n '.*foo' "$f"`,
 		`grep -c '.pem' README.md`,
 		`grep -- .netrc docs/x.md`,
 		`grep credentials a.go`,
@@ -52,6 +53,7 @@ func TestScanBash_PatternOperandHidesNoRead(t *testing.T) {
 		`grep -r .env config.d`, `grep -rn .pem deploy.d`, `grep -R .env config.d`,
 		`grep --recursive .env config.d`, `grep --dereference-recursive .env config.d`,
 		`grep .env -r config.d`, `grep .env config.d -r`, `grep -nr .env config.d`,
+		`O=-r; grep .env $O config.d`, `grep .env "$O" config.d`, "grep .env `o` config.d",
 		`grep -rn SECRET .`, `grep -rn AWS_SECRET_ACCESS_KEY .`, `sudo grep -r .env config.d`,
 		`egrep -r .env config.d`, `grep -r -e .env config.d`, `grep -r -- .env config.d`,
 		// An option outside the grammar stops the reading.
