@@ -123,6 +123,8 @@ for v in $(env | sed -n 's/^\(MELLIONS_[A-Za-z0-9_]*\)=.*/\1/p'); do unset "$v";
 # as a lane's own choice — and L1 reads the caller's directory instead of the
 # one the shift made. The suite has to start from an unset one to set it.
 unset GOTMPDIR
+# Same for the background wait shift.sh exports: L1b asserts what an unset one becomes.
+unset CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS
 # Same for the user bus: the M scenarios need to start from what cron hands a shift.
 unset XDG_RUNTIME_DIR DBUS_SESSION_BUS_ADDRESS
 export CLAUDE_BIN="$STUB_DIR/claude" MELLIONS_BIN="$STUB_DIR/mellions"
@@ -833,6 +835,7 @@ cat > "$STUB_DIR/claude-l" <<'STUB'
 #!/usr/bin/env bash
 cat > /dev/null
 printf '%s\n' "${GOTMPDIR-<unset>}" >> "$STUB_DIR/l.gotmpdir"
+printf '%s\n' "${CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS-<unset>}" >> "$STUB_DIR/l.bgwait"
 printf '{"type":"result","result":"ready — the stub shift replied"}\n'
 STUB
 chmod +x "$STUB_DIR/claude-l"
@@ -853,6 +856,20 @@ run_l "$lhome"
 [ "$saw" = "$lhome/tmp/go" ] \
   || bad "L1: the session was handed GOTMPDIR=$saw, so its builds still scratch in /tmp: $(tail -3 "$tmp/l.out")"
 [ -d "$lhome/tmp/go" ] || bad "L1: $lhome/tmp/go was never created, so Go falls back to /tmp"
+
+# L1b: the session's background work is kept for what the hard timeout leaves past
+# its budget, so a reply the runtime holds until that wait ends still lands. Where
+# that is no longer than the runtime's ten minutes it is left alone, and an explicit
+# value is whoever set it's to choose.
+run_lb() { : > "$STUB_DIR/l.bgwait"; run_l "$tmp/l1b/home" "$@"; bgw=$(cat "$STUB_DIR/l.bgwait"); }
+run_lb MELLIONS_BUDGET=45m MELLIONS_TIMEOUT=3600
+[ "$bgw" = 900000 ] || bad "L1b: 45m under a 3600 s timeout was handed a background wait of $bgw ms: $(tail -3 "$tmp/l.out")"
+run_lb MELLIONS_BUDGET=30m MELLIONS_TIMEOUT=3600
+[ "$bgw" = 1800000 ] || bad "L1b: 30m under a 3600 s timeout was handed a background wait of $bgw ms"
+run_lb MELLIONS_BUDGET=55m MELLIONS_TIMEOUT=3600
+[ "$bgw" = '<unset>' ] || bad "L1b: five minutes past the budget should leave the runtime's default, got $bgw ms"
+run_lb MELLIONS_BUDGET=45m MELLIONS_TIMEOUT=3600 CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=0
+[ "$bgw" = 0 ] || bad "L1b: an explicit background wait of 0 became $bgw"
 
 # L2: what earlier shifts left there is collected, and only that. A live build
 # holds a directory whose mtime is now, so age is what separates them. A test

@@ -122,6 +122,15 @@ export MELLIONS_DEADLINE="$deadline_epoch"
 deadline=$(date -u -d "@$deadline_epoch" +"%H:%M UTC" 2>/dev/null \
         || date -u -r "$deadline_epoch" +"%H:%M UTC" 2>/dev/null || echo "unknown")
 
+# A print session stops its background work ten minutes after its last turn unless
+# told otherwise, an independent review can run longer, and the runtime holds the
+# session's reply until that wait ends. So the wait gets what the hard timeout leaves
+# past the budget, and only where that is longer: a reply must land before the kill.
+bg_wait=$(( ${MELLIONS_TIMEOUT:-3600} - $(budget_seconds "$BUDGET") ))
+if [ -z "${CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS:-}" ] && [ "$bg_wait" -gt 600 ]; then
+  export CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=$(( bg_wait * 1000 ))
+fi
+
 TIMEOUT=()
 if command -v timeout >/dev/null 2>&1; then TIMEOUT=(timeout "${MELLIONS_TIMEOUT:-3600}");
 elif command -v gtimeout >/dev/null 2>&1; then TIMEOUT=(gtimeout "${MELLIONS_TIMEOUT:-3600}"); fi
