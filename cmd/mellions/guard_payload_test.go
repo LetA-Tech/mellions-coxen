@@ -303,8 +303,9 @@ func TestTheRuntimeOutwaitsEveryGuardsOwnBound(t *testing.T) {
 			PreToolUse []struct {
 				Matcher string `json:"matcher"`
 				Hooks   []struct {
-					Command string `json:"command"`
-					Timeout int    `json:"timeout"`
+					Command   string `json:"command"`
+					Timeout   int    `json:"timeout"`
+					OnFailure string `json:"onFailure"`
 				} `json:"hooks"`
 			} `json:"PreToolUse"`
 		} `json:"hooks"`
@@ -320,6 +321,9 @@ func TestTheRuntimeOutwaitsEveryGuardsOwnBound(t *testing.T) {
 					seen[script] = true
 					for _, tool := range strings.Split(group.Matcher, "|") {
 						registered[tool] = true
+					}
+					if h.OnFailure != "block" {
+						t.Errorf("%s: a hook the runtime kills allows the call unless onFailure says block; it says %q", script, h.OnFailure)
 					}
 					if h.Timeout <= own {
 						t.Errorf("%s: the runtime kills it at %d s, inside lib.sh's own bound of %d s", script, h.Timeout, own)
