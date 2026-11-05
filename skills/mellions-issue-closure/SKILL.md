@@ -39,7 +39,7 @@ happened.
 |---|---|
 | `merge` | the implementation is merged into the base branch |
 | `promotion` | the change is on the release branch |
-| `deployment` | the running image contains the change |
+| `deployment` | the running artifact (image digest, binary) carries the change; a host-kept setting (compose, env, unit, …) is on the host and reads back at runtime |
 | `migration` | the named migration is applied, verified by query |
 | `recompute` | affected projections are rebuilt and reconciled |
 | `runtime-proof` | a named metric or query is observed correct in production |
@@ -50,10 +50,9 @@ never blocks a documentation fix behind a deployment gate either. Where the
 repository declares its own closure policy (`issue-defined`, for instance),
 that policy is the rule.
 
-For Mellions' own repository the running system is the checkout `mellions
-doctor` names as the load path: it closes when that checkout stands at the
-merge and, for a binary change, the installed binary matches — quote the
-doctor line, never the merge alone.
+For Mellions' own repository the host's copy is the checkout `mellions doctor`
+names as the load path: quote the doctor line showing a commit containing the
+merge.
 
 ## A blocker is not an endpoint
 
@@ -94,8 +93,8 @@ review before closure governs; this method is what has to be true underneath.
 
 Nothing is closed on a local state. Verify at the remote: the commit SHA on
 the base branch at origin, the pull request's merge state and merge commit,
-CI on the merge, and the acceptance rule's own evidence — the running image
-for `deployment`, the query result for `migration`, the observed series for
+CI on the merge, and the acceptance rule's own evidence — the read-back for
+`deployment`, the query result for `migration`, the observed series for
 `runtime-proof`. Link the observed remote evidence; never write a SHA, a PR
 number or a test result you have not seen at the remote.
 
