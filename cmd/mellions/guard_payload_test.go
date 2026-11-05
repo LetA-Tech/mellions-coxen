@@ -90,8 +90,6 @@ func TestATerminalCarriesNoPayload(t *testing.T) {
 
 // everyGuard is each command that answers a PreToolUse payload. A new guard that
 // reads its call any way other than guardPayload belongs in this table.
-func cmdSecretCheckNoArgs() error { return cmdSecretCheck(nil) }
-
 var everyGuard = map[string]func() error{
 	"secret-check":      func() error { return cmdSecretCheck(nil) },
 	"pr-body-check":     func() error { return cmdPRBodyCheck(context.Background(), nil) },
@@ -99,6 +97,8 @@ var everyGuard = map[string]func() error{
 	"pr-merge-check":    func() error { return cmdPRMergeCheck(context.Background(), nil) },
 	"cite-check":        func() error { return cmdCiteCheck(context.Background(), nil) },
 }
+
+func cmdSecretCheckNoArgs() error { return cmdSecretCheck(nil) }
 
 // runGuard hands payload to a guard the way hooks/lib.sh does and returns what
 // it printed on stdout, which is all the runtime reads.
