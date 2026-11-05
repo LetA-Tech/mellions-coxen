@@ -564,18 +564,7 @@ func ScanBash(command string) []Finding {
 
 			// Everything from here is an ordinary command. Wrappers do not change
 			// what it does with its arguments.
-			for i < len(words) {
-				w := path.Base(words[i])
-				if wrappers[w] {
-					i++
-					continue
-				}
-				if n, ok := prefixOperands(w, words[i:]); ok {
-					i += n
-					continue
-				}
-				break
-			}
+			i = pastWrappers(words, i)
 			if i >= len(words) {
 				continue
 			}
@@ -623,6 +612,23 @@ func ScanBash(command string) []Finding {
 		}
 		return dedupe(out)
 	})
+}
+
+// pastWrappers returns the index of the command word at or after i.
+func pastWrappers(words []string, i int) int {
+	for i < len(words) {
+		w := path.Base(words[i])
+		if wrappers[w] {
+			i++
+			continue
+		}
+		if n, ok := prefixOperands(w, words[i:]); ok {
+			i += n
+			continue
+		}
+		break
+	}
+	return i
 }
 
 // operandSecrets returns the credential paths one argument names. A pattern or
@@ -748,15 +754,38 @@ func closesUnopened(text string) bool {
 }
 
 // secretInCommands returns the first credential path the commands' words name,
-// including one read by a substitution nested in a word.
+// including one read by a substitution nested in a word. A grep's pattern is
+// read as it is at the top level, since grep runs no text. A sed script is not:
+// its e command runs the shell.
 func secretInCommands(cmds []*shellsplit.Command) string {
 	for _, c := range cmds {
-		for _, w := range c.Words {
-			if found := secretsInWord(w); len(found) > 0 {
-				return found[0]
+		words, argc := commandFirst(c)
+		at := 0
+		for at < len(words) && assignment.MatchString(words[at]) {
+			at++
+		}
+		at = pastWrappers(words, at)
+		var reader string
+		var patterns map[int]bool
+		var walks bool
+		if at < len(words) {
+			reader = path.Base(words[at])
+			if reader != "sed" {
+				patterns, walks = patternOperands(reader, words[at+1:max(argc, at+1)])
 			}
-			if f := secretInText(w); f != "" {
-				return f
+		}
+		for wi, w := range words {
+			if patterns[wi-at-1] {
+				if found := operandSecrets(c, reader, w, true, walks); len(found) > 0 {
+					return found[0]
+				}
+			} else {
+				if found := secretsInWord(w); len(found) > 0 {
+					return found[0]
+				}
+				if f := secretInText(w); f != "" {
+					return f
+				}
 			}
 			if f := secretInside(w); f != "" {
 				return f

@@ -61,8 +61,6 @@ func TestScanBash_QuotedTextInASubstitution(t *testing.T) {
 		{`V=$(python3 -c "import glob,os; [print(open(f).read()) for f in glob.glob('.*') if os.path.isfile(f)]") && echo "$V"`, "$V"},
 		{`V=$(sh -c 'cat .*\n') && echo "$V"`, "$V"},
 		{`V=$(sh -c 'cat .?\b*') && echo "$V"`, "$V"},
-		// A .* in a pattern without a backslash cannot be told from a glob.
-		{`K=$(grep -o 'event stream kept: .*' run.out); echo $K`, "$K"},
 	}
 	for _, c := range caught {
 		got := ScanBash(c.cmd)
