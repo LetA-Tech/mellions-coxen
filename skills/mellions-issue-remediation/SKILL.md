@@ -27,8 +27,7 @@ any path that must not enter the diff without authorization. Where none
 declares the base, `references/base-branch.md` says how to infer it. A current
 issue contract or plan is enough; an architecture or cross-service contract
 change goes through `mellions-issue-resolution-proposal` first. No item at all
-→ file one (`mellions-issue-creation`) and plan it there. The pull request is
-an artifact on the item, never a substitute for it.
+→ file one (`mellions-issue-creation`) and plan it there.
 
 **2 — Reconcile the premise with the current target.** Reuse established source
 understanding and evidence under `mellions-deep-research`'s input-validity rule.
@@ -42,9 +41,7 @@ silently redefined.
 its current remote tip; `mellions assign open` does this. Then run every
 baseline check the repository requires. Otherwise retain accepted baseline
 evidence whose relevant inputs are unchanged, and run the focused checks or
-reproduction needed to attribute plausible failures before editing. A result
-captured only afterwards cannot establish what already failed. Missing or
-invalid evidence is obtained, not assumed. A defect found mid-implementation is decided, never quiet:
+reproduction needed to attribute plausible failures before editing. A defect found mid-implementation is decided, never quiet:
 inside the causal lane — the same root cause, contract, execution path, data
 flow, persistence consequence or defect family — it is yours through verified
 resolution, fixed here with its own test; only a genuinely independent lane
@@ -55,13 +52,16 @@ Unreachable re-scopes the work or is priced in as a startup cost — decided
 now, not mid-implementation.
 
 **4 — Cover the class.** Establish the affected paths and siblings sharing the
-root cause before editing them; reuse a verified inventory where its inputs
-still hold. Do not fix only the reported instance. A new value consumers see
-— enum member, type, state, admitted value — reaches each consumer branching on
-the old set; parsing or storing it proves nothing. Search each for the old
-values and read every switch, filter and default arm; a consumer that must
-change joins step 8's coordinated set. A new field alone is not this. Scope
-materially larger than the contract → update it on the item first.
+root cause before editing them. A new value consumers see — enum member, type,
+state, admitted value — reaches each consumer branching on the old set; parsing
+or storing it proves nothing. Search each for the old values and read every
+switch, filter and default arm; a consumer that must change joins step 8's
+coordinated set. A new field alone is not this. A shared function, table or RPC
+that starts refusing what it accepted reaches callers the same way, whatever its
+signature says: search each consumer for its name, fixtures included, read what
+each call sends and needs to exist first; one refused joins that set, its proof
+run against your head. Scope materially larger than the contract → update it on
+the item first.
 
 **5 — Implement.** Every file is opened before it is changed. Fix the cause at
 the point every caller routes through, not each call site in turn. Machinery the change makes unreachable is deleted with its
