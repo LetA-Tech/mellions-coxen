@@ -548,6 +548,10 @@ func ScanBash(command string) []Finding {
 				continue
 			}
 
+			// A word's text is a heredoc's body where its substitution has one, so
+			// what the substitution also runs is read from where the lexer keeps it.
+			ran := secretInCommands(c.Runs)
+
 			// Leading NAME=value assignments. One whose value reads a credential is
 			// the safe capture form; remember the name so a later print of it in the
 			// same command line is still caught.
@@ -558,7 +562,7 @@ func ScanBash(command string) []Finding {
 				}
 				name, value, _ := strings.Cut(words[i], "=")
 				switch {
-				case containsSecretRead(value):
+				case ran != "" || containsSecretRead(value):
 					holdsValue[name] = true
 				case IsSecretPath(value):
 					holdsPath[name] = true
@@ -611,6 +615,9 @@ func ScanBash(command string) []Finding {
 				if containsSecretRead(a) && printers[reader] {
 					out = append(out, Finding{Path: secretInside(a), Reader: reader, Substituted: true})
 				}
+			}
+			if ran != "" && printers[reader] {
+				out = append(out, Finding{Path: ran, Reader: reader, Substituted: true})
 			}
 		}
 		return dedupe(out)

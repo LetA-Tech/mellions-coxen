@@ -93,6 +93,8 @@ func TestScanBash_TextOutsideACaptureIsText(t *testing.T) {
 		`V=$(sudo grep -c 'a credential file' a.go) && echo "$V"`,
 		`K=$(grep -o 'event stream kept: .*' run.out); echo $K`,
 		`K=$(timeout 5 grep -o '.*foo' run.out); echo $K`,
+		"gh pr create --body \"$(cat <<'EOF'\nsee .env\nEOF\n)\"",
+		"X=$(cat <<E\nhello\nE\n); echo \"$X\"",
 	} {
 		if got := ScanBash(cmd); len(got) != 0 {
 			t.Errorf("%s\n  refused: %+v", cmd, got)
@@ -116,6 +118,9 @@ func TestScanBash_CaptureHidesNoRead(t *testing.T) {
 		"X=\"$(( (1+$(cat .pgpass)) ))\"; echo \"$X\"",
 		"X=\"`cat .pgpass`$(date)\"; echo \"$X\"",
 		"X=\"$(date)`cat .pgpass`\"; echo \"$X\"",
+		"X=$(cat .pgpass; cat <<E\nhello\nE\n); echo \"$X\"",
+		"echo \"$(cat .pgpass; cat <<E\nhello\nE\n)\"",
+		"echo \"$(cat <<E\nhello\nE\ncat .pgpass\n)\"",
 		`X=$(echo $(cat .pgpass|base64)); echo "$X"`,
 		`V=$(grep x .pgpass) && echo "$V"`,
 		`V=$(grep -e x .pgpass) && echo "$V"`,
