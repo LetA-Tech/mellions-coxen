@@ -59,23 +59,10 @@ func cmdSecretCheck(args []string) error {
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	payload := readPayload(os.Stdin)
-	if len(payload) == 0 {
-		guardUsage("secret-check", "It denies a read that would put credential material "+
-			"into the transcript.")
-		return nil
-	}
-	var ev struct {
-		ToolName string `json:"tool_name"`
-		Input    struct {
-			Command  string `json:"command"`
-			File     string `json:"file_path"`
-			Path     string `json:"path"`
-			Notebook string `json:"notebook_path"`
-		} `json:"tool_input"`
-	}
-	if json.Unmarshal(payload, &ev) != nil {
-		return nil
+	_, ev, done, err := guardPayload(os.Stdin, "secret-check", "It denies a read that would put credential material "+
+		"into the transcript.")
+	if done {
+		return err
 	}
 
 	var findings []secretread.Finding

@@ -32,16 +32,15 @@ func cmdSharedTreeCheck(args []string) error {
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	payload := readPayload(os.Stdin)
-	if len(payload) == 0 {
-		guardUsage("shared-tree-check", "It denies a tree-mutating git command aimed at a "+
-			"checkout this installation cuts lanes from, and names the read that answers "+
-			"the same question; an rm that globs directly under a temporary root every "+
-			"session shares (/tmp, /var/tmp, /dev/shm, $TMPDIR); a pkill, killall or kill "+
-			"that chooses processes by name or pattern rather than by a pid; and an Edit, Write, "+
-			"MultiEdit or NotebookEdit by a session holding an assignment into such a "+
-			"checkout or the load path, naming the same file in its lane.")
-		return nil
+	payload, _, done, err := guardPayload(os.Stdin, "shared-tree-check", "It denies a tree-mutating git command aimed at a "+
+		"checkout this installation cuts lanes from, and names the read that answers "+
+		"the same question; an rm that globs directly under a temporary root every "+
+		"session shares (/tmp, /var/tmp, /dev/shm, $TMPDIR); a pkill, killall or kill "+
+		"that chooses processes by name or pattern rather than by a pid; and an Edit, Write, "+
+		"MultiEdit or NotebookEdit by a session holding an assignment into such a "+
+		"checkout or the load path, naming the same file in its lane.")
+	if done {
+		return err
 	}
 	reason := bashDeny(payload)
 	if reason == "" {
