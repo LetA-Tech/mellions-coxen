@@ -30,12 +30,16 @@ import (
 // Runs is what bash runs for the $(…) substitutions the command's words and
 // redirections hold, read where quoting leaves them live: never one inside
 // single quotes or escaped. They stay out of Words, which hold their text.
+//
+// Globs lists the indexes in Words of the words holding an unquoted *, ?, [ or
+// {, which bash may expand into other words before the command sees them.
 type Command struct {
 	Words    []string
 	Heredocs []string
 	Out      string
 	Stdin    []int
 	Runs     []*Command
+	Globs    []int
 }
 
 // Args returns the words the command runs with: its name and arguments, never
@@ -116,6 +120,8 @@ func lex(command string, i int, stopAtParen, comments bool) ([]*Command, int) {
 	// runs is whether the pending word holds a substitution, whose command
 	// bash runs wherever the word sits.
 	runs := false
+	// globs is whether the pending word holds an unquoted expansion character.
+	globs := false
 	// Inside a backtick, ${…}, [[ … ]] or (( … )) bash reads one word, or its
 	// own grammar, across the blanks this lexer splits at, so a # there may not
 	// start a comment. While one is open a # is kept as text: tick is an open
@@ -185,8 +191,12 @@ func lex(command string, i int, stopAtParen, comments bool) ([]*Command, int) {
 				cur.Stdin = append(cur.Stdin, len(cur.Words))
 				redirIn = false
 			}
+			if globs {
+				cur.Globs = append(cur.Globs, len(cur.Words))
+			}
 			cur.Words = append(cur.Words, s)
 		}
+		globs = false
 	}
 	// endBeforeRedirect ends the word pending at a < or >. Literal digits or a
 	// {name} glued to the operator are the descriptor it redirects, so they are
@@ -412,6 +422,8 @@ func lex(command string, i int, stopAtParen, comments bool) ([]*Command, int) {
 				condParen++
 			case c == ')' && condParen > 0:
 				condParen--
+			case c == '*' || c == '?' || c == '[' || c == '{':
+				globs = true
 			}
 			w.WriteByte(c)
 			hasWord = true
@@ -529,12 +541,11 @@ func substitution(command string, i int, comments bool) (string, []*Command, int
 	return b.String(), inner, next
 }
 
-// Substitution returns the commands the $(…) beginning at s[i] runs, and the
-// index just past its ")". $((…)) is arithmetic and runs none. comments is the
-// lexer's: whether an unquoted # starting a word comments out the rest of the
-// line, so a caller reads both ways as Readings does.
-func Substitution(s string, i int, comments bool) ([]*Command, int) {
-	_, inner, next := substitution(s, i, comments)
+// Substitution returns the commands the $(…) beginning at s[i] runs, read with
+// no # as a comment, and the index just past its ")". $((…)) is arithmetic and
+// runs none.
+func Substitution(s string, i int) ([]*Command, int) {
+	_, inner, next := substitution(s, i, false)
 	return inner, next
 }
 
