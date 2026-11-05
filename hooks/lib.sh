@@ -18,8 +18,7 @@ mellions="${MELLIONS_BIN:-$(command -v mellions || true)}"
 # a pipe the runtime wrote and for a descriptor that is closed, and on a closed
 # descriptor `cat` does not return — the hook hangs until the runtime kills it,
 # which on PreCompact is a compaction waiting on nothing. `read -d ''` is a
-# builtin, so the bound holds on a host with no `timeout`, and it consumes to
-# EOF, so a payload that is there arrives whole.
+# builtin, so the bound holds on a host with no `timeout`.
 #
 # Two bounds, because a hook the runtime kills is allowed by the runtime. Silence
 # ends the read after one empty 2 s read, so a descriptor nobody closes costs at
@@ -106,7 +105,7 @@ guard() {
   out=$(run "$@")
   rc=$?
   if [[ $rc -ne 0 ]]; then
-    refuse "This tool call was not examined: mellions $1 exited $rc before deciding (124 or 137 is its own 8 s bound ending it), so the guard refused it rather than let it through unread. Nothing about the call itself was judged. Retry it; if it repeats, the installed binary is what needs looking at."
+    refuse "This tool call was not examined: mellions $1 exited $rc before deciding (124 or 137 is its own 8 s bound ending it), so the guard refused it rather than let it through unread. Nothing about the call itself was judged. Retry it; if it repeats, guarded tools stay refused here until a person replaces the installed binary from a terminal."
     return 0
   fi
   [[ -z "$out" ]] || printf '%s\n' "$out"

@@ -93,11 +93,11 @@ do
 
   # A person at a terminal is not the runtime. script gives the hook a real tty;
   # a host without it says so rather than passing in silence.
-  if command -v script >/dev/null 2>&1; then
+  if script -qefc true /dev/null </dev/null >/dev/null 2>&1; then
     out=$(script -qefc "bash '$hook'" /dev/null </dev/null 2>/dev/null)
     [[ -z "${out//[$'\r\n']/}" ]] || bad "$name: refused a person at a terminal: $out"
   else
-    printf '  %s: no script(1) here, so the terminal case did not run\n' "$name"
+    printf '  %s: no GNU script(1) here, so the terminal case did not run\n' "$name"
   fi
 done
 

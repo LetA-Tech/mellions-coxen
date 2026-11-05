@@ -78,8 +78,8 @@ Four layers remain distinct:
    payload a guard cannot read whole (late, absent, undecodable, over its bound)
    is refused by all of them, as is a binary that exits or hangs before deciding,
    because the runtime reads a guard's silence as allow. `onFailure: block` in
-   `hooks/hooks.json` makes a hook Claude Code kills a refusal too; Codex has no
-   such setting and allows it. These checks do not form a general
+   `hooks/hooks.json` makes a guard Claude Code kills, or that cannot start, a
+   refusal too; Codex has no such setting and allows it. These checks do not form a general
    permission layer.
 4. **Runtime permissions and operator controls** decide which capabilities are
    available at all. Branch protection, scoped GitHub tokens, filesystem and

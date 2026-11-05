@@ -273,8 +273,10 @@ func TestAGuardDecidesALargePayloadWhole(t *testing.T) {
 	}
 }
 
-// A hook the runtime kills is allowed by the runtime, so hooks/lib.sh's own
-// bounds (2 s of silence, 8 s for the binary) must end first for each guard.
+// A hook the runtime kills is allowed unless its manifest entry says otherwise, so
+// the runtime's limit has to clear lib.sh's read window, its second of rounding and
+// the binary's bound with its kill, and a failure has to be one the runtime can see:
+// a trailing `exit 0` turns a crash or a script that will not start into silence.
 func TestTheRuntimeOutwaitsEveryGuardsOwnBound(t *testing.T) {
 	lib, err := os.ReadFile(filepath.Join("..", "..", "hooks", "lib.sh"))
 	if err != nil {
@@ -321,6 +323,9 @@ func TestTheRuntimeOutwaitsEveryGuardsOwnBound(t *testing.T) {
 					seen[script] = true
 					for _, tool := range strings.Split(group.Matcher, "|") {
 						registered[tool] = true
+					}
+					if strings.Contains(h.Command, "exit 0") {
+						t.Errorf("%s: %q hides a failed start or a crash from onFailure", script, h.Command)
 					}
 					if h.OnFailure != "block" {
 						t.Errorf("%s: a hook the runtime kills allows the call unless onFailure says block; it says %q", script, h.OnFailure)
