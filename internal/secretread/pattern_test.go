@@ -50,7 +50,7 @@ func TestScanBash_PatternOperandHidesNoRead(t *testing.T) {
 		`grep .env -r config.d`, `grep .env config.d -r`, `grep -nr .env config.d`,
 		`O=-r; grep .env $O config.d`, `grep .env "$O" config.d`, "grep .env `o` config.d",
 		// A name stays read in a pattern: a grep may walk without saying so.
-		`grep secret .`, `grep -n .env .`, `grep -in secret d`, `grep "secret" ./`,
+		`grep secret .`, `grep -n .env .`, `grep -in secret d`, `grep secret d | head -5`, `grep "secret" ./`,
 		`K=$(grep secret .); echo "$K"`, `K=$(grep .env d); echo "$K"`,
 		`grep -n .env Makefile`, `grep -n AWS_SECRETS_MANAGER_NAME a.go`,
 		// Permutation may be off, and an option may arrive by expansion.
