@@ -27,6 +27,9 @@ mellions="${MELLIONS_BIN:-$(command -v mellions || true)}"
 # a pipe a byte at a time, about 1 MB/s on a loaded host, so a drip or a call of
 # several MiB is cut here and refused by the binary, whose decode is what tells
 # whole from cut. A JSON object's prefix is never a JSON object.
+#
+# bash 3.2, a stock macOS's, drops what a read held when its timer ended, so there
+# a stall or an unclosed descriptor reads as no payload and is refused, not decided.
 payload=""
 payload_state=terminal
 payload_window=6
@@ -103,7 +106,7 @@ guard() {
   out=$(run "$@")
   rc=$?
   if [[ $rc -ne 0 ]]; then
-    refuse "This tool call was not examined: mellions $1 exited $rc before deciding, so the guard refused it rather than let it through unread. Nothing about the call itself was judged. Retry it; if it repeats, the installed binary is what needs looking at."
+    refuse "This tool call was not examined: mellions $1 exited $rc before deciding (124 or 137 is its own 8 s bound ending it), so the guard refused it rather than let it through unread. Nothing about the call itself was judged. Retry it; if it repeats, the installed binary is what needs looking at."
     return 0
   fi
   [[ -z "$out" ]] || printf '%s\n' "$out"

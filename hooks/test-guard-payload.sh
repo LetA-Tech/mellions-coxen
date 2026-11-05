@@ -103,10 +103,21 @@ done
 
 # Slow but steady is not late: a total past 2 s with no silence that long is
 # decided whole. One hook is enough; the read is lib.sh's, shared by all three.
+# Before bash 4 a timed-out read drops what it held, so these cases are refused
+# there, and are still never silence.
 hook="$root/hooks/secret-check.sh"
 f="$tmp/secret-check.sh.json"
+keeps_partial=$(bash -c '(( BASH_VERSINFO[0] >= 4 )) && echo yes')
+decided_or_refused() { # <what> <verdict function> <output>
+  if [[ -n "$keeps_partial" ]]; then
+    "$2" "$3" || bad "$1 was not decided: ${3:-<silence>}"
+  else
+    unread_refusal "$3" || bad "$1 was not refused on this bash: ${3:-<silence>}"
+  fi
+}
+silent() { [[ -z "$1" ]]; }
 out=$(bash "$hook" < <(head -c 30 "$f"; sleep 1.2; tail -c +31 "$f" | head -c 30; sleep 1.2; tail -c +61 "$f") 2>/dev/null)
-own_denial "$out" || bad "a slow but steady payload was not decided whole: ${out:-<silence>}"
+decided_or_refused "a slow but steady payload" own_denial "$out"
 
 # It starts, then stops: bytes that end in silence are a partial call, refused
 # whichever read's timer the silence fell in. Two reads can span up to 4 s of it.
@@ -116,9 +127,9 @@ unread_refusal "$out" || bad "a payload that stopped arriving was not refused: $
 # Whole, on a descriptor nobody closes: the payload is all there and is decided,
 # not refused for the silence after it. The decode is what tells whole from cut.
 out=$(bash "$hook" < <(cat "$f"; sleep 5) 2>/dev/null)
-own_denial "$out" || bad "a whole payload on an open descriptor was not decided: ${out:-<silence>}"
+decided_or_refused "a whole payload on an open descriptor" own_denial "$out"
 out=$(bash "$hook" < <(cat "$tmp/ok.json"; sleep 5) 2>/dev/null)
-[[ -z "$out" ]] || bad "an ordinary payload on an open descriptor was refused: $out"
+decided_or_refused "an ordinary payload on an open descriptor" silent "$out"
 
 # The hooks that decide on a time bound get one run together, since each waits it
 # out. lib.sh's bounds are what stands between these and the runtime's kill, and a
