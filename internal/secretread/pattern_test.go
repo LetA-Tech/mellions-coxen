@@ -121,6 +121,7 @@ func TestScanBash_CaptureHidesNoRead(t *testing.T) {
 		"X=$(cat .pgpass; cat <<E\nhello\nE\n); echo \"$X\"",
 		"echo \"$(cat .pgpass; cat <<E\nhello\nE\n)\"",
 		"echo \"$(cat <<E\nhello\nE\ncat .pgpass\n)\"",
+		"X=$(echo \"$(cat .pgpass; cat <<E\nhello\nE\n)\"); echo \"$X\"",
 		`X=$(echo $(cat .pgpass|base64)); echo "$X"`,
 		`V=$(grep x .pgpass) && echo "$V"`,
 		`V=$(grep -e x .pgpass) && echo "$V"`,

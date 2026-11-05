@@ -801,11 +801,8 @@ func secretInCommands(cmds []*shellsplit.Command) string {
 				return f
 			}
 		}
-		// An unquoted delimiter leaves a heredoc's substitutions live.
-		for _, h := range c.Heredocs {
-			if f := secretInside(h); f != "" {
-				return f
-			}
+		if f := secretInCommands(c.Runs); f != "" {
+			return f
 		}
 	}
 	return ""
