@@ -35,7 +35,7 @@ func TestReasonStatesTheNamesItMatched(t *testing.T) {
 		{"a variable assigned a substitution naming a credential", `U="$(tail -1 .db_connection)"; echo "$U"`,
 			"`$U` was assigned, earlier on this command line, a word containing `$(` or a backtick " +
 				"and a credential file's name, and `echo` " + onPrinterList},
-		{"a substitution beside a credential name", `echo "$(date) .env"`,
+		{"a substitution naming a credential", `echo "$(grep -c x .env)"`,
 			"an argument to `echo` contains `$(` or a backtick and the credential file name `.env`, and `echo` " + onPrinterList},
 	}
 	for _, tt := range tests {
@@ -74,7 +74,7 @@ func TestReasonAssertsNoBehaviour(t *testing.T) {
 		`grep -c "$(cat .env)" log.txt`,
 		`X="$(echo .env)"; echo "$X"`,
 		`X="$(cat .env)"; X=foo; echo "$X"`,
-		`echo "$(date) .env"`,
+		`echo "$(grep -c x .env)"`,
 		`for s in check-publish-credential-scope; do bash scripts/$s.sh; done`,
 	} {
 		got := ScanBash(cmd)

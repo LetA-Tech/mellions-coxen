@@ -529,6 +529,15 @@ func substitution(command string, i int, comments bool) (string, []*Command, int
 	return b.String(), inner, next
 }
 
+// Substitution returns the commands the $(…) beginning at s[i] runs, and the
+// index just past its ")". $((…)) is arithmetic and runs none. comments is the
+// lexer's: whether an unquoted # starting a word comments out the rest of the
+// line, so a caller reads both ways as Readings does.
+func Substitution(s string, i int, comments bool) ([]*Command, int) {
+	_, inner, next := substitution(s, i, comments)
+	return inner, next
+}
+
 // readHeredocs consumes the queued heredoc bodies starting at i, which is the
 // first byte of the line after the one that declared them, and returns the
 // index just past the last delimiter line. A heredoc the command line never
