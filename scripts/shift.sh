@@ -272,6 +272,18 @@ if command -v go >/dev/null 2>&1; then
   fi
 fi
 
+# cron reads no login profile, so a node installed by a version manager is off PATH: a
+# repository's pre-push hook then refuses every push from a shift, and the Codex runtime
+# cannot start, on a host that has both. The login shell names it; it goes last on PATH.
+if ! command -v node >/dev/null 2>&1; then
+  node_probe=()
+  [ "${#TIMEOUT[@]}" -eq 0 ] || node_probe=("${TIMEOUT[0]}" 10)
+  login_node=$(${node_probe[@]+"${node_probe[@]}"} bash -lc 'command -v node' </dev/null 2>/dev/null | tail -1)
+  case "$login_node" in
+    /*/node) [ ! -x "$login_node" ] || export PATH="$PATH:${login_node%/*}" ;;
+  esac
+fi
+
 # ---- 1. situational awareness ------------------------------------------------
 survey="$HOME_DIR/shifts/$stamp.survey.md"
 if [ -n "$TASK" ]; then
