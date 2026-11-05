@@ -1076,6 +1076,64 @@ case ":$saw:" in *":$tmp/n/absent/bin:"*) bad "N3: a directory that does not exi
 
 note "N: the session's PATH carries the Go install directory (GOBIN, else the first GOPATH entry's bin) when it exists, once, and nothing that does not exist"
 
+# ---- Na. a node only the login profile knows ----------------------------------
+# cron reads no profile, so a version manager's node is invisible to the hook and to
+# Codex. HOME holds the profile; PATH is reduced to what a cron line would carry.
+if PATH=/usr/bin:/bin command -v node >/dev/null 2>&1; then
+  note "Na: skipped, this host has a node on /usr/bin or /bin"
+else
+  mkdir -p "$tmp/na/vm/bin" "$tmp/na/own" "$tmp/na/h1" "$tmp/na/h2" "$tmp/na/h3" "$tmp/na/h4" "$tmp/na/h5"
+  printf '#!/bin/sh\nexit 0\n' > "$tmp/na/vm/bin/node"; chmod +x "$tmp/na/vm/bin/node"
+  printf '#!/bin/sh\nexit 0\n' > "$tmp/na/own/node"; chmod +x "$tmp/na/own/node"
+  run_na() {   # run_na <home> <path-prefix>
+    : > "$STUB_DIR/n.env"
+    env HOME="$2" PATH="$3$tmp/n/go:/usr/bin:/bin" MELLIONS_HOME="$1" MELLIONS_BIN="$STUB_DIR/mellions" \
+        CLAUDE_BIN="$STUB_DIR/claude-n" MELLIONS_PROMPT="$tmp/l-task.md" \
+        "$root/scripts/shift.sh" > "$tmp/na.out" 2>&1
+    saw=$(cat "$STUB_DIR/n.env")
+  }
+
+  # Na1: the profile's node reaches the session, last on PATH, once.
+  mkdir -p "$tmp/na/p1"; printf 'export PATH="$PATH:%s"\necho noise from a profile\n' "$tmp/na/vm/bin" > "$tmp/na/p1/.profile"
+  run_na "$tmp/na/h1" "$tmp/na/p1" ""
+  case "$saw" in *":$tmp/na/vm/bin") ;; *) bad "Na1: the session's PATH does not end in the profile's node directory, so a pre-push hook refuses: '$saw' $(tail -3 "$tmp/na.out")" ;; esac
+  [ "$(printf '%s' ":$saw:" | grep -o ":$tmp/na/vm/bin:" | wc -l)" -eq 1 ] || bad "Na1: node's directory was duplicated: '$saw'"
+
+  # Na2: a node already on PATH stands, and the profile is not asked.
+  run_na "$tmp/na/h2" "$tmp/na/p1" "$tmp/na/own:"
+  case ":$saw:" in *":$tmp/na/vm/bin:"*) bad "Na2: the profile's node was added beside one already on PATH: '$saw'" ;; esac
+  case ":$saw:" in *":$tmp/na/own:"*) ;; *) bad "Na2: the PATH's own node was dropped: '$saw'" ;; esac
+
+  # Na3: a profile that names no node leaves PATH as it was, and the session starts.
+  mkdir -p "$tmp/na/p3"; printf 'export NOTHING=1\n' > "$tmp/na/p3/.profile"
+  run_na "$tmp/na/h3" "$tmp/na/p3" ""
+  [ -n "$saw" ] || bad "Na3: the session never started: $(tail -3 "$tmp/na.out")"
+
+  # Na4: an alias or a directory that is not a runnable node is not put on PATH.
+  mkdir -p "$tmp/na/p4"; printf 'alias node=/opt/x/node\nshopt -s expand_aliases\n' > "$tmp/na/p4/.profile"
+  run_na "$tmp/na/h4" "$tmp/na/p4" ""
+  case ":$saw:" in *":/opt/x:"*) bad "Na4: an alias's directory reached PATH: '$saw'" ;; esac
+  [ -n "$saw" ] || bad "Na4: the session never started: $(tail -3 "$tmp/na.out")"
+
+  # Na5: a profile that hangs costs the shift its bound, not its start.
+  if command -v timeout >/dev/null 2>&1; then
+    mkdir -p "$tmp/na/p5"; printf 'sleep 60\n' > "$tmp/na/p5/.profile"
+    na_start=$SECONDS
+    run_na "$tmp/na/h5" "$tmp/na/p5" ""
+    [ -n "$saw" ] || bad "Na5: a hung profile stopped the session: $(tail -3 "$tmp/na.out")"
+    [ $((SECONDS - na_start)) -lt 40 ] || bad "Na5: a hung profile was waited out: $((SECONDS - na_start))s"
+  fi
+
+  # Na6: a job the profile leaves in the background does not hold the shift's start.
+  mkdir -p "$tmp/na/p6" "$tmp/na/h6"; printf 'sleep 45 &\n' > "$tmp/na/p6/.profile"
+  na_start=$SECONDS
+  run_na "$tmp/na/h6" "$tmp/na/p6" ""
+  [ -n "$saw" ] || bad "Na6: a background job stopped the session: $(tail -3 "$tmp/na.out")"
+  [ $((SECONDS - na_start)) -lt 30 ] || bad "Na6: a profile's background job was waited out: $((SECONDS - na_start))s"
+
+  note "Na: a node only the login profile knows reaches the session last on PATH, once; one already there stands; no name, an alias or a hung profile changes nothing"
+fi
+
 # ---- O. the shell the session's Bash tool runs under -------------------------
 # The runtime runs the tool under $SHELL where that names bash or zsh and picks
 # one itself otherwise; cron's SHELL is /bin/sh. Asserted on the SHELL the

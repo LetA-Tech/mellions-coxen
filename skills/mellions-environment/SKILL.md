@@ -1,6 +1,6 @@
 ---
 name: mellions-environment
-description: What this host can actually do, and how to establish it rather than assume it — toolchains, git and GitHub access, container runtimes, the disposable sandbox, and where the repositories are. Use when deciding whether a task is possible here, choosing what to ask a session to run, telling one where a repository lives, or answering what tooling is available. Triggers — "can we run", "is X installed", "where is the repo", "what version of", "run the tests", "use the sandbox".
+description: What this host can actually do, and how to establish it rather than assume it — toolchains, git and GitHub access, container runtimes, the disposable sandbox, and where the repositories are. Use when deciding whether a task is possible here, choosing what to ask a session to run, telling one where a repository lives, or answering what tooling is available. Triggers — "can we run", "is X installed", "where is the repo", "what version of", "run the tests", "use the sandbox", "pnpm is not on PATH".
 ---
 <!-- Mellions Engineer | LetA Tech Ltd. | leta@letatech.ca -->
 
@@ -36,8 +36,7 @@ origin` is what the remote actually has.
 Reproducing, testing, falsifying and validating a fix inside a container thrown
 away afterwards have no external effect and no owner decision in them. Where
 the owner has said nothing, use the sandbox as you would a temporary
-directory: without asking, and without announcing it. An engineer that has a
-sandbox and believes it must ask behaves exactly like one that has none.
+directory: without asking, and without announcing it.
 
 Where the owner has said something — the partnership, or this machine's
 runtime instructions — that wins. Where starting a container for engineering
@@ -57,8 +56,7 @@ Three things still stop and ask, and none of them is the sandbox itself:
 
 Whether the container runtime is up now (`docker info`) decides which work is
 *finishable* in a window: check it when
-choosing the work, not once the fix whose proof needs Postgres is written. A
-stopped runtime costs a start and an image pull — price that in; it is never a
+choosing the work. A stopped runtime costs a start and an image pull — price that in; it is never a
 reason to downgrade the proof.
 
 Whatever is started belongs to the turn that started it. Tear it down in the
@@ -91,7 +89,7 @@ A loop waiting on work you delegated is a background job your turn spawned.
 the cleanup unproven. A pattern matches the shell issuing it: `pgrep -f X`
 never goes false and `pkill -f X` takes itself, X being in their own argv. Act
 on the pid you started, then establish it is gone: `kill -0` per pid, and a
-sweep for survivors. A timed-out teardown is not a completed one.
+sweep for survivors.
 
 ## Limits worth knowing before promising something
 
@@ -146,6 +144,9 @@ d=$HOME/mellions; mkdir -p $d/locks $d/tmp/go && GOTMPDIR=$d/tmp/go \
 Exit 75: the lock was never acquired, the gate did not run, nothing waits.
 `test timed out after 10m0s` is the host's until a locked rerun says
 otherwise.
+
+A cron-started `command -v node` reads cron's PATH, not the host: ask `bash -lc`.
+A hook that runs a node gate, and a long push: `references/node-gate.md`.
 
 ## Establishing what a session actually receives
 
