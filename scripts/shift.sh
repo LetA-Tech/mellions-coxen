@@ -479,7 +479,7 @@ say "session exited $rc, reply $(wc -c < "$reply" | tr -d ' ') bytes"
 # the next one into the same wall.
 #
 # Matched on the reply alone. The reply is written only from the stream's
-# `result` event (scripts/shift-follow.py:74-76), and the refusal produces one:
+# `result` event (scripts/shift-follow.py:76-82), and the refusal produces one:
 # that is why the observed shift's reply is the 52-byte sentence and nothing
 # else. Reading the stream's tail as well would buy no refusal this misses and
 # would cost a real false positive — a session killed at MELLIONS_TIMEOUT also
