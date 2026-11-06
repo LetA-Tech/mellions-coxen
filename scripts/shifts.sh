@@ -88,10 +88,10 @@ RUNLOG="$SHIFTS/runner.log"
 UPDATELOG="$SHIFTS/runner-update.log"
 INSTALLED="$SHIFTS/runner.installed"
 MAX_BACKOFF=3600
-# The longest wait a named usage-limit window can buy. The account's window is
-# hours; a reset time that has just passed rolls to the next day, and a misparse
-# can name any hour of it, so the parsed case is capped rather than trusted
-# further than the unparsed one — which already falls back to MAX_BACKOFF.
+# The longest wait a bare reset time can buy. A session window is hours; a time
+# that has just passed rolls to the next day, and a misparse can name any hour of
+# it, so the parsed case is capped rather than trusted further than the unparsed
+# one, which already falls back to MAX_BACKOFF. A dated reset is not held to this.
 LIMIT_MAX_WAIT="${MELLIONS_LIMIT_MAX_WAIT:-21600}"
 
 seconds() {
@@ -455,13 +455,16 @@ while ! stop_wanted; do
   # named time spends a whole shift on one refused call. Where the sentence
   # named no resolvable time the fallback is the longest backoff, which is a
   # guess about the window and is logged as one.
-  limit_ts="" limit_at=""
+  #
+  # The ceiling is for a bare time, which rolls to the next day when it has just
+  # passed. A dated reset names its own instant and shift.sh has bounded it.
+  limit_ts="" limit_at="" limit_wait=""
   if [ -f "$SHIFTS/$id.limit" ]; then
-    read -r limit_ts limit_at _ < "$SHIFTS/$id.limit" || limit_ts=""
+    read -r limit_ts limit_at _ limit_wait < "$SHIFTS/$id.limit" || limit_ts=""
     [ "$limit_at" = "-" ] && limit_at=""
     [ "${limit_ts:-0}" -gt 0 ] 2>/dev/null || limit_ts=$(( $(date -u +%s) + MAX_BACKOFF ))
     ceiling=$(( $(date -u +%s) + LIMIT_MAX_WAIT ))
-    if [ "$limit_ts" -gt "$ceiling" ]; then
+    if [ "$limit_wait" != dated ] && [ "$limit_ts" -gt "$ceiling" ]; then
       log "shift $id named a window $(( (limit_ts - $(date -u +%s)) / 3600 ))h away${limit_at:+ (the refusal said $limit_at UTC)}, further off than a usage window runs; waiting $(( LIMIT_MAX_WAIT / 3600 ))h instead"
       limit_ts=$ceiling
       limit_at=""

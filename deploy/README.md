@@ -65,7 +65,10 @@ finished stay in the session. Between shifts it
   account's usage limit, and does not grow the cooldown for it: the refusal is
   the account's window, not a fault in the work. `shift.sh` leaves the window in
   `shifts/<stamp>.limit`; where the refusal named no time the runner falls back
-  to the longest cooldown and logs that it is guessing;
+  to the longest cooldown and logs that it is guessing. A bare time is waited for
+  up to `MELLIONS_LIMIT_MAX_WAIT` (6h); a reset naming a date, as a weekly limit's
+  does, is waited for whole, for days if need be, and restarting the runner ends
+  that wait;
 - starts at most `MELLIONS_SHIFTS_PER_DAY` (12) shifts in a UTC day, counted
   from the shift files on disk, so a runner the scheduler restarted cannot
   exceed it; a shift the account refused did no work and is not counted;
