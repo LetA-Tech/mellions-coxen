@@ -24,7 +24,7 @@ can be checked mechanically.
 | Identity | who it is — temperament, standards, what is the owner's | `agents/mellions.md`, loaded by the session-start hook; also the `mellions` agent for headless runs |
 | Partnership | how one person wants to be worked with and what they have delegated, in their words | `~/mellions/partners/<name>.md`, drafted from `mellions partner establish` |
 | Program | what the work is for: map, relationships, constraints, purpose, correctness, priorities | `~/mellions/programs/<slug>.md`, drafted from `mellions program discover` |
-| Survey | what needs attention across the estate, collected and never ranked: open work, changes under review, failing checks, work waiting on the owner, recent change, stale premises (an issue whose citations no longer match its repository's working branch, fetched and read at the remote; an open assignment whose branch left the remote) — rendered one line per signal with a drill-down, so it can be read at the moment it exists for | `mellions survey`; `internal/signal`, `survey`, `sources/*` |
+| Survey | what needs attention across the estate, collected and never ranked: open work, changes under review, failing checks, work waiting on the owner, recent change, stale premises (an issue whose citations no longer match its repository's working branch, fetched and read at the remote; an open assignment whose branch left the remote), and what the running system says (per service, ERROR and FATAL lines by message over a day; containers not plainly up) — rendered one line per signal with a drill-down, so it can be read at the moment it exists for | `mellions survey`; `internal/signal`, `survey`, `sources/*` |
 | Assignment | one piece of work: worktree, branch, why chosen, findings, handoff, the sessions that worked it | `mellions assign`; `internal/assignment` |
 | Continuity | after a break: what was recorded next to what the world says now | `mellions continue`; `internal/continuity` |
 | Presence | which sessions are on which tree, repository and assignment | `mellions who`, `mellions here`; `internal/presence` |
@@ -118,7 +118,7 @@ hooks/                      lifecycle delivery, awareness, deterministic
                             PreToolUse safeguards, hooks.json and shell tests
 cmd/mellions/               the CLI
 internal/signal, survey     situational awareness core
-internal/sources/           github, git, stale premises, assignments, programs
+internal/sources/           github, git, stale premises, assignments, programs, runner, runtime
 internal/assignment         one piece of work
 internal/continuity         the slate
 internal/presence           who is where

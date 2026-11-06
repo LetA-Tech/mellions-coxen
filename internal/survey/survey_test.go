@@ -669,3 +669,17 @@ func TestAPassedGateSaysSoInTheBriefRender(t *testing.T) {
 		t.Errorf("a change set whose gate is open reads %q", got)
 	}
 }
+
+func TestSignalsConcerningNoRepositoryAreNeverCapped(t *testing.T) {
+	var sigs []signal.Signal
+	for i := range briefPerRepo + 3 {
+		sigs = append(sigs, signal.Signal{Kind: signal.KindAlert, ID: fmt.Sprintf("logs:svc-%d", i), Title: "x"})
+	}
+	out := Result{At: time.Now(), Signals: sigs}.Render(Default())
+	if strings.Contains(out, "more collected") {
+		t.Errorf("a cap held back signals no -repos can print back:\n%s", out)
+	}
+	if got := strings.Count(out, "**logs:svc-"); got != briefPerRepo+3 {
+		t.Errorf("printed %d of %d services:\n%s", got, briefPerRepo+3, out)
+	}
+}

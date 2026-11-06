@@ -29,6 +29,7 @@ import (
 
 	"github.com/LetA-Tech/mellions-coxen/internal/checkout"
 	"github.com/LetA-Tech/mellions-coxen/internal/sources/runnersrc"
+	"github.com/LetA-Tech/mellions-coxen/internal/sources/runtimesrc"
 )
 
 // Version and Commit are set at build time.
@@ -312,6 +313,8 @@ type Config struct {
 	ReportRoot string `json:"report_root"`
 	// GitSinceHours bounds how far back recent-change reporting looks.
 	GitSinceHours int `json:"git_since_hours"`
+	// Runtime says where the runtime source reads the running system.
+	Runtime runtimesrc.Options `json:"runtime,omitempty"`
 
 	path string
 }
