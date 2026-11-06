@@ -17,6 +17,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/LetA-Tech/mellions-coxen/internal/signal"
 	"github.com/LetA-Tech/mellions-coxen/internal/survey"
@@ -86,7 +87,7 @@ const healthyControl = `{"n":"314315"}` + "\n"
 func TestAnUnhealthyServiceReachesThePrintedSurvey(t *testing.T) {
 	logs := stubLogs(t, healthyControl,
 		`{"service.name":"fininsight","n":"6","m":"1"}`+"\n"+
-			`{"service.name":"hipsys-worker-source","n":"282","m":"7"}`+"\n"+
+			`{"service.name":"hipsys-worker-source","n":"282","m":"7","last":"`+time.Now().Add(-3*time.Hour).UTC().Format(time.RFC3339Nano)+`"}`+"\n"+
 			`{"service.name":"finledger","n":"1","m":"1"}`+"\n",
 		`{"service.name":"hipsys-worker-source","body":"a readiness probe stopped holding","n":"277"}`+"\n"+
 			`{"service.name":"hipsys-worker-source","body":"a source observation round failed","n":"5"}`+"\n"+
@@ -104,7 +105,7 @@ func TestAnUnhealthyServiceReachesThePrintedSurvey(t *testing.T) {
 	}
 	for _, want := range []string{
 		"## Alerts — runtime and security (6)",
-		"**logs:hipsys-worker-source** 282 ERROR/FATAL lines in 24h: 277× a readiness probe stopped holding; 5× a source observation round failed; and 5 more messages",
+		"**logs:hipsys-worker-source** 3h · 282 ERROR/FATAL lines in 24h: 277× a readiness probe stopped holding; 5× a source observation round failed; and 5 more messages",
 		"**logs:fininsight** 6 ERROR/FATAL lines in 24h: 6× foundation operation failed",
 		"container hipsys-worker-source-1 on root@preprod: unhealthy",
 		"container outbox-worker on root@preprod: restarting, restarted 14 time(s)",

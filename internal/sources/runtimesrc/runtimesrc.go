@@ -39,7 +39,7 @@ const (
 	// raises nothing, so the control query proves these names still resolve.
 	errorLines = `_time:` + window + ` severity:in("ERROR","FATAL")`
 	control    = `_time:` + window + ` severity:* "service.name":* | stats count() n`
-	totals     = errorLines + ` | stats by ("service.name") count() n, count_uniq(body) m`
+	totals     = errorLines + ` | stats by ("service.name") count() n, count_uniq(body) m, max(_time) last`
 	messages   = errorLines + ` | stats by ("service.name", body) count() n` +
 		` | sort by (n desc, body) partition by ("service.name") limit ` + messagesPerService
 
@@ -140,6 +140,7 @@ func (s *Source) logs(ctx context.Context) ([]signal.Signal, error) {
 		Body    string `json:"body"`
 		N       string `json:"n"`
 		M       string `json:"m"`
+		Last    string `json:"last"`
 	}
 	var perService, perMessage []row
 	if err := query(ctx, base, totals, &perService); err != nil {
@@ -165,8 +166,11 @@ func (s *Source) logs(ctx context.Context) ([]signal.Signal, error) {
 		if distinct, err := strconv.Atoi(r.M); err == nil && distinct > len(listed) {
 			text += fmt.Sprintf("; and %d more messages", distinct-len(listed))
 		}
+		// A day's count reads the same for a service failing now and one fixed an
+		// hour ago; the age the survey prints beside it is what tells them apart.
+		last, _ := time.Parse(time.RFC3339Nano, r.Last)
 		out = append(out, signal.Signal{
-			Kind: signal.KindAlert, Source: Name, ID: "logs:" + name,
+			Kind: signal.KindAlert, Source: Name, ID: "logs:" + name, Updated: last,
 			Title: fmt.Sprintf("%s ERROR/FATAL lines in %s: %s", r.N, window, text),
 			Attrs: map[string]string{"service": name, "lines": r.N, "messages": r.M, "window": window},
 			Detail: fmt.Sprintf("LogsQL for the lines themselves: %s %q:%q",
