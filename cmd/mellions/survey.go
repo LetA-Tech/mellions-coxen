@@ -125,8 +125,8 @@ func (c *Config) build(scope []string) (*sig.Registry, error) {
 		}
 	}
 	if want[runtimesrc.Name] {
-		if c.Runtime.LogsURL == "" && len(c.Runtime.ContainerHosts) == 0 {
-			return nil, errors.New("source runtime needs \"runtime\" in config: \"logs_url\" or \"container_hosts\", or it reads nothing and looks quiet")
+		if c.Runtime.LogsURL == "" || len(c.Runtime.ContainerHosts) == 0 {
+			return nil, errors.New("source runtime needs \"runtime\" in config with both \"logs_url\" and \"container_hosts\": the half it did not read would look quiet")
 		}
 		if err := reg.Register(runtimesrc.New(c.Runtime)); err != nil {
 			return nil, err

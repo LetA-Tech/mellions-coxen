@@ -5,6 +5,7 @@
 package runtimesrc
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"net"
@@ -87,17 +88,19 @@ const healthyControl = `{"n":"314315"}` + "\n"
 func TestAnUnhealthyServiceReachesThePrintedSurvey(t *testing.T) {
 	logs := stubLogs(t, healthyControl,
 		`{"service.name":"fininsight","n":"6","m":"1"}`+"\n"+
-			`{"service.name":"hipsys-worker-source","n":"282","m":"7","last":"`+time.Now().Add(-3*time.Hour).UTC().Format(time.RFC3339Nano)+`"}`+"\n"+
+			`{"service.name":"hipsys-worker-source","n":"282","m":"7","fatal":"1","last":"`+time.Now().Add(-3*time.Hour).UTC().Format(time.RFC3339Nano)+`"}`+"\n"+
 			`{"service.name":"finledger","n":"1","m":"1"}`+"\n",
-		`{"service.name":"hipsys-worker-source","body":"a readiness probe stopped holding","n":"277"}`+"\n"+
+		`{"service.name":"hipsys-worker-source","body":"z loudest message","n":"270"}`+"\n"+
+			`{"service.name":"hipsys-worker-source","body":"a readiness probe stopped holding","n":"7"}`+"\n"+
 			`{"service.name":"hipsys-worker-source","body":"a source observation round failed","n":"5"}`+"\n"+
 			`{"service.name":"fininsight","body":"foundation operation failed","n":"6"}`+"\n"+
 			`{"service.name":"finledger","body":"posting refused","n":"1"}`+"\n")
-	ssh := fakeSSH(t, "/hipsys-worker-source-1|running|unhealthy|0\n"+
-		"/fxrate|running||0\n"+
-		"/connector|running|healthy|0\n"+
-		"/outbox-worker|restarting||14\n"+
-		"/one-shot|exited||0\n", 0)
+	started := time.Now().Add(-5 * time.Hour).UTC().Format(time.RFC3339Nano)
+	ssh := fakeSSH(t, "/hipsys-worker-source-1|running|unhealthy|0|"+started+"\n"+
+		"/fxrate|running||0|"+started+"\n"+
+		"/connector|running|healthy|0|"+started+"\n"+
+		"/outbox-worker|restarting||14|"+started+"\n"+
+		"/one-shot|exited||0|"+started+"\n", 0)
 
 	res, out := printed(t, New(Options{LogsURL: logs.URL, ContainerHosts: []string{"root@preprod"}, SSH: ssh}))
 	if !res.Complete() {
@@ -105,9 +108,9 @@ func TestAnUnhealthyServiceReachesThePrintedSurvey(t *testing.T) {
 	}
 	for _, want := range []string{
 		"## Alerts — runtime and security (6)",
-		"**logs:hipsys-worker-source** 3h · 282 ERROR/FATAL lines in 24h: 277× a readiness probe stopped holding; 5× a source observation round failed; and 5 more messages",
+		"**logs:hipsys-worker-source** 3h · 282 ERROR/FATAL lines in 24h, 1 FATAL: 7× a readiness probe stopped holding; 5× a source observation round failed; 270× z loudest message; and 4 more messages",
 		"**logs:fininsight** 6 ERROR/FATAL lines in 24h: 6× foundation operation failed",
-		"container hipsys-worker-source-1 on root@preprod: unhealthy",
+		"5h · container hipsys-worker-source-1 on root@preprod: unhealthy",
 		"container outbox-worker on root@preprod: restarting, restarted 14 time(s)",
 		"container one-shot on root@preprod: exited",
 	} {
@@ -182,10 +185,43 @@ func TestBlindLogsAreIncompleteNotQuiet(t *testing.T) {
 			if res.Complete() {
 				t.Fatalf("a query that can see nothing read as a quiet estate:\n%s", out)
 			}
-			if !strings.Contains(out, "service.name and severity") {
+			if !strings.Contains(out, "service.name, severity and body") {
 				t.Errorf("the failure does not say what is blind:\n%s", out)
 			}
 		})
+	}
+}
+
+func TestEveryQueryLeavesProductionOut(t *testing.T) {
+	for _, q := range []string{control, totals, messages} {
+		if !strings.Contains(q, notProduction) {
+			t.Errorf("this query reads production's messages: %s", q)
+		}
+	}
+	if strings.Contains(messages, "desc") {
+		t.Errorf("messages are selected by how loud they are: %s", messages)
+	}
+}
+
+func TestAnOversizedAnswerIsAnErrorEvenOnARowBoundary(t *testing.T) {
+	row := []byte(`{"n":"12345678"}`)
+	if len(row) != 16 || responseBytes%len(row) != 0 {
+		t.Fatalf("this row must end exactly on the limit: %d", len(row))
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		chunk := bytes.Repeat(row, 1<<16)
+		for range responseBytes/len(chunk) + 1 {
+			if _, err := w.Write(chunk); err != nil {
+				return
+			}
+		}
+	}))
+	defer srv.Close()
+	var rows []struct {
+		N string `json:"n"`
+	}
+	if err := query(context.Background(), srv.URL, control, &rows); err == nil {
+		t.Errorf("a truncated answer read as complete, %d rows", len(rows))
 	}
 }
 
@@ -228,6 +264,16 @@ func TestCredentialShapesInAMessageDoNotReachTheSurvey(t *testing.T) {
 		`password="` + secret + ` with spaces"`,
 		`{"password":"` + secret + `"}`,
 		"https://" + secret + "@github.com/x",
+		"postgres://u:pa/" + secret + "@db:5432/x",
+		`{\"password\":\"` + secret + `\"}`,
+		`failed: {"error":"{\"token\":\"` + secret + `\"}"}`,
+		"private_key=" + secret,
+		"password: my " + secret,
+		"auth=" + secret,
+		"Cookie: session=" + secret,
+		"GET /x?sig=" + secret,
+		"password is " + secret,
+		"eyJhbGciOiJIUzI1NiJ9." + secret + ".abc",
 		"secret: " + secret,
 		"line one\nsecret=" + secret + "\nline three",
 		strings.Repeat("x", messageRunes-20) + " password=" + secret,

@@ -74,6 +74,10 @@ func TestRuntimeSourceWithNothingToReadIsRefused(t *testing.T) {
 		t.Errorf("a runtime source reading nothing would look quiet: %v", err)
 	}
 	c.Runtime.LogsURL = "http://127.0.0.1:9428"
+	if _, err := c.build(nil); err == nil {
+		t.Error("a runtime source reading only logs would make the containers look quiet")
+	}
+	c.Runtime.ContainerHosts = []string{"root@preprod"}
 	if _, err := c.build(nil); err != nil {
 		t.Errorf("a configured runtime source was refused: %v", err)
 	}

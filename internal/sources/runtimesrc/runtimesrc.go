@@ -34,28 +34,35 @@ const Name = "runtime"
 
 const (
 	window = "24h"
-	// errorLines selects by severity and scopes every query below. A dotted
-	// field name unquoted, or spelled with an underscore, matches nothing and
-	// raises nothing, so the control query proves these names still resolve.
-	errorLines = `_time:` + window + ` severity:in("ERROR","FATAL")`
-	control    = `_time:` + window + ` severity:* "service.name":* | stats count() n`
-	totals     = errorLines + ` | stats by ("service.name") count() n, count_uniq(body) m, max(_time) last`
-	messages   = errorLines + ` | stats by ("service.name", body) count() n` +
-		` | sort by (n desc, body) partition by ("service.name") limit ` + messagesPerService
+	// notProduction keeps production's messages, and the user data they can
+	// carry, out of a survey that reaches every session's transcript. It excludes
+	// rather than selects because a service's last line can carry no environment.
+	notProduction = `-"deployment.environment":=production`
+	errorLines    = `_time:` + window + ` severity:in("ERROR","FATAL") ` + notProduction
+	// control is what separates a quiet estate from a blind query: a dotted field
+	// name unquoted, or spelled with an underscore, matches nothing and raises
+	// nothing. Its short window also sees logs that stopped arriving today.
+	control = `_time:1h severity:* "service.name":* body:* ` + notProduction + ` | stats count() n`
+	totals  = errorLines + ` | stats by ("service.name") count() n, count_uniq(body) m, max(_time) last, count() if (severity:FATAL) fatal`
+	// messages selects by name, never by count: the loudest message is not the
+	// one that matters, and a count is not this source's to rank by.
+	messages = errorLines + ` | stats by ("service.name", body) count() n` +
+		` | sort by (body) partition by ("service.name") limit ` + messagesCollected
 
-	// messagesPerService bounds one service's line; a service logging a fresh
-	// body per request still shows the rest of the estate.
-	messagesPerService = "5"
-	messageRunes       = 120
-	responseBytes      = 32 << 20
-	forwardWait        = 15 * time.Second
+	// messagesCollected bounds what one service's signal carries, and
+	// messagesPrinted its one line; both say how many more there are.
+	messagesCollected = "50"
+	messagesPrinted   = 5
+	messageRunes      = 120
+	responseBytes     = 32 << 20
+	forwardWait       = 15 * time.Second
 
 	// inspect fails when docker fails or lists nothing, because the substitution
 	// then leaves it no argument: a host this source cannot read never looks
 	// like a host with nothing wrong. Its format names fields, so a container's
 	// environment stays on the host.
 	inspect = `docker inspect --format '{{.Name}}|{{.State.Status}}|` +
-		`{{if .State.Health}}{{.State.Health.Status}}{{end}}|{{.RestartCount}}' $(docker ps -aq)`
+		`{{if .State.Health}}{{.State.Health.Status}}{{end}}|{{.RestartCount}}|{{.State.StartedAt}}' $(docker ps -aq)`
 )
 
 // Options says where the running system is read from.
@@ -131,8 +138,8 @@ func (s *Source) logs(ctx context.Context) ([]signal.Signal, error) {
 		return nil, err
 	}
 	if len(seen) != 1 || seen[0].N == "0" {
-		return nil, fmt.Errorf("no line in the last %s carries both service.name and severity: "+
-			"the logs stopped arriving or those fields moved, and either way no ERROR count can be read", window)
+		return nil, errors.New("no line in the last hour carries service.name, severity and body: " +
+			"the logs stopped arriving or those fields moved, and either way no ERROR count can be read")
 	}
 
 	type row struct {
@@ -141,6 +148,7 @@ func (s *Source) logs(ctx context.Context) ([]signal.Signal, error) {
 		N       string `json:"n"`
 		M       string `json:"m"`
 		Last    string `json:"last"`
+		Fatal   string `json:"fatal"`
 	}
 	var perService, perMessage []row
 	if err := query(ctx, base, totals, &perService); err != nil {
@@ -150,9 +158,10 @@ func (s *Source) logs(ctx context.Context) ([]signal.Signal, error) {
 		return nil, err
 	}
 
-	shown := map[string][]string{}
+	sort.Slice(perMessage, func(i, j int) bool { return perMessage[i].Body < perMessage[j].Body })
+	listed := map[string][]string{}
 	for _, r := range perMessage {
-		shown[r.Service] = append(shown[r.Service], r.N+"× "+clean(r.Body))
+		listed[r.Service] = append(listed[r.Service], r.N+"× "+clean(r.Body))
 	}
 	sort.Slice(perService, func(i, j int) bool { return perService[i].Service < perService[j].Service })
 	out := make([]signal.Signal, 0, len(perService))
@@ -161,19 +170,24 @@ func (s *Source) logs(ctx context.Context) ([]signal.Signal, error) {
 		if name == "" {
 			name = "(no service.name)"
 		}
-		listed := shown[r.Service]
-		text := strings.Join(listed, "; ")
-		if distinct, err := strconv.Atoi(r.M); err == nil && distinct > len(listed) {
-			text += fmt.Sprintf("; and %d more messages", distinct-len(listed))
+		all := listed[r.Service]
+		printed := all[:min(len(all), messagesPrinted)]
+		text := strings.Join(printed, "; ")
+		if distinct, err := strconv.Atoi(r.M); err == nil && distinct > len(printed) {
+			text += fmt.Sprintf("; and %d more messages", distinct-len(printed))
+		}
+		fatal := ""
+		if r.Fatal != "" && r.Fatal != "0" {
+			fatal = ", " + r.Fatal + " FATAL"
 		}
 		// A day's count reads the same for a service failing now and one fixed an
 		// hour ago; the age the survey prints beside it is what tells them apart.
 		last, _ := time.Parse(time.RFC3339Nano, r.Last)
 		out = append(out, signal.Signal{
 			Kind: signal.KindAlert, Source: Name, ID: "logs:" + name, Updated: last,
-			Title: fmt.Sprintf("%s ERROR/FATAL lines in %s: %s", r.N, window, text),
-			Attrs: map[string]string{"service": name, "lines": r.N, "messages": r.M, "window": window},
-			Detail: fmt.Sprintf("LogsQL for the lines themselves: %s %q:%q",
+			Title: fmt.Sprintf("%s ERROR/FATAL lines in %s%s: %s", r.N, window, fatal, text),
+			Attrs: map[string]string{"service": name, "lines": r.N, "messages": r.M, "fatal": r.Fatal, "window": window},
+			Detail: strings.Join(all, "\n") + "\n" + fmt.Sprintf("LogsQL for the lines themselves: %s %q:=%q",
 				errorLines, "service.name", r.Service),
 		})
 	}
@@ -181,7 +195,7 @@ func (s *Source) logs(ctx context.Context) ([]signal.Signal, error) {
 }
 
 // query decodes VictoriaLogs' stream of JSON objects into dst. An oversized
-// response ends in a decode error rather than a shorter, honest-looking list.
+// response is an error rather than a shorter, honest-looking list.
 func query[T any](ctx context.Context, base, q string, dst *[]T) error {
 	endpoint := strings.TrimRight(base, "/") + "/select/logsql/query"
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint,
@@ -195,7 +209,7 @@ func query[T any](ctx context.Context, base, q string, dst *[]T) error {
 		return err
 	}
 	defer resp.Body.Close()
-	limited := io.LimitReader(resp.Body, responseBytes)
+	limited := &io.LimitedReader{R: resp.Body, N: responseBytes}
 	if resp.StatusCode != http.StatusOK {
 		head, _ := io.ReadAll(io.LimitReader(limited, 300))
 		return fmt.Errorf("VictoriaLogs answered %s: %s", resp.Status, bytes.TrimSpace(head))
@@ -205,6 +219,9 @@ func query[T any](ctx context.Context, base, q string, dst *[]T) error {
 		var row T
 		err := dec.Decode(&row)
 		if errors.Is(err, io.EOF) {
+			if limited.N <= 0 {
+				return fmt.Errorf("VictoriaLogs' answer ran past %d bytes", responseBytes)
+			}
 			return nil
 		}
 		if err != nil {
@@ -220,7 +237,7 @@ func query[T any](ctx context.Context, base, q string, dst *[]T) error {
 func (s *Source) forward(ctx context.Context) (string, func(), error) {
 	target, err := url.Parse(s.o.LogsURL)
 	if err != nil || target.Port() == "" {
-		return "", nil, fmt.Errorf("logs_url %q names no host:port to forward to", s.o.LogsURL)
+		return "", nil, errors.New("logs_url names no host:port to forward to")
 	}
 	free, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -294,7 +311,7 @@ func (s *Source) containers(ctx context.Context, host string) ([]signal.Signal, 
 	var out []signal.Signal
 	for line := range strings.Lines(stdout.String()) {
 		f := strings.Split(strings.TrimSpace(line), "|")
-		if len(f) != 4 {
+		if len(f) != 5 {
 			return out, fmt.Errorf("unreadable docker inspect line %q", brief(line))
 		}
 		name, state, health, restarts := strings.TrimPrefix(f[0], "/"), f[1], f[2], f[3]
@@ -311,8 +328,11 @@ func (s *Source) containers(ctx context.Context, host string) ([]signal.Signal, 
 		if len(wrong) == 0 {
 			continue
 		}
+		// RestartCount never falls, so the age of the last start is what tells a
+		// crash loop from a restart weeks ago.
+		started, _ := time.Parse(time.RFC3339Nano, f[4])
 		out = append(out, signal.Signal{
-			Kind: signal.KindAlert, Source: Name, ID: "container:" + host + "/" + name,
+			Kind: signal.KindAlert, Source: Name, ID: "container:" + host + "/" + name, Updated: started,
 			Title: "container " + name + " on " + host + ": " + strings.Join(wrong, ", "),
 			Attrs: map[string]string{"host": host, "container": name, "state": state, "health": health, "restarts": restarts},
 		})
@@ -321,13 +341,16 @@ func (s *Source) containers(ctx context.Context, host string) ([]signal.Signal, 
 }
 
 // These cover what a log line is known to carry credentials in: a URL's
-// userinfo, a named value quoted or bare, and a bearer token. They are a second
-// line behind services not logging credentials, and cannot recognise a bare
-// value nothing names.
+// userinfo, a JWT, a bearer token, and anything after a credential's name. A
+// value after a name can be quoted, escaped inside wrapped JSON or several words
+// long, so the rest of the message goes with it. They are a second line behind
+// services not logging credentials, and cannot recognise a bare value nothing
+// names.
 var (
-	urlUserinfo = regexp.MustCompile(`://[^/\s@]+@`)
-	namedValue  = regexp.MustCompile(`(?i)([a-z0-9_-]*(?:pass(?:word|wd|phrase)?|pwd|secret|token|api[_-]?key|authorization|credentials?))"?\s*[=:]\s*(?:bearer\s+|basic\s+)?(?:"[^"]*"|'[^']*'|\S+)`)
+	urlUserinfo = regexp.MustCompile(`://[^\s@]+@`)
+	jwt         = regexp.MustCompile(`\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_.-]+`)
 	bearerToken = regexp.MustCompile(`(?i)\bbearer\s+\S{8,}`)
+	namedValue  = regexp.MustCompile(`(?i)[a-z0-9_-]*(?:pass(?:word|wd|phrase)?|pwd|secret|token|key|auth(?:orization)?|cookie|session|sig(?:nature)?|credentials?)\\*"?(?:\s*[=:]|\s+is\b).*$`)
 )
 
 // clean makes one log message safe and short enough for a line a transcript
@@ -336,8 +359,9 @@ var (
 func clean(body string) string {
 	s := strings.Join(strings.Fields(body), " ")
 	s = urlUserinfo.ReplaceAllString(s, "://<redacted>@")
-	s = namedValue.ReplaceAllString(s, "$1=<redacted>")
+	s = jwt.ReplaceAllString(s, "<redacted>")
 	s = bearerToken.ReplaceAllString(s, "bearer <redacted>")
+	s = namedValue.ReplaceAllString(s, "<redacted>")
 	if r := []rune(s); len(r) > messageRunes {
 		return string(r[:messageRunes]) + "…"
 	}

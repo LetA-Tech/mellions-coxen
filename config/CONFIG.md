@@ -39,7 +39,7 @@ the partnership, in the owner's words.
 | `work_root`, `work_roots`, `checkouts` | where their checkouts are |
 | `work_registers` | repository-relative work register for a repository that does not use GitHub issues as its work-item authority |
 | `sources` | which survey sources run: `programs`, `assignments`, `github`, `git`, `stale`, and `runtime` where `runtime` below is set; `runner` is always added |
-| `runtime` | where the `runtime` source reads the running system: `logs_url` (VictoriaLogs), `logs_via` (ssh arguments, destination last, for a forward private to the collection), `container_hosts` (ssh destinations whose containers are read) |
+| `runtime` | where the `runtime` source reads the running system: `logs_url` (VictoriaLogs), `logs_via` (ssh arguments, destination last, for a forward private to the collection), `container_hosts` (ssh destinations whose containers are read); both halves are required, and production's log lines are left out |
 | `owner_labels` | issue labels meaning "waiting on the owner" |
 | `stale_min_age_hours` | issues younger than this are not scanned for stale premises |
 | `per_repo_limit` | cap on issues and pull requests collected per repository |
