@@ -48,10 +48,8 @@ comment also states a valid current constraint, drop the identifier and keep the
 verified constraint.
 
 The identifier leaves the code — it does not move into a test name, symbol name, or
-another comment. Bug IDs close; the code carries the current logic and the comment
-aligns to that. Provenance lives in the issue tracker, the PR, and commit history.
-This does not apply to an identifier that is genuinely required machine-readable
-syntax.
+another comment. Provenance lives in the issue tracker, the PR, and commit history.
+An identifier that is required machine-readable syntax is exempt.
 
 Use `references/comment-standard.md` to determine what a given thing is before
 applying these rules.
@@ -62,21 +60,12 @@ applying these rules.
 2. Delete when the comment is unnecessary, obvious, redundant, or history-only.
 3. Rewrite only when necessary current information remains after the history is stripped.
 
-Deletion is the default; rewriting is the exception, and both follow from the code
-you verified, not from how the comment is worded.
-
 ```go
 // Before — history, no current information beyond the constraint
 // Added because issue #431 reported duplicate messages in production.
 
 // After — the constraint, verified and kept
 // Reject an existing dispatch key to preserve single execution per message.
-```
-
-```go
-// Delete — narrates the next line
-// Increment the retry count.
-retryCount++
 ```
 
 ## Comments do not compensate for unclear code
@@ -89,8 +78,14 @@ documentation gap.
 ## Logic changes carry their comments
 
 When logic changes, review every related comment and structured annotation, and
-update or remove it in the same change. A change is incomplete while an adjacent
-comment describes the previous implementation.
+update or remove it in the same change. That includes comments elsewhere that
+point into the code you changed. A `path:line` pointer goes stale when lines are
+added or removed above it and when the code at that line changes;
+`git grep -n '<file>:[0-9]'` finds them, and `git grep -n '<old name>'` finds
+pointers to a renamed symbol. Prefer pointing by symbol: a guard that checks only
+that a cited line exists stays green while the pointer names the wrong code. A
+pointer pinned to a commit records that commit and stays as written. A change is
+incomplete while a related comment describes the previous implementation.
 
 ## Structured annotations
 
