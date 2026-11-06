@@ -1266,6 +1266,48 @@ grep -qF "cannot name the account" "$tmp/o.out" \
 
 note "U: a session started without USER or LOGNAME, or with either empty, is handed the account's name in it; an inherited one stands; a name id cannot give is said"
 
+# ---- a session waiting on background work ends a turn each time it waits -----
+mkdir -p "$tmp/r"
+cat > "$tmp/r/stream" <<'JSON'
+{"type":"result","result":"still waiting on the gate"}
+{"type":"assistant","message":{"content":[{"type":"text","text":"the gate finished"}]}}
+{"type":"result","result":"the real close of the shift"}
+{"type":"result","result":""}
+JSON
+( exit 0 ) & gone=$!; wait "$gone"
+python3 "$root/scripts/shift-follow.py" "$tmp/r/reply" "$tmp/r/stream" "$gone" > "$tmp/r/out" 2>&1 \
+  || bad "R1: the follower failed: $(tail -3 "$tmp/r/out")"
+[ "$(cat "$tmp/r/reply")" = "the real close of the shift" ] \
+  || bad "R1: the reply is '$(cat "$tmp/r/reply")', not the last result that said something"
+grep -qF "the gate finished" "$tmp/r/out" || bad "R1: the follower stopped rendering at the first end of a turn"
+
+printf '{"type":"result","result":""}\n' > "$tmp/r/empty"
+python3 "$root/scripts/shift-follow.py" "$tmp/r/reply-empty" "$tmp/r/empty" "$gone" > /dev/null 2>&1
+[ -f "$tmp/r/reply-empty" ] && [ ! -s "$tmp/r/reply-empty" ] || bad "R2: a session that said nothing has no empty reply file"
+
+python3 "$root/scripts/shift-follow.py" "$tmp/r/reply-nopid" "$tmp/r/stream" > /dev/null 2>&1 &
+nopid=$!
+for _ in $(seq 1 100); do kill -0 "$nopid" 2>/dev/null || break; sleep 0.1; done
+if kill -0 "$nopid" 2>/dev/null; then
+  kill "$nopid" 2>/dev/null; bad "R3: with no pid the follower did not stop on a result"
+fi
+wait "$nopid" 2>/dev/null
+[ "$(cat "$tmp/r/reply-nopid")" = "still waiting on the gate" ] || bad "R3: with no pid the reply is '$(cat "$tmp/r/reply-nopid")'"
+
+# The defect's own condition: the session is still running when it ends a turn.
+: > "$tmp/r/live"
+(
+  printf '{"type":"result","result":"first turn"}\n' >> "$tmp/r/live"
+  sleep 1
+  printf '{"type":"result","result":"last turn"}\n' >> "$tmp/r/live"
+) &
+live=$!
+python3 "$root/scripts/shift-follow.py" "$tmp/r/reply-live" "$tmp/r/live" "$live" > /dev/null 2>&1
+wait "$live" 2>/dev/null
+[ "$(cat "$tmp/r/reply-live")" = "last turn" ] || bad "R4: a live session's reply is '$(cat "$tmp/r/reply-live")', not its last turn"
+
+note "R: a session that ends several turns is captured by its last result that said something, and rendered to the end"
+
 # make check has to run this, or everything above is about a file nothing invokes.
 grep -q 'scripts/test-\*.sh' "$root/Makefile" || bad "the Makefile does not run scripts/test-*.sh"
 
