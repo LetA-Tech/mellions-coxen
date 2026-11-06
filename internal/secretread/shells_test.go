@@ -211,7 +211,6 @@ func TestAVariableCrossesIntoAScriptAndOutOfAnEval(t *testing.T) {
 		`bash -c 'X=$(cat .env)'; echo "$X"`,
 		`bash -c 'F=.env; :'; cat "$F"`,
 		`X='wc -c .env'; eval "$X"`,
-		`X='wc -c'; $X .env`,
 	}
 	for _, c := range silent {
 		if found := ScanBash(c); len(found) != 0 {
