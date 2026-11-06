@@ -33,6 +33,12 @@ import (
 //
 // Globs lists the indexes in Words of the words holding an unquoted * or ?,
 // which bash may expand into other words before the command sees them.
+//
+// Input is what the command's own redirections put on descriptor 0: here-strings,
+// < operands and heredoc bodies, an unquoted delimiter's escapes resolved. Piped
+// is whether the previous command's stdout is its stdin. Body is what bash runs of
+// a heredoc whose delimiter is unquoted, while it builds the text: the $(…) and
+// backquoted commands live in the body.
 type Command struct {
 	Words    []string
 	Heredocs []string
@@ -40,6 +46,9 @@ type Command struct {
 	Stdin    []int
 	Runs     []*Command
 	Globs    []int
+	Input    []string
+	Piped    bool
+	Body     []*Command
 }
 
 // Args returns the words the command runs with: its name and arguments, never
@@ -65,9 +74,11 @@ func (c *Command) Args() []string {
 // pending is a heredoc whose delimiter has been read and whose body has not:
 // the body starts on the line after the one declaring it.
 type pending struct {
-	delim string
-	strip bool
-	owner *Command
+	delim   string
+	strip   bool
+	owner   *Command
+	fd0     bool
+	literal bool
 }
 
 // Split lexes a Bash command line into its simple commands.
@@ -114,6 +125,8 @@ func lex(command string, i int, stopAtParen, comments bool) ([]*Command, int) {
 	// take a descriptor glued or spaced, and >& takes a file where the word is
 	// not one.
 	var dup byte
+	// fd0 is whether the redirection being read is on descriptor 0.
+	fd0 := true
 	// quoted is whether the pending word holds a quote, an escape or a
 	// substitution: bash reads a descriptor prefix only from literal text.
 	quoted := false
@@ -153,6 +166,7 @@ func lex(command string, i int, stopAtParen, comments bool) ([]*Command, int) {
 		case s == "]]" && !quoted && condParen == 0:
 			cond = false
 		}
+		literal := quoted
 		quoted = false
 		// A target that runs a command stays a word for the guards that read
 		// what runs, and out of Args, since bash passes it to nothing.
@@ -164,8 +178,9 @@ func lex(command string, i int, stopAtParen, comments bool) ([]*Command, int) {
 		}
 		switch {
 		case heredocNext != 0:
-			queue = append(queue, pending{delim: s, strip: heredocNext == 2, owner: cur})
+			queue = append(queue, pending{delim: s, strip: heredocNext == 2, owner: cur, fd0: fd0, literal: literal})
 			heredocNext = 0
+			fd0 = true
 		case redirOut:
 			cur.Out = s
 			redirOut = false
@@ -186,10 +201,15 @@ func lex(command string, i int, stopAtParen, comments bool) ([]*Command, int) {
 				cur.Out = s
 			}
 			dup = 0
+			fd0 = true
 		default:
 			if redirIn {
 				cur.Stdin = append(cur.Stdin, len(cur.Words))
+				if fd0 {
+					cur.Input = append(cur.Input, s)
+				}
 				redirIn = false
+				fd0 = true
 			}
 			if globs {
 				cur.Globs = append(cur.Globs, len(cur.Words))
@@ -205,6 +225,7 @@ func lex(command string, i int, stopAtParen, comments bool) ([]*Command, int) {
 	endBeforeRedirect := func() {
 		if hasWord && !quoted && !redirOut && !redirIn && dup == 0 && heredocNext == 0 &&
 			isDescriptorPrefix(w.String()) {
+			fd0 = strings.TrimLeft(w.String(), "0") == ""
 			w.Reset()
 			hasWord = false
 			return
@@ -213,10 +234,13 @@ func lex(command string, i int, stopAtParen, comments bool) ([]*Command, int) {
 	}
 	endCmd := func() {
 		endWord()
+		// A blank line or comment after a | holds the pipe open.
+		piped := cur.Piped
 		if len(cur.Words) > 0 || len(cur.Heredocs) > 0 {
 			out = append(out, cur)
+			piped = false
 		}
-		cur = &Command{}
+		cur = &Command{Piped: piped}
 		redirIn = false
 		dup = 0
 	}
@@ -308,7 +332,7 @@ func lex(command string, i int, stopAtParen, comments bool) ([]*Command, int) {
 			endWord()
 			i++
 			if len(queue) > 0 {
-				i = readHeredocs(command, i, queue)
+				i = readHeredocs(command, i, queue, comments)
 				queue = nil
 			}
 			endCmd()
@@ -319,12 +343,18 @@ func lex(command string, i int, stopAtParen, comments bool) ([]*Command, int) {
 
 		case c == ';' || c == '|':
 			endWord()
-			if i+1 < len(command) && command[i+1] == c {
+			piped := c == '|'
+			switch {
+			case i+1 < len(command) && command[i+1] == c:
+				piped = false
 				i += 2
-			} else {
+			case piped && i+1 < len(command) && command[i+1] == '&':
+				i += 2
+			default:
 				i++
 			}
 			endCmd()
+			cur.Piped = piped
 
 		case c == '&':
 			endWord()
@@ -389,6 +419,7 @@ func lex(command string, i int, stopAtParen, comments bool) ([]*Command, int) {
 			} else {
 				endBeforeRedirect()
 			}
+			fd0 = true
 			switch {
 			case strings.HasPrefix(command[i:], ">>"):
 				i += 2
@@ -583,7 +614,7 @@ func Substitution(s string, i int) ([]*Command, int) {
 // index just past the last delimiter line. A heredoc the command line never
 // terminates ends at the end of the command line, which is what bash reports
 // and what the runtime would have sent anyway.
-func readHeredocs(s string, i int, queue []pending) int {
+func readHeredocs(s string, i int, queue []pending, comments bool) int {
 	for _, p := range queue {
 		var body strings.Builder
 		for i < len(s) {
@@ -603,9 +634,48 @@ func readHeredocs(s string, i int, queue []pending) int {
 			body.WriteString(line)
 			body.WriteByte('\n')
 		}
-		p.owner.Heredocs = append(p.owner.Heredocs, body.String())
+		text := body.String()
+		p.owner.Heredocs = append(p.owner.Heredocs, text)
+		if !p.literal {
+			p.owner.Body = append(p.owner.Body, liveIn(text, comments)...)
+			text = heredocEscapes.Replace(text)
+		}
+		if p.fd0 {
+			p.owner.Input = append(p.owner.Input, text)
+		}
 	}
 	return i
+}
+
+// heredocEscapes are the only escapes bash resolves in a body whose delimiter is
+// unquoted.
+var heredocEscapes = strings.NewReplacer(`\$`, `$`, "\\`", "`", `\\`, `\`, "\\\n", "")
+
+// liveIn returns what bash runs of a body whose delimiter is unquoted: its $(…)
+// and backquoted commands, where no backslash escapes them.
+func liveIn(body string, comments bool) []*Command {
+	var out []*Command
+	for i := 0; i < len(body); {
+		switch {
+		case body[i] == '\\':
+			i += 2
+		case strings.HasPrefix(body[i:], "$("):
+			_, inner, next := substitution(body, i, comments)
+			out = append(out, inner...)
+			i = next
+		case body[i] == '`':
+			end := strings.IndexByte(body[i+1:], '`')
+			if end < 0 {
+				return out
+			}
+			inner, _ := lex(body[i+1:i+1+end], 0, false, comments)
+			out = append(out, inner...)
+			i += end + 2
+		default:
+			i++
+		}
+	}
+	return out
 }
 
 // Each runs f over every reading of command, each from the start, and returns
