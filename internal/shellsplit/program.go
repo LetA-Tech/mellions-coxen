@@ -41,6 +41,14 @@ func Program(words []string) []string {
 	wrapper := ""
 	for len(words) > 0 {
 		w := strings.TrimLeft(words[0], "(")
+		if at := strings.Index(w, "()"); at > 0 && !strings.Contains(w[:at], "$") {
+			w = strings.TrimLeft(w[at+2:], "({")
+			if w == "" {
+				words = words[1:]
+				continue
+			}
+			words = append([]string{w}, words[1:]...)
+		}
 		switch {
 		case w == "":
 			words = words[1:]
@@ -50,9 +58,11 @@ func Program(words []string) []string {
 				return nil
 			}
 			words = words[at+1:]
+		case len(words) > 1 && words[1] == "()":
+			words = words[2:]
 		case w == "function":
 			words = words[min(2, len(words)):]
-		case len(words) > 1 && strings.HasSuffix(w, ")") && (!strings.Contains(w, "(") || strings.HasSuffix(w, "()")):
+		case len(words) > 1 && strings.HasSuffix(w, ")") && !strings.Contains(w, "("):
 			words = words[1:]
 		case prefixes[path.Base(w)]:
 			words, wrapper = words[1:], path.Base(w)
@@ -97,7 +107,7 @@ func count(w string) bool {
 
 // Shells are the programs that run a -c string, or with no script operand
 // read their script from stdin.
-var Shells = map[string]bool{"bash": true, "sh": true, "dash": true, "ash": true, "zsh": true, "ksh": true,
+var Shells = map[string]bool{"bash": true, "rbash": true, "sh": true, "dash": true, "ash": true, "zsh": true, "ksh": true,
 	"$SHELL": true, "${SHELL}": true, "$BASH": true, "${BASH}": true, "$0": true}
 
 // shellValued are the shell options whose value is the next word.
@@ -150,8 +160,8 @@ func Script(words []string) (script []string, fromStdin bool) {
 				cmode = cmode || strings.ContainsRune(w[1:], 'c')
 				smode = smode || strings.ContainsRune(w[1:], 's')
 			}
-			// A cluster ending in o or O takes the next word as its value.
-			if last := w[len(w)-1]; last == 'o' || last == 'O' {
+			// A cluster holding o or O takes the next word as its value.
+			if strings.ContainsAny(w[1:], "oO") {
 				i++
 			}
 		case cmode:

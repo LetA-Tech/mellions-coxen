@@ -36,7 +36,9 @@ import (
 //
 // Input is what the command's own redirections put on descriptor 0: here-strings,
 // < operands and heredoc bodies, an unquoted delimiter's escapes resolved. Piped
-// is whether the previous command's stdout is its stdin.
+// is whether the previous command's stdout is its stdin. Body is what bash runs of
+// a heredoc whose delimiter is unquoted, while it builds the text: the $(…) and
+// backquoted commands live in the body.
 type Command struct {
 	Words    []string
 	Heredocs []string
@@ -46,6 +48,7 @@ type Command struct {
 	Globs    []int
 	Input    []string
 	Piped    bool
+	Body     []*Command
 }
 
 // Args returns the words the command runs with: its name and arguments, never
@@ -231,10 +234,13 @@ func lex(command string, i int, stopAtParen, comments bool) ([]*Command, int) {
 	}
 	endCmd := func() {
 		endWord()
+		// A blank line or comment after a | holds the pipe open.
+		piped := cur.Piped
 		if len(cur.Words) > 0 || len(cur.Heredocs) > 0 {
 			out = append(out, cur)
+			piped = false
 		}
-		cur = &Command{}
+		cur = &Command{Piped: piped}
 		redirIn = false
 		dup = 0
 	}
@@ -631,7 +637,7 @@ func readHeredocs(s string, i int, queue []pending, comments bool) int {
 		text := body.String()
 		p.owner.Heredocs = append(p.owner.Heredocs, text)
 		if !p.literal {
-			p.owner.Runs = append(p.owner.Runs, liveIn(text, comments)...)
+			p.owner.Body = append(p.owner.Body, liveIn(text, comments)...)
 			text = heredocEscapes.Replace(text)
 		}
 		if p.fd0 {

@@ -139,7 +139,11 @@ var consumedFlags = map[string]map[string]bool{
 
 // wrappers stand in front of the real command word without changing what it
 // does with its arguments.
-var wrappers = map[string]bool{"sudo": true, "command": true, "builtin": true, "nohup": true, "time": true}
+var wrappers = map[string]bool{"sudo": true, "command": true, "builtin": true, "nohup": true, "time": true,
+	"if": true, "then": true, "elif": true, "else": true, "while": true, "until": true, "do": true, "{": true, "!": true}
+
+// declarers assign the NAME=value words they are given.
+var declarers = map[string]bool{"export": true, "declare": true, "typeset": true, "readonly": true, "local": true}
 
 // prefixOperands reports how many words a prefix command consumes before the
 // real command word begins, for the wrappers that take operands of their own.
@@ -439,6 +443,14 @@ func lexCost(text string) int {
 	return len(text) * (1 + deepest)
 }
 
+// What reading costs beyond the bytes it lexes: a scan's own work, a step back
+// along a pipeline, and a variable copied into a child shell.
+const (
+	scanFloor = 256
+	pipeStep  = 16
+	cloneStep = 64
+)
+
 // maxDepth bounds how deep scripts nest, since a variable can hold a script that
 // runs itself and spend the bound a few bytes at a time.
 const maxDepth = 200
@@ -461,7 +473,7 @@ type held struct {
 }
 
 func (r *scanner) scan(command string, vars held, stdin []string) []Finding {
-	if r.left -= lexCost(command) + 1; r.left < 0 {
+	if r.left -= lexCost(command) + scanFloor; r.left < 0 {
 		return nil
 	}
 	if r.depth == maxDepth {
@@ -471,99 +483,118 @@ func (r *scanner) scan(command string, vars held, stdin []string) []Finding {
 	r.depth++
 	defer func() { r.depth-- }()
 	return shellsplit.Each(command, func(cmds []*shellsplit.Command) []Finding {
-		var out []Finding
-		holdsValue, holdsPath := vars.value, vars.path
-		inherited := append(slices.Clip(stdin), groupInput(cmds)...)
+		return r.read(cmds, vars, stdin)
+	})
+}
 
-		for ci, c := range cmds {
-			words, argc := commandFirst(c)
-			if len(words) == 0 {
-				continue
+func (r *scanner) read(cmds []*shellsplit.Command, vars held, stdin []string) []Finding {
+	var out []Finding
+	holdsValue, holdsPath := vars.value, vars.path
+	inherited := append(slices.Clip(stdin), groupInput(cmds)...)
+	for ci, c := range cmds {
+		if r.left < 0 {
+			break
+		}
+		words, argc := commandFirst(c)
+		if len(words) == 0 {
+			continue
+		}
+
+		// A word's text is a heredoc's body where its substitution has one, so
+		// what the substitution also runs is read from where the lexer keeps it.
+		ran := r.commands(c.Runs)
+
+		// Leading NAME=value assignments. One whose value reads a credential is
+		// the safe capture form; remember the name so a later print of it in the
+		// same command line is still caught.
+		assign := func(word string) {
+			name, value, _ := strings.Cut(word, "=")
+			switch {
+			case ran != "" || r.readsSecret(value):
+				holdsValue[name] = true
+			case IsSecretPath(value):
+				holdsPath[name] = true
 			}
-
-			// A word's text is a heredoc's body where its substitution has one, so
-			// what the substitution also runs is read from where the lexer keeps it.
-			ran := r.commands(c.Runs)
-
-			// Leading NAME=value assignments. One whose value reads a credential is
-			// the safe capture form; remember the name so a later print of it in the
-			// same command line is still caught.
-			i := 0
-			for ; i < len(words); i++ {
-				if !assignment.MatchString(words[i]) {
-					break
+			vars.text[name] = value
+		}
+		i := 0
+		for ; i < len(words) && assignment.MatchString(words[i]); i++ {
+			assign(words[i])
+		}
+		if i < len(words) && declarers[words[i]] {
+			for _, w := range words[i+1:] {
+				if assignment.MatchString(w) {
+					assign(w)
 				}
-				name, value, _ := strings.Cut(words[i], "=")
-				switch {
-				case ran != "" || r.readsSecret(value):
-					holdsValue[name] = true
-				case IsSecretPath(value):
-					holdsPath[name] = true
-				}
-				vars.text[name] = value
-			}
-
-			// Everything from here is an ordinary command. Wrappers do not change
-			// what it does with its arguments.
-			i = pastWrappers(words, i)
-			if i >= len(words) {
-				continue
-			}
-			reader := path.Base(words[i])
-			args := words[i+1:]
-
-			out = append(out, r.handed(c, cmds[:ci], vars, inherited)...)
-
-			if consumers[reader] {
-				continue
-			}
-
-			// A variable holding a credential, printed back out. The capture was
-			// safe; handing it to a printer is the same leak one step later.
-			consumed := consumedFlags[reader]
-			for ai, a := range args {
-				for name := range holdsValue {
-					if printers[reader] && names(a, name) {
-						out = append(out, Finding{Path: "$" + name, Reader: reader, Value: true})
-					}
-				}
-				for name := range holdsPath {
-					if !safeReaders[reader] && names(a, name) {
-						out = append(out, Finding{Path: "$" + name, Reader: reader, Held: true})
-					}
-				}
-				// An option operand the reader consumes rather than prints. A stdin
-				// operand is never one, wherever it was written.
-				if ai > 0 && consumed[args[ai-1]] && i+1+ai < argc {
-					continue
-				}
-				found := secretsInWord(a)
-				// A name stays read: a grep may walk without saying so, as a directory
-				// operand does under the Bash tool's grep, and `grep secret .` prints
-				// a .env's lines, while a sed script can name a file it reads.
-				if spelled(c, reader, args, ai) {
-					found = namesInWord(a)
-				}
-				if len(found) > 0 {
-					// A path, however it is spelled: the command opens the file
-					// itself. Only the enumerated non-emitters are exonerated.
-					if !safeReaders[reader] {
-						for _, f := range found {
-							out = append(out, Finding{Path: f, Reader: reader})
-						}
-					}
-					continue
-				}
-				if f := r.secretInside(a); f != "" && printers[reader] {
-					out = append(out, Finding{Path: f, Reader: reader, Substituted: true})
-				}
-			}
-			if ran != "" && (printers[reader] || strings.HasPrefix(words[i], "$(") || strings.HasPrefix(words[i], "`")) {
-				out = append(out, Finding{Path: ran, Reader: reader, Substituted: true})
 			}
 		}
-		return dedupe(out)
-	})
+
+		// Everything from here is an ordinary command. Wrappers do not change
+		// what it does with its arguments.
+		i = pastWrappers(words, i)
+		if i >= len(words) {
+			continue
+		}
+		reader := path.Base(strings.TrimLeft(words[i], "("))
+		args := words[i+1:]
+
+		out = append(out, r.handed(c, cmds[:ci], vars, inherited)...)
+
+		if consumers[reader] {
+			continue
+		}
+
+		// A variable holding a credential, printed back out. The capture was
+		// safe; handing it to a printer is the same leak one step later.
+		consumed := consumedFlags[reader]
+		for ai, a := range args {
+			for name := range holdsValue {
+				if printers[reader] && names(a, name) {
+					out = append(out, Finding{Path: "$" + name, Reader: reader, Value: true})
+				}
+			}
+			for name := range holdsPath {
+				if !safeReaders[reader] && names(a, name) {
+					out = append(out, Finding{Path: "$" + name, Reader: reader, Held: true})
+				}
+			}
+			// An option operand the reader consumes rather than prints. A stdin
+			// operand is never one, wherever it was written.
+			if ai > 0 && consumed[args[ai-1]] && i+1+ai < argc {
+				continue
+			}
+			found := secretsInWord(a)
+			// A name stays read: a grep may walk without saying so, as a directory
+			// operand does under the Bash tool's grep, and `grep secret .` prints
+			// a .env's lines, while a sed script can name a file it reads.
+			if spelled(c, reader, args, ai) {
+				found = namesInWord(a)
+			}
+			if len(found) > 0 {
+				// A path, however it is spelled: the command opens the file
+				// itself. Only the enumerated non-emitters are exonerated.
+				if !safeReaders[reader] {
+					for _, f := range found {
+						out = append(out, Finding{Path: f, Reader: reader})
+					}
+				}
+				continue
+			}
+			if f := r.secretInside(a); f != "" && printers[reader] {
+				out = append(out, Finding{Path: f, Reader: reader, Substituted: true})
+			}
+		}
+		if ran != "" && (printers[reader] || strings.HasPrefix(words[i], "$(") || strings.HasPrefix(words[i], "`")) {
+			out = append(out, Finding{Path: ran, Reader: reader, Substituted: true})
+		}
+		// What a heredoc's body runs lands in the text this command prints. It
+		// gets the verdict it would get typed, so a word a document backquotes
+		// is no read.
+		if printers[reader] {
+			out = append(out, r.read(c.Body, vars, nil)...)
+		}
+	}
+	return dedupe(out)
 }
 
 // handed reads the scripts c runs through a local shell or eval: where one is the
@@ -577,8 +608,12 @@ func (r *scanner) handed(c *shellsplit.Command, earlier []*shellsplit.Command, v
 	if len(words) == 0 {
 		return nil
 	}
+	if words[0] == "#" {
+		return nil
+	}
 	in := c.Input
-	if len(in) == 0 && c.Piped {
+	if len(in) == 0 && c.Piped && (runsShell(words[0]) || runsOperands(words)) {
+		r.left -= pipeStep * len(earlier)
 		in = printedInto(earlier)
 	}
 	if len(in) == 0 {
@@ -586,6 +621,9 @@ func (r *scanner) handed(c *shellsplit.Command, earlier []*shellsplit.Command, v
 	}
 	if runsShell(words[0]) {
 		return r.handedTo(words, in, vars)
+	}
+	if text, ok := vars.text[loneVariable(words[0])]; ok {
+		return r.handedTo([]string{"eval", text, strings.Join(words[1:], " ")}, in, vars)
 	}
 	program := path.Base(words[0])
 	if printers[program] || program == "ssh" {
@@ -599,6 +637,9 @@ func (r *scanner) handed(c *shellsplit.Command, earlier []*shellsplit.Command, v
 		in = nil
 	}
 	for k := 1; k < len(words); k++ {
+		if words[k] == "#" {
+			return nil
+		}
 		if !runsShell(words[k]) {
 			continue
 		}
@@ -622,10 +663,14 @@ func (r *scanner) handedTo(words, in []string, vars held) []Finding {
 		script, in = in, nil
 	}
 	if path.Base(words[0]) != "eval" {
+		r.left -= cloneStep * (len(vars.text) + 1)
 		vars = held{value: maps.Clone(vars.value), path: maps.Clone(vars.path), text: maps.Clone(vars.text)}
 	}
 	var out []Finding
 	for _, s := range script {
+		if r.left < 0 {
+			break
+		}
 		if text, ok := vars.text[loneVariable(s)]; ok {
 			s = text
 		}
@@ -634,19 +679,22 @@ func (r *scanner) handedTo(words, in []string, vars held) []Finding {
 	return out
 }
 
+// scriptTakers run the operand of -c as a shell command line.
+var scriptTakers = map[string]bool{"su": true, "runuser": true, "flock": true, "script": true}
+
 // unnamedScript returns the script of a program that runs one other than by being
-// a shell: su's -c, a word watch hands to sh whole, or -c to a program only the
-// shell can name.
+// a shell: a scriptTakers -c, a word watch hands to sh whole, or -c to a program
+// only the shell can name.
 func unnamedScript(words []string) string {
 	program := path.Base(words[0])
 	if strings.ContainsAny(words[0], " \t\n") && !strings.Contains(words[0], "$(") && !strings.Contains(words[0], "`") {
 		return words[0]
 	}
-	if program != "su" && program != "runuser" && !strings.HasPrefix(words[0], "$") {
+	if !scriptTakers[program] && !strings.HasPrefix(words[0], "$") && !strings.HasPrefix(words[0], "`") {
 		return ""
 	}
 	for k, w := range words[:len(words)-1] {
-		if w == "-c" || w == "--command" {
+		if w == "--command" || strings.HasPrefix(w, "-") && !strings.HasPrefix(w, "--") && strings.HasSuffix(w, "c") {
 			return words[k+1]
 		}
 	}
@@ -687,7 +735,7 @@ func printedInto(cmds []*shellsplit.Command) []string {
 		out = append(out, cmds[j].Input...)
 		words := shellsplit.Program(cmds[j].Args())
 		if len(words) > 1 && (words[0] == "echo" || words[0] == "printf") {
-			out = append(out, strings.Join(words[1:], " "))
+			out = append(out, strings.ReplaceAll(strings.Join(words[1:], " "), `\n`, "\n"))
 		}
 		if !cmds[j].Piped {
 			break
@@ -720,8 +768,9 @@ func groupInput(cmds []*shellsplit.Command) []string {
 // pastWrappers returns the index of the command word at or after i.
 func pastWrappers(words []string, i int) int {
 	for i < len(words) {
-		w := path.Base(words[i])
-		if wrappers[w] {
+		trimmed := strings.TrimLeft(words[i], "(")
+		w := path.Base(trimmed)
+		if trimmed == "" || wrappers[w] {
 			i++
 			continue
 		}
@@ -891,6 +940,13 @@ func (r *scanner) commands(cmds []*shellsplit.Command) string {
 		}
 		if f := r.commands(c.Runs); f != "" {
 			return f
+		}
+		if program := shellsplit.Program(c.Args()); len(program) > 0 && runsShell(program[0]) {
+			for _, script := range c.Input {
+				if f := secretInText(script); f != "" {
+					return f
+				}
+			}
 		}
 	}
 	return ""

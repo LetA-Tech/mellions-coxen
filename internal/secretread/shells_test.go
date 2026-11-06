@@ -99,6 +99,23 @@ func TestAShellIsReadAtCommandPositionNotAtAnyWord(t *testing.T) {
 		`flock /tmp/l bash -c 'cat .env'`,
 		`busybox sh -c 'cat .env'`,
 		`$(which sh) -c 'cat .env'`,
+		"`which sh` -c 'cat .env'",
+		`rbash -c 'cat .env'`,
+		`flock f -c 'cat .env'`,
+		`script -qc 'cat .env' /dev/null`,
+		`bash -oc pipefail 'cat .env'`,
+		`( cat .env )`,
+		`(cat .env)`,
+		`if cat .env; then :; fi`,
+		`f(){ eval 'cat .env'; }; f`,
+		`f () { sh -c 'cat .env'; }; f`,
+		`f()(eval 'cat .env')`,
+		`printf 'cat .env\n' | sh`,
+		`echo -e 'cat .env\n' | sh`,
+		"echo 'cat .env' |\nsh",
+		"echo 'cat .env' | # note\nsh",
+		"X=$(sh <<'EOF'\ncat .env\nEOF\n); echo \"$X\"",
+		"echo \"$(bash -s <<'EOF'\ncat .env\nEOF\n)\"",
 		`su app -c 'cat .env'`,
 		`sudo su - app -c 'cat .env'`,
 		`runuser -l app --command 'cat .env'`,
@@ -136,6 +153,14 @@ func TestAShellIsReadAtCommandPositionNotAtAnyWord(t *testing.T) {
 		`docker logs sh`,
 		`find . -name sh`,
 		`echo 'cat .env' | grep cat`,
+		`bash -c 'if test -f .env; then wc -c .env; fi'`,
+		`bash -c 'for i in 1; do wc -c .env; done'`,
+		`bash -c '{ wc -c .env; }'`,
+		`bash -c '(wc -c .env)'`,
+		`( wc -c .env )`,
+		`then wc -c .env`,
+		`ls # bash -c 'cat .env'`,
+		"# sh -c 'cat .env'\nls",
 		`echo 'cat .env' ; sh`,
 		`watch -n 5 'wc -c .env'`,
 		`su app -c 'wc -c .env'`,
@@ -166,6 +191,10 @@ func TestAVariableCrossesIntoAScriptAndOutOfAnEval(t *testing.T) {
 		`X='cat .env'; eval "$X"`,
 		`X='cat .env'; bash -c "$X"`,
 		`X='cat .env'; bash -c '$X'`,
+		`export X='cat .env'; eval "$X"`,
+		`declare X='cat .env'; eval "$X"`,
+		`X='cat .env'; $X`,
+		`X='cat .env'; Y=$X; eval "$Y"`,
 	}
 	for _, c := range refused {
 		if len(ScanBash(c)) == 0 {
@@ -211,6 +240,12 @@ func TestAHeredocIsTheTextBashDelivers(t *testing.T) {
 		"psql <<EOF\n$(cat .env)\nEOF",
 		"sh <<EOF\nx=\\$(cat .env)\npsql \\$x\nEOF",
 		"cat > note.md <<EOF\nrun $(date) in .env\nEOF",
+		"cat > notes.md <<EOF\nPut values in `.env`.\nEOF",
+		"cat > notes.md <<EOF\nsee `credentials` and `secret`\nEOF",
+		"tee notes.md <<EOF\nPut values in `.env`.\nEOF",
+		"cat > notes.md <<EOF\n$(wc -c .env)\nEOF",
+		"cat <<EOF | gh pr comment 1 --body-file -\nPut values in `.env`.\nEOF",
+		"cat <<EOF | git commit -F -\nPut values in `.env`.\nEOF",
 	}
 	for _, c := range silent {
 		if found := ScanBash(c); len(found) != 0 {
@@ -317,7 +352,21 @@ func TestDepthNeitherHidesAReadNorOutrunsTheHook(t *testing.T) {
 	if found := ScanBash(nested("echo hi", 12)); len(found) != 0 {
 		t.Errorf("refused a harmless nesting: %+v", found)
 	}
+	if found := ScanBash("cat .env; exit\n" + strings.Repeat("a|", 25000) + "a"); len(found) == 0 {
+		t.Error("a read before a long pipeline was not refused")
+	}
+	var assigned strings.Builder
+	for i := range 50000 {
+		fmt.Fprintf(&assigned, "A%d=1;", i)
+	}
 	for name, c := range map[string]string{
+		"pipeline":     strings.Repeat("a|", 20000) + "a",
+		"into a shell": strings.Repeat("echo a|", 20000) + "sh",
+		"shells piped": strings.Repeat("sh|", 20000) + "sh",
+		"heredoc nest": "cat <<E\n" + strings.Repeat("$(", 1000) + "x" + strings.Repeat(")", 1000) + "\nE\n",
+		"word nest":    "echo " + strings.Repeat("$(", 1000) + "x" + strings.Repeat(")", 1000),
+		"variables":    assigned.String() + strings.Repeat("sh -c x;", 50000),
+		"group stdin":  strings.Repeat("{ sh; } <<<x;", 100000),
 		"evals":        strings.Repeat("eval ", 20000) + "cat .env",
 		"repeats":      strings.Repeat("eval 'eval \"eval x; eval x\"'; ", 40000),
 		"operands":     "docker exec a " + strings.Repeat("sh -o ", 40000) + "z",

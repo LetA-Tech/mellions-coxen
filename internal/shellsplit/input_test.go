@@ -45,6 +45,9 @@ func TestPipedIsWhetherStdinIsThePreviousCommand(t *testing.T) {
 		{"a ; b", false},
 		{"a && b", false},
 		{"a\nb", false},
+		{"a |\nb", true},
+		{"a | # note\n\nb", true},
+		{"a ;\nb", false},
 	} {
 		if got := Split(tc.command)[1].Piped; got != tc.want {
 			t.Errorf("%q: Piped = %v, want %v", tc.command, got, tc.want)
@@ -65,7 +68,7 @@ func TestAnUnquotedHeredocRunsWhatIsLiveInIt(t *testing.T) {
 		{"cat <<'EOF'\n$(a b)\nEOF", 0},
 		{"cat <<EOF\nno substitution\nEOF", 0},
 	} {
-		if got := len(Split(tc.command)[0].Runs); got != tc.want {
+		if got := len(Split(tc.command)[0].Body); got != tc.want {
 			t.Errorf("%q: %d commands run, want %d", tc.command, got, tc.want)
 		}
 	}
@@ -86,6 +89,9 @@ func TestProgramFindsTheCommandBehindWhatOpensIt(t *testing.T) {
 		{[]string{"a)", "rm"}, "rm"},
 		{[]string{"f()", "{", "rm"}, "rm"},
 		{[]string{"function", "f", "{", "rm"}, "rm"},
+		{[]string{"f(){", "rm"}, "rm"},
+		{[]string{"f", "()", "{", "rm"}, "rm"},
+		{[]string{"f()(rm"}, "rm"},
 		{[]string{"/usr/bin/env", "rm"}, "rm"},
 		{[]string{"/usr/bin/sudo", "-u", "x", "rm"}, "rm"},
 		{[]string{"sudo", "-iu", "x", "rm"}, "rm"},

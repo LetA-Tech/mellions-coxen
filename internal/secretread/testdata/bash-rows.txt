@@ -376,3 +376,51 @@ EOF
 su -c 'cat .env'
 ====
 watch -n 1 -g 'cat .env'
+====
+`which sh` -c 'cat .env'
+====
+rbash -c 'cat .env'
+====
+flock ./lock -c 'cat .env'
+====
+script -qc 'cat .env' /dev/null
+====
+bash -oc pipefail 'cat .env'
+====
+( cat .env )
+====
+(cat .env)
+====
+f(){ eval 'cat .env'; }; f
+====
+f () { sh -c 'cat .env'; }; f
+====
+f()(eval 'cat .env')
+====
+printf 'cat .env\n' | sh
+====
+echo -e 'cat .env\n' | sh
+====
+echo 'cat .env' |
+sh
+====
+echo 'cat .env' | # note
+sh
+====
+X=$(sh <<'EOF'
+cat .env
+EOF
+); echo "$X"
+====
+echo "$(bash -s <<'EOF'
+cat .env
+EOF
+)"
+====
+export X='cat .env'; eval "$X"
+====
+declare X='cat .env'; eval "$X"
+====
+X='cat .env'; $X
+====
+X='cat .env'; Y=$X; eval "$Y"

@@ -306,6 +306,9 @@ func (k *walker) walk(cmds []*shellsplit.Command, dir string, depth int) *Write 
 		if w := k.walk(c.Runs, dir, depth); w != nil {
 			return w
 		}
+		if w := k.walk(c.Body, dir, depth); w != nil {
+			return w
+		}
 		// xargs is read before unwrap, which would drop a {} placeholder that an
 		// option such as -I takes as its value. Its stdin is xargs' own input.
 		raw := c.Args()
