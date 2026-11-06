@@ -43,7 +43,7 @@ query or trace; an approved contract or specification; official vendor or
 standards documentation; issue reports and internal summaries; third-party
 analysis; a model's prior summary or conclusion — including your own;
 assumption. Higher is not automatically right: runtime may be exhibiting the
-defect, and a contract states what *should* be true, and recency is not
+defect, a contract states what *should* be true, and recency is not
 standing. Keep **actual**, **intended** and **required** state apart and say
 which you mean.
 
@@ -91,8 +91,7 @@ cannot settle. Missing documentation is not grounds to ask.
 Before a grep, a query or a test is
 cited as proof, run it against a case it must find and a case it must not
 match: a detection that matches nothing reports every codebase clean. Draw both
-from the corpus before writing the pattern, not from memory after — a matcher
-is only ever wrong on the boundary cases you would not invent, and a positive
+from the corpus before writing the pattern, not from memory after — a positive
 rebuilt from the report carries what it noticed, not what it missed; a stored
 row or a published body carries both. Wordings you have met bound nothing, so
 where the claim attaches to a name the toolchain resolves, enumerate its sites
@@ -105,7 +104,7 @@ reads from — route, topic, RPC, table — not a shared field name.
 Where absence across an estate is the claim, no tree is its outer edge:
 enumerate the refs the remote reports, not the ones a checkout fetched, and
 the open pull requests no integration ref holds.
-A capped read is not a smaller answer but an unread one: `head -N`, or a tool's
+A capped read is an unread one: `head -N`, or a tool's
 own limit, gives the first N in path order, so count the matches first. An
 empty answer prints nothing, so in a compound command other output passes for
 it: there, print each claim's verdict — `merge-base --is-ancestor`, a count,
@@ -114,10 +113,12 @@ it: there, print each claim's verdict — `merge-base --is-ancestor`, a count,
 An instrument that reports proves its reporting path, never that anything
 writes what it carries. Where a reading is an absence's whole support, find
 its writer, not its registration: one with no callers measures nothing.
+A reading describes what the system was doing: a stopped component emits mostly
+probes, so its latency says nothing of the stopped work. Read a window where it
+ran, or run it somewhere safe.
 
 ## Keep it small, and write it down as you go
 
-Research that swells the context degrades the reasoning it was meant to serve.
 Delegate breadth — call sites, a sibling repository, a long history —
 and keep the verdict (`mellions-delegation`); never paste raw output where a
 citation would do. Record what is established as you go, with its citation
