@@ -530,15 +530,15 @@ func scanCommands(command string, depth int, seen map[string][]Finding) []Findin
 	})
 }
 
-// handedToShell returns the script a command gives a local shell or eval at any
-// word, as `docker exec app sh -c` holds one. The script gets the verdict it would
-// get typed directly. What ssh runs on the far side is not read here.
+// handedToShell returns the text a command gives a shell to run: a local shell's
+// or eval's script at any word, as `docker exec app sh -c` holds one, or what ssh
+// runs on the far side. The script gets the verdict it would get typed directly.
 func handedToShell(c *shellsplit.Command) []string {
 	words := c.Args()
 	for k, w := range words {
 		base := path.Base(w)
 		if base == "ssh" {
-			return nil
+			return sshScripts(c, words[k+1:])
 		}
 		if base == "eval" || shellsplit.Shells[base] {
 			if scripts := shellsplit.Scripts(c, words[k:], true); scripts != nil {
@@ -547,6 +547,45 @@ func handedToShell(c *shellsplit.Command) []string {
 		}
 	}
 	return nil
+}
+
+// sshValued are ssh's option letters whose value is the rest of the word or the
+// next word.
+const sshValued = "BbcDEeFIiJLlmOoPpQRSWw"
+
+// sshScripts returns what ssh runs remotely: the words after its destination,
+// joined as ssh joins them, and what it sends on stdin when no remote command is
+// given or the remote command holds a shell.
+func sshScripts(c *shellsplit.Command, args []string) []string {
+	i := 0
+options:
+	for ; i < len(args) && strings.HasPrefix(args[i], "-"); i++ {
+		for at, letter := range args[i][1:] {
+			if strings.ContainsRune(sshValued, letter) {
+				if at == len(args[i])-2 {
+					i++
+				}
+				continue options
+			}
+		}
+	}
+	var out []string
+	readsScript := true
+	if i+1 < len(args) {
+		remote := strings.Join(args[i+1:], " ")
+		out = append(out, remote)
+		readsScript = false
+		for _, f := range strings.Fields(remote) {
+			readsScript = readsScript || shellsplit.Shells[path.Base(f)]
+		}
+	}
+	if readsScript {
+		for _, at := range c.Stdin {
+			out = append(out, c.Words[at])
+		}
+		out = append(out, c.Heredocs...)
+	}
+	return out
 }
 
 // pastWrappers returns the index of the command word at or after i.

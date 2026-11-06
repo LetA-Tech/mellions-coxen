@@ -11,8 +11,7 @@ import (
 )
 
 // A script handed to a local shell gets the verdict it would get typed directly:
-// a read is refused however it is quoted, and what is safe typed stays safe. What
-// ssh runs on the far side is out of this reading.
+// a read is refused however it is quoted, and what is safe typed stays safe.
 func TestAScriptHandedToAShellIsReadAsTheCommandLineItIs(t *testing.T) {
 	refused := []string{
 		`bash -c 'cat .env'`,
@@ -32,6 +31,15 @@ func TestAScriptHandedToAShellIsReadAsTheCommandLineItIs(t *testing.T) {
 		`docker compose exec -T app bash -lc 'cat .env'`,
 		`kubectl exec pod -- sh -c 'cat .env'`,
 		`find . -name x -exec sh -c 'cat .env' \;`,
+		`ssh host 'cat /opt/deploy/.env'`,
+		`ssh host "cat /opt/deploy/.env"`,
+		`ssh -i key root@host 'sudo cat /opt/deploy/.env'`,
+		`ssh -p 22 -o BatchMode=yes host 'grep TOKEN /opt/deploy/.env'`,
+		`ssh -p22 -tt host 'cd /opt/deploy && cat .env'`,
+		`timeout 5 ssh host 'cat .env'`,
+		`ssh host <<'EOF'` + "\ncat .env\nEOF",
+		`ssh host 'bash -s' <<'EOF'` + "\ncat .env\nEOF",
+		`ssh host bash -c "'cat .env'"`,
 	}
 	for _, c := range refused {
 		if len(ScanBash(c)) == 0 {
@@ -47,11 +55,10 @@ func TestAScriptHandedToAShellIsReadAsTheCommandLineItIs(t *testing.T) {
 		`eval "$(ssh-agent -s)"`,
 		`ssh host uptime`,
 		`ssh host 'ls -la /opt/deploy'`,
+		`ssh host 'wc -c /opt/deploy/.env'`,
 		`ssh -i ~/.ssh/id_ed25519 host uptime`,
 		`ssh -fN -i ~/.ssh/obsdebug_ed25519 -L 9428:127.0.0.1:9428 obsdebug@159.203.55.241`,
 		`cat <<'EOF'` + "\ncat .env\nEOF",
-		`ssh host 'grep TOKEN /opt/deploy/.env'`,
-		`ssh host bash -c 'cat /opt/deploy/.env'`,
 		`echo bash`,
 		`grep -n bash README.txt`,
 	}
