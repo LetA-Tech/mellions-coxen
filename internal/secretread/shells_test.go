@@ -6,6 +6,7 @@ package secretread
 
 import (
 	"fmt"
+	"runtime/debug"
 	"strings"
 	"testing"
 	"time"
@@ -304,6 +305,14 @@ func TestDepthNeitherHidesAReadNorOutrunsTheHook(t *testing.T) {
 		t.Errorf("scripts that double through variables must end in a refusal: %+v", found)
 	}
 
+	// A script that runs itself is cut off by depth while the stack is small.
+	stack := debug.SetMaxStack(32 << 20)
+	found := ScanBash(`X='eval "$X"'; eval "$X"`)
+	debug.SetMaxStack(stack)
+	if len(found) != 1 || !found[0].Unread {
+		t.Errorf("a script that runs itself must end in a refusal: %+v", found)
+	}
+
 	start := time.Now()
 	if found := ScanBash(nested("echo hi", 12)); len(found) != 0 {
 		t.Errorf("refused a harmless nesting: %+v", found)
@@ -312,7 +321,6 @@ func TestDepthNeitherHidesAReadNorOutrunsTheHook(t *testing.T) {
 		"evals":        strings.Repeat("eval ", 20000) + "cat .env",
 		"repeats":      strings.Repeat("eval 'eval \"eval x; eval x\"'; ", 40000),
 		"operands":     "docker exec a " + strings.Repeat("sh -o ", 40000) + "z",
-		"itself":       `X='eval "$X"'; eval "$X"`,
 		"substitution": "sh <<'EOF'\n" + nest(240) + "\nEOF",
 		"deep":         nest(20000),
 		"doubling":     doubling(40),
@@ -326,7 +334,7 @@ func TestDepthNeitherHidesAReadNorOutrunsTheHook(t *testing.T) {
 	if len(ScanBash(strings.Repeat("eval ", 20000)+"cat .env")) == 0 {
 		t.Error("a read behind 20000 evals was not refused")
 	}
-	found := ScanBash(strings.Repeat("eval ", 20000) + "wc -c note")
+	found = ScanBash(strings.Repeat("eval ", 20000) + "wc -c note")
 	if len(found) != 1 || !found[0].Unread || !strings.Contains(found[0].Reason(), "cannot read") {
 		t.Errorf("a command past the bound established nothing and must say so: %+v", found)
 	}
