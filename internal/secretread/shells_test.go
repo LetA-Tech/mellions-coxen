@@ -80,10 +80,14 @@ func TestAShellIsReadAtCommandPositionNotAtAnyWord(t *testing.T) {
 		`sudo -iu app bash -c 'cat .env'`,
 		`sudo --user app bash -c 'cat .env'`,
 		`"$SHELL" -c 'cat .env'`,
+		`"$SHELL" <<'EOF'` + "\ncat .env\nEOF",
+		`${BASH} -s <<'EOF'` + "\ncat .env\nEOF",
+		`$0 <<'EOF'` + "\ncat .env\nEOF",
 		`docker exec ssh sh -c 'cat .env'`,
 		`sudo -u ssh bash -c 'cat .env'`,
 		`docker exec -w /etc/ssh app sh -c 'cat .env'`,
 		`docker run --rm app sh -c 'cat .env'`,
+		`docker exec -i app sh <<'EOF'` + "\ncat .env\nEOF",
 		`xargs -n1 sh -c 'cat .env'`,
 		`find . -exec bash -c 'cat .env' \;`,
 		`eval -- 'cat .env'`,
@@ -276,6 +280,27 @@ func TestDepthNeitherHidesAReadNorOutrunsTheHook(t *testing.T) {
 		}
 	}
 
+	nest := func(depth int) string {
+		return strings.Repeat("echo $(", depth) + strings.Repeat(")", depth)
+	}
+	doubling := func(depth int) string {
+		var b strings.Builder
+		b.WriteString("A0=:\n")
+		for d := 1; d <= depth; d++ {
+			fmt.Fprintf(&b, "A%d='eval \"$A%d\"; eval \"$A%d\"'\n", d, d-1, d-1)
+		}
+		fmt.Fprintf(&b, `eval "$A%d"`, depth)
+		return b.String()
+	}
+	for _, c := range []string{nest(60), "sh <<'EOF'\n" + nest(60) + "\nEOF"} {
+		if found := ScanBash(c); len(found) != 0 {
+			t.Errorf("a harmless substitution nest was not read: %+v", found)
+		}
+	}
+	if found := ScanBash(doubling(40)); len(found) != 1 || !found[0].Unread {
+		t.Errorf("scripts that double through variables must end in a refusal: %+v", found)
+	}
+
 	start := time.Now()
 	if found := ScanBash(nested("echo hi", 12)); len(found) != 0 {
 		t.Errorf("refused a harmless nesting: %+v", found)
@@ -285,7 +310,10 @@ func TestDepthNeitherHidesAReadNorOutrunsTheHook(t *testing.T) {
 		"repeats":      strings.Repeat("eval 'eval \"eval x; eval x\"'; ", 40000),
 		"operands":     "docker exec a " + strings.Repeat("sh -o ", 40000) + "z",
 		"itself":       `X='eval "$X"'; eval "$X"`,
-		"substitution": "sh <<'EOF'\n" + strings.Repeat("echo $(", 240) + strings.Repeat(")", 240) + "\nEOF",
+		"substitution": "sh <<'EOF'\n" + nest(240) + "\nEOF",
+		"wide":         strings.Repeat("echo $(date) ", 8000),
+		"deep":         nest(20000),
+		"doubling":     doubling(40),
 	} {
 		ScanBash(c)
 		if took := time.Since(start); took > 6*time.Second {

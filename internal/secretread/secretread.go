@@ -421,7 +421,23 @@ func ScanBash(command string) []Finding {
 // maxScript bounds how many bytes of nested script one command costs, on top of
 // a multiple of its own length. It bounds time against the hook's timeout, and
 // the command is refused past it.
-const maxScript = 4 << 20
+const maxScript = 1 << 20
+
+// lexCost is what lexing text spends: the lexer copies a substitution's text once
+// for each substitution around it.
+func lexCost(text string) int {
+	depth, deepest := 0, 0
+	for i := range len(text) {
+		switch {
+		case text[i] == '$' && i+1 < len(text) && text[i+1] == '(':
+			depth++
+			deepest = max(deepest, depth)
+		case text[i] == ')' && depth > 0:
+			depth--
+		}
+	}
+	return len(text) * (1 + deepest)
+}
 
 // maxDepth bounds how deep scripts nest, since a variable can hold a script that
 // runs itself and spend the bound a few bytes at a time.
@@ -445,7 +461,7 @@ type held struct {
 }
 
 func (r *reader) scan(command string, vars held, stdin []string) []Finding {
-	if r.left -= len(command) + 1; r.left < 0 {
+	if r.left -= lexCost(command) + 1; r.left < 0 {
 		return nil
 	}
 	if r.depth == maxDepth {
@@ -773,10 +789,13 @@ func (r *reader) secretInside(word string) string {
 	if !strings.Contains(word, "$(") && !strings.Contains(word, "`") {
 		return ""
 	}
+	if r.left -= len(word)/16 + 1; r.left < 0 {
+		return ""
+	}
 	if found, ok := r.inside[word]; ok {
 		return found
 	}
-	if r.left -= len(word); r.left < 0 {
+	if r.left -= lexCost(word); r.left < 0 {
 		return ""
 	}
 	found := r.searchInside(word)
