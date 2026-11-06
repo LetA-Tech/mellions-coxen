@@ -479,13 +479,14 @@ say "session exited $rc, reply $(wc -c < "$reply" | tr -d ' ') bytes"
 # the next one into the same wall.
 #
 # Matched on the reply alone. The reply is written only from the stream's
-# `result` event (scripts/shift-follow.py:74-76), and the refusal produces one:
+# `result` event (scripts/shift-follow.py:76-82), and the refusal produces one:
 # that is why the observed shift's reply is the 52-byte sentence and nothing
 # else. Reading the stream's tail as well would buy no refusal this misses and
 # would cost a real false positive — a session killed at MELLIONS_TIMEOUT also
 # exits non-zero, and one working on this defect has the sentence in its last
-# few KB. A refusal that somehow emitted no result event leaves the reply empty
-# and is filed below as a session that said nothing, which is true.
+# few KB. A refusal that somehow emitted no result event leaves the reply at the
+# session's last result, or empty when it had none, which is filed below as a
+# session that said nothing.
 #
 # The reset time is taken only when the sentence names UTC, which the observed
 # refusal does. A bare local time is the runtime naming a zone this script

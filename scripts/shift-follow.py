@@ -19,9 +19,11 @@ a stock macOS lacks.
 
 Usage: shift-follow.py <reply-path> <stream-path> [session-pid]
 
-With a session pid the follower also stops once that process is gone and the
-stream holds no further complete line — the termination `--pid` provided.
-Without one it stops only on the session's result event.
+With a session pid the follower stops once that process is gone and the stream
+holds no further complete line — the termination `--pid` provided. A session
+waiting on background work ends a turn, with a result event, each time it waits,
+so the reply is the last result that says something. Without a pid it stops on
+the first result event.
 """
 import errno
 import json
@@ -51,7 +53,7 @@ def session_alive():
 
 
 def handle(line):
-    """Render one stream event. True when the session has finished."""
+    """Render one stream event. True when there is nothing further to follow."""
     line = line.strip()
     if not line:
         return False
@@ -72,10 +74,12 @@ def handle(line):
                 if text:
                     print("  " + text.splitlines()[0][:160], flush=True)
     elif kind == "result":
-        with open(reply_path, "w") as fh:
-            fh.write(ev.get("result", "") or "")
-        print("  [session finished]", flush=True)
-        return True
+        text = ev.get("result", "") or ""
+        if text or not os.path.exists(reply_path):
+            with open(reply_path, "w") as fh:
+                fh.write(text)
+        print("  [turn ended]", flush=True)
+        return not session_pid
     return False
 
 
