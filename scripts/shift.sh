@@ -484,8 +484,9 @@ say "session exited $rc, reply $(wc -c < "$reply" | tr -d ' ') bytes"
 # else. Reading the stream's tail as well would buy no refusal this misses and
 # would cost a real false positive — a session killed at MELLIONS_TIMEOUT also
 # exits non-zero, and one working on this defect has the sentence in its last
-# few KB. A refusal that somehow emitted no result event leaves the reply empty
-# and is filed below as a session that said nothing, which is true.
+# few KB. A refusal that somehow emitted no result event leaves the reply at the
+# session's last result, or empty when it had none, which is filed below as a
+# session that said nothing.
 #
 # The reset time is taken only when the sentence names UTC, which the observed
 # refusal does. A bare local time is the runtime naming a zone this script
