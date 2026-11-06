@@ -13,7 +13,7 @@ Write the handoff for the current assignment. Four things, nothing else:
 ```
 mellions assign handoff <id> -file -     # reads stdin
 mellions assign close <id>               # when the work is finished; keeps the branch
-mellions assign sweep [-apply]           # every handed-off lane whose pull request merged or closed
+mellions assign sweep [-apply]           # every handed-off lane whose pull request merged or closed; frees what finished lanes can rebuild
 ```
 
 Put anything another person needs on the issue or the PR as well, not only
