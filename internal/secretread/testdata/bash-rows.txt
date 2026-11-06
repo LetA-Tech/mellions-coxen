@@ -1,0 +1,426 @@
+bash -c 'cat .env'
+====
+(sh -c 'cat .env')
+====
+(eval 'cat .env')
+====
+( bash -c 'cat .env' )
+====
+if bash -c 'cat .env'; then :; fi
+====
+while sh -c 'cat .env'; do break; done
+====
+case x in x) sh -c 'cat .env';; esac
+====
+case x in (x) sh -c 'cat .env';; esac
+====
+f() { sh -c 'cat .env'; }; f
+====
+function f { sh -c 'cat .env'; }; f
+====
+builtin eval 'cat .env'
+====
+exec -a name sh -c 'cat .env'
+====
+sudo -iu app bash -c 'cat .env'
+====
+sudo --user app bash -c 'cat .env'
+====
+sudo -u ssh bash -c 'cat .env'
+====
+"$SHELL" -c 'cat .env'
+====
+${SHELL} -c 'cat .env'
+====
+$0 -c 'cat .env'
+====
+/bin/sh -c 'cat .env'
+====
+"sh" -c 'cat .env'
+====
+s"h" -c 'cat .env'
+====
+\sh -c 'cat .env'
+====
+$(which sh) -c 'cat .env'
+====
+/usr/bin/env sh -c 'cat .env'
+====
+env sh -c 'cat .env'
+====
+env -i /bin/sh -c 'cat .env'
+====
+nice -n 1 sh -c 'cat .env'
+====
+time sh -c 'cat .env'
+====
+command sh -c 'cat .env'
+====
+! sh -c 'cat .env'
+====
+true && sh -c 'cat .env'
+====
+false || sh -c 'cat .env'
+====
+true; sh -c 'cat .env'
+====
+true | sh -c 'cat .env'
+====
+for i in 1; do sh -c 'cat .env'; done
+====
+if true; then sh -c 'cat .env'; fi
+====
+if false; then :; else sh -c 'cat .env'; fi
+====
+if false; then :; elif sh -c 'cat .env'; then :; fi
+====
+{ eval 'cat .env'; }
+====
+stdbuf -oL sh -c 'cat .env'
+====
+setsid -w sh -c 'cat .env'
+====
+flock ./lock bash -c 'cat .env'
+====
+xargs -a /dev/null -r sh -c 'cat .env'
+====
+echo x | xargs -n1 sh -c 'cat .env'
+====
+find . -maxdepth 0 -exec sh -c 'cat .env' \;
+====
+find . -maxdepth 0 -exec sh -c 'cat .env' {} +
+====
+eval eval cat .env
+====
+eval "eval 'cat .env'"
+====
+eval 'bash -c "cat .env"'
+====
+eval -- 'cat .env'
+====
+eval -- 'wc -c .env'
+====
+bash --norc -c 'cat .env'
+====
+bash -o pipefail -c 'cat .env'
+====
+bash -euc 'cat .env'
+====
+bash -c -- 'cat .env'
+====
+sh -c 'cat .env' #
+====
+sh <<<'cat .env'
+====
+sh -s <<<'cat .env'
+====
+bash <<<"cat .env"
+====
+sh 0<<<'cat .env'
+====
+sh 3<<<'cat .env'
+====
+cat <<<'cat .env' | sh
+====
+printf '%s\n' 'cat .env' | sh
+====
+echo 'cat .env' | sh
+====
+echo cat .env | sh
+====
+echo 'cat .env' |& sh
+====
+sh <<'EOF'
+cat .env
+EOF
+====
+sh <<EOF
+cat .env
+EOF
+====
+sh <<"EOF"
+cat .env
+EOF
+====
+sh <<\EOF
+cat .env
+EOF
+====
+sh <<-EOF
+	cat .env
+	EOF
+====
+sh 0<<EOF
+cat .env
+EOF
+====
+sh 3<<EOF
+cat .env
+EOF
+====
+sh {fd}<<EOF
+cat .env
+EOF
+====
+sh /dev/stdin <<'EOF'
+cat .env
+EOF
+====
+sh - <<'EOF'
+cat .env
+EOF
+====
+sh -s <<'EOF'
+cat .env
+EOF
+====
+sh -c 'sh' <<'EOF'
+cat .env
+EOF
+====
+eval sh <<'EOF'
+cat .env
+EOF
+====
+{ sh; } <<'EOF'
+cat .env
+EOF
+====
+(sh) <<'EOF'
+cat .env
+EOF
+====
+(sh; true) <<'EOF'
+cat .env
+EOF
+====
+sh -c 'sh -c "sh"' <<'EOF'
+cat .env
+EOF
+====
+for i in 1; do sh; done <<'EOF'
+cat .env
+EOF
+====
+if true; then sh; fi <<'EOF'
+cat .env
+EOF
+====
+sh -c 'cat > /dev/null' <<'EOF'
+see .env
+EOF
+====
+{ cat; } <<'EOF'
+see .env
+EOF
+====
+while read l; do echo "$l"; done <<'EOF'
+see .env
+EOF
+====
+sh <<EOF
+x=\$(cat .env)
+echo \$x
+EOF
+====
+sh <<EOF
+x=\$(cat .env)
+psql \$x
+EOF
+====
+sh <<EOF
+echo \`cat .env\`
+EOF
+====
+sh <<EOF
+echo $(cat .env)
+EOF
+====
+sh <<'EOF'
+x=$(cat .env)
+echo $x
+EOF
+====
+cat <<EOF
+$(cat .env)
+EOF
+====
+cat <<EOF
+`cat .env`
+EOF
+====
+cat <<'EOF'
+$(cat .env)
+EOF
+====
+cat <<\EOF
+$(cat .env)
+EOF
+====
+cat <<EOF
+\$(cat .env)
+EOF
+====
+cat <<EOF
+\`cat .env\`
+EOF
+====
+cat <<EOF
+\\$(cat .env)
+EOF
+====
+psql <<EOF
+$(cat .env)
+EOF
+====
+grep -c . <<EOF
+$(cat .env)
+EOF
+====
+true --title sh --body-file - <<EOF
+see .env
+EOF
+====
+grep bash <<EOF
+see .env
+EOF
+====
+sh 3<<EOF
+see .env
+EOF
+====
+echo bash -c 'cat .env'
+====
+echo eval 'cat .env'
+====
+wc -c .env
+====
+bash -c 'wc -c .env'
+====
+bash -c 'V=$(cat .env); psql "$V"'
+====
+eval 'wc -c .env'
+====
+F=.env; eval 'cat "$F"'
+====
+F=.env; bash -c "cat \"$F\""
+====
+F=.env; sh -c "cat $F"
+====
+F=.env sh -c 'cat "$F"'
+====
+export F=.env; sh -c 'cat "$F"'
+====
+F=.env; export F; sh -c 'cat "$F"'
+====
+F=.env; eval 'wc -c "$F"'
+====
+X=$(cat .env); bash -c "echo $X"
+====
+X=$(cat .env); eval 'echo "$X"'
+====
+X=$(cat .env); bash -c "psql $X"
+====
+eval 'X=$(cat .env)'; echo "$X"
+====
+eval 'X=$(cat .env)'; psql "$X"
+====
+eval 'F=.env'; cat "$F"
+====
+eval 'eval "F=.env"'; cat "$F"
+====
+bash -c 'X=$(cat .env)'; echo "$X"
+====
+bash -c 'F=.env; :'; cat "$F"
+====
+F=.env; sh <<<"cat $F"
+====
+F=.env; sh <<EOF
+cat $F
+EOF
+====
+X=$(cat .env); sh <<EOF
+echo $X
+EOF
+====
+X='cat .env'; eval "$X"
+====
+X='cat .env'; bash -c "$X"
+====
+eval "$(echo cat .env)"
+====
+bash <(echo 'cat .env')
+====
+sh -c "$(echo cat .env)"
+====
+sh -c 'cat "$1"' _ .env
+====
+sh -s .env <<'EOF'
+cat "$1"
+EOF
+====
+echo 'cat .env' | tee /dev/null | sh
+====
+cat .e"nv"
+====
+bash -c 'cat .e"nv"'
+====
+bash -c "cat .e'nv'"
+====
+eval 'cat .e\nv'
+====
+sh <<'EOF'
+cat .e"nv"
+EOF
+====
+su -c 'cat .env'
+====
+watch -n 1 -g 'cat .env'
+====
+`which sh` -c 'cat .env'
+====
+rbash -c 'cat .env'
+====
+flock ./lock -c 'cat .env'
+====
+script -qc 'cat .env' /dev/null
+====
+bash -oc pipefail 'cat .env'
+====
+( cat .env )
+====
+(cat .env)
+====
+f(){ eval 'cat .env'; }; f
+====
+f () { sh -c 'cat .env'; }; f
+====
+f()(eval 'cat .env')
+====
+printf 'cat .env\n' | sh
+====
+echo -e 'cat .env\n' | sh
+====
+echo 'cat .env' |
+sh
+====
+echo 'cat .env' | # note
+sh
+====
+X=$(sh <<'EOF'
+cat .env
+EOF
+); echo "$X"
+====
+echo "$(bash -s <<'EOF'
+cat .env
+EOF
+)"
+====
+export X='cat .env'; eval "$X"
+====
+declare X='cat .env'; eval "$X"
+====
+X='cat .env'; $X
+====
+X='cat .env'; Y=$X; eval "$Y"

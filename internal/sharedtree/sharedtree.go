@@ -306,6 +306,9 @@ func (k *walker) walk(cmds []*shellsplit.Command, dir string, depth int) *Write 
 		if w := k.walk(c.Runs, dir, depth); w != nil {
 			return w
 		}
+		if w := k.walk(c.Body, dir, depth); w != nil {
+			return w
+		}
 		// xargs is read before unwrap, which would drop a {} placeholder that an
 		// option such as -I takes as its value. Its stdin is xargs' own input.
 		raw := c.Args()
@@ -320,7 +323,7 @@ func (k *walker) walk(cmds []*shellsplit.Command, dir string, depth int) *Write 
 		if len(words) == 0 {
 			continue
 		}
-		for _, script := range shellScripts(c, words, stdin) {
+		for _, script := range shellsplit.Scripts(c, words, stdin) {
 			if w := k.find(script, cdir, depth+1); w != nil {
 				return w
 			}
@@ -383,64 +386,6 @@ func chdir(prefix []string, dir, home string) string {
 		}
 	}
 	return dir
-}
-
-// shells are the programs that run a -c string, or with no script operand
-// read their script from stdin.
-var shells = map[string]bool{"bash": true, "sh": true, "dash": true, "zsh": true, "ksh": true}
-
-// shellValued are the shell options whose value is the next word.
-var shellValued = map[string]bool{"-o": true, "+o": true, "-O": true, "+O": true,
-	"--rcfile": true, "--init-file": true}
-
-// shellScripts returns what a shell command runs as a command line: the
-// operand after -c, or, with -s or no script operand, the here-strings,
-// heredocs and < operands it reads on stdin when stdin is the shell's own. A
-// script file it names is not read.
-func shellScripts(c *shellsplit.Command, words []string, stdin bool) []string {
-	if !shells[filepath.Base(words[0])] {
-		return nil
-	}
-	cmode, smode := false, false
-	for i := 1; i < len(words); i++ {
-		w := words[i]
-		switch {
-		case w == "--" || w == "-":
-			if cmode {
-				return words[i+1 : min(i+2, len(words))]
-			}
-			if i+1 < len(words) && !smode {
-				return nil
-			}
-			i = len(words)
-		case shellValued[w]:
-			i++
-		case strings.HasPrefix(w, "--"):
-		case len(w) > 1 && (w[0] == '-' || w[0] == '+'):
-			if w[0] == '-' {
-				cmode = cmode || strings.ContainsRune(w[1:], 'c')
-				smode = smode || strings.ContainsRune(w[1:], 's')
-			}
-			// A cluster ending in o or O takes the next word as its value.
-			if last := w[len(w)-1]; last == 'o' || last == 'O' {
-				i++
-			}
-		case cmode:
-			return []string{w}
-		case smode:
-			i = len(words)
-		default:
-			return nil
-		}
-	}
-	if cmode || !stdin {
-		return nil
-	}
-	var out []string
-	for _, i := range c.Stdin {
-		out = append(out, c.Words[i])
-	}
-	return append(out, c.Heredocs...)
 }
 
 // xargsValued are xargs' options whose value is the next word.
