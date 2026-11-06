@@ -410,7 +410,7 @@ func ScanPath(p string) []Finding {
 // is live in it, so writing a document that discusses a credential file by name
 // is silent, which is what makes the guard survivable.
 func ScanBash(command string) []Finding {
-	r := &reader{left: maxScript + 8*len(command), inside: map[string]string{}}
+	r := &scanner{left: maxScript + 8*len(command), inside: map[string]string{}}
 	found := r.scan(command, held{value: map[string]bool{}, path: map[string]bool{}, text: map[string]string{}}, nil)
 	if r.left < 0 {
 		found = append(found, Finding{Path: "a nested script", Reader: "sh", Unread: true})
@@ -443,8 +443,8 @@ func lexCost(text string) int {
 // runs itself and spend the bound a few bytes at a time.
 const maxDepth = 200
 
-// reader is one reading of a command line.
-type reader struct {
+// scanner is one reading of a command line.
+type scanner struct {
 	left   int
 	depth  int
 	inside map[string]string
@@ -460,7 +460,7 @@ type held struct {
 	text        map[string]string
 }
 
-func (r *reader) scan(command string, vars held, stdin []string) []Finding {
+func (r *scanner) scan(command string, vars held, stdin []string) []Finding {
 	if r.left -= lexCost(command) + 1; r.left < 0 {
 		return nil
 	}
@@ -572,7 +572,7 @@ func (r *reader) scan(command string, vars held, stdin []string) []Finding {
 // shell given -c among its operands. What a printer prints is data, and what ssh
 // runs on the far side is not read here. Each script gets the verdict it would
 // get typed directly.
-func (r *reader) handed(c *shellsplit.Command, earlier []*shellsplit.Command, vars held, inherited []string) []Finding {
+func (r *scanner) handed(c *shellsplit.Command, earlier []*shellsplit.Command, vars held, inherited []string) []Finding {
 	words := shellsplit.Program(c.Args())
 	if len(words) == 0 {
 		return nil
@@ -616,7 +616,7 @@ func (r *reader) handed(c *shellsplit.Command, earlier []*shellsplit.Command, va
 // handedTo reads what the shell or eval at words[0] runs. eval shares this
 // shell's variables. A child shell reads a copy: a word it is given was expanded
 // here, and what it assigns stays with it.
-func (r *reader) handedTo(words, in []string, vars held) []Finding {
+func (r *scanner) handedTo(words, in []string, vars held) []Finding {
 	script, fromStdin := shellsplit.Script(words)
 	if fromStdin {
 		script, in = in, nil
@@ -769,7 +769,7 @@ func commandFirst(c *shellsplit.Command) ([]string, int) {
 
 // readsSecret reports whether a word embeds a command substitution that reads a
 // credential — the `$(tail -1 .db_connection)` inside an assignment.
-func (r *reader) readsSecret(word string) bool {
+func (r *scanner) readsSecret(word string) bool {
 	return r.secretInside(word) != ""
 }
 
@@ -785,7 +785,7 @@ func (r *reader) readsSecret(word string) bool {
 // text glued to a substitution, whose output may split it into a word of its own.
 //
 // A word is read once, and each reading spends the bound.
-func (r *reader) secretInside(word string) string {
+func (r *scanner) secretInside(word string) string {
 	if !strings.Contains(word, "$(") && !strings.Contains(word, "`") {
 		return ""
 	}
@@ -803,7 +803,7 @@ func (r *reader) secretInside(word string) string {
 	return found
 }
 
-func (r *reader) searchInside(word string) string {
+func (r *scanner) searchInside(word string) string {
 	var outside strings.Builder
 	for i := 0; i < len(word); {
 		switch {
@@ -857,7 +857,7 @@ const substituted = "\x00"
 // including one read by a substitution nested in a word. A grep's words are read
 // for names alone, since grep runs no text. A sed script is searched in full: its
 // e command runs the shell.
-func (r *reader) commands(cmds []*shellsplit.Command) string {
+func (r *scanner) commands(cmds []*shellsplit.Command) string {
 	for _, c := range cmds {
 		words, _ := commandFirst(c)
 		at := 0

@@ -297,6 +297,9 @@ func TestDepthNeitherHidesAReadNorOutrunsTheHook(t *testing.T) {
 			t.Errorf("a harmless substitution nest was not read: %+v", found)
 		}
 	}
+	if found := ScanBash(strings.Repeat("echo $(date) ", 8000)); len(found) != 0 {
+		t.Errorf("many substitutions side by side nest nothing and are read: %+v", found)
+	}
 	if found := ScanBash(doubling(40)); len(found) != 1 || !found[0].Unread {
 		t.Errorf("scripts that double through variables must end in a refusal: %+v", found)
 	}
@@ -311,7 +314,6 @@ func TestDepthNeitherHidesAReadNorOutrunsTheHook(t *testing.T) {
 		"operands":     "docker exec a " + strings.Repeat("sh -o ", 40000) + "z",
 		"itself":       `X='eval "$X"'; eval "$X"`,
 		"substitution": "sh <<'EOF'\n" + nest(240) + "\nEOF",
-		"wide":         strings.Repeat("echo $(date) ", 8000),
 		"deep":         nest(20000),
 		"doubling":     doubling(40),
 	} {
