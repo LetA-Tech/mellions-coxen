@@ -384,7 +384,8 @@ type heldBack struct {
 // bound caps how many signals one repository contributes to one section,
 // preserving the source's order in what it keeps and reporting per repository
 // what it did not keep. A repository with a long list cannot push every other
-// repository's work off the end of a survey somebody has to read.
+// repository's work off the end of a survey somebody has to read. A signal that
+// concerns no repository is on no such list, and no command would print it back.
 func bound(in []signal.Signal, perRepo int) ([]signal.Signal, []heldBack) {
 	if perRepo <= 0 {
 		return in, nil
@@ -394,6 +395,10 @@ func bound(in []signal.Signal, perRepo int) ([]signal.Signal, []heldBack) {
 	var order []string
 	held := map[string]int{}
 	for _, s := range in {
+		if s.Repo == "" {
+			kept = append(kept, s)
+			continue
+		}
 		if _, seen := count[s.Repo]; !seen {
 			order = append(order, s.Repo)
 		}

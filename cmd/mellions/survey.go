@@ -25,6 +25,7 @@ import (
 	"github.com/LetA-Tech/mellions-coxen/internal/sources/gitsrc"
 	"github.com/LetA-Tech/mellions-coxen/internal/sources/programs"
 	"github.com/LetA-Tech/mellions-coxen/internal/sources/runnersrc"
+	"github.com/LetA-Tech/mellions-coxen/internal/sources/runtimesrc"
 	"github.com/LetA-Tech/mellions-coxen/internal/sources/stale"
 	"github.com/LetA-Tech/mellions-coxen/internal/survey"
 )
@@ -120,6 +121,14 @@ func (c *Config) build(scope []string) (*sig.Registry, error) {
 	}
 	if want[runnersrc.Name] {
 		if err := reg.Register(runnersrc.New(c.home(), Commit)); err != nil {
+			return nil, err
+		}
+	}
+	if want[runtimesrc.Name] {
+		if c.Runtime.LogsURL == "" && len(c.Runtime.ContainerHosts) == 0 {
+			return nil, errors.New("source runtime needs \"runtime\" in config: \"logs_url\" or \"container_hosts\", or it reads nothing and looks quiet")
+		}
+		if err := reg.Register(runtimesrc.New(c.Runtime)); err != nil {
 			return nil, err
 		}
 	}
@@ -303,7 +312,7 @@ func surveyBrief(path string) (brief string, age time.Duration, ok bool) {
 		counts[head[:open]] = n
 	}
 	var parts []string
-	for _, k := range []string{"Stale premises — recorded claims the current tree contradicts", "Failing checks", "Waiting on the owner", "Changes under review", "Tracked work items"} {
+	for _, k := range []string{"Stale premises — recorded claims the current tree contradicts", "Alerts — runtime and security", "Failing checks", "Waiting on the owner", "Changes under review", "Tracked work items"} {
 		if n := counts[k]; n > 0 {
 			short := k
 			if i := strings.Index(short, " —"); i > 0 {

@@ -54,6 +54,31 @@ func TestSurveyBriefReadsTheHeadingCount(t *testing.T) {
 	}
 }
 
+func TestSurveyBriefNamesAlerts(t *testing.T) {
+	res := survey.Result{
+		At: time.Now(), Ran: []string{"runtime"},
+		Signals: []sig.Signal{{Kind: sig.KindAlert, Source: "runtime", ID: "logs:a", Title: "boom"}},
+	}
+	path := filepath.Join(t.TempDir(), "survey-latest.md")
+	if err := os.WriteFile(path, []byte(res.Text()), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if brief, _, _ := surveyBrief(path); !strings.Contains(brief, "1 alerts") {
+		t.Errorf("the digest a session starts on hides a running service's errors: %q", brief)
+	}
+}
+
+func TestRuntimeSourceWithNothingToReadIsRefused(t *testing.T) {
+	c := &Config{Sources: []string{"runtime"}}
+	if _, err := c.build(nil); err == nil || !strings.Contains(err.Error(), "logs_url") {
+		t.Errorf("a runtime source reading nothing would look quiet: %v", err)
+	}
+	c.Runtime.LogsURL = "http://127.0.0.1:9428"
+	if _, err := c.build(nil); err != nil {
+		t.Errorf("a configured runtime source was refused: %v", err)
+	}
+}
+
 func TestSurveyBriefReportsIncomplete(t *testing.T) {
 	res := survey.Result{
 		At: time.Now(), Ran: []string{"github"},
