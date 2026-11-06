@@ -168,6 +168,9 @@ func TestAShellIsReadAtCommandPositionNotAtAnyWord(t *testing.T) {
 		`$PSQL <<EOF` + "\ncat .env\nEOF",
 		`echo 'cat .env' | xargs -n1 sh`,
 		`ssh host 'sh -c "cat .env"'`,
+		`SSH="ssh -F cfg host"; $SSH 'cd /opt && grep TOKEN .env'`,
+		`G="git -C repo"; $G show HEAD | sed 's/.*//'`,
+		`for a in 1; do echo "$(grep x log | sed 's/.*// ')"; done`,
 	}
 	for _, c := range silent {
 		if found := ScanBash(c); len(found) != 0 {
@@ -208,6 +211,7 @@ func TestAVariableCrossesIntoAScriptAndOutOfAnEval(t *testing.T) {
 		`bash -c 'X=$(cat .env)'; echo "$X"`,
 		`bash -c 'F=.env; :'; cat "$F"`,
 		`X='wc -c .env'; eval "$X"`,
+		`X='wc -c'; $X .env`,
 	}
 	for _, c := range silent {
 		if found := ScanBash(c); len(found) != 0 {
@@ -340,7 +344,7 @@ func TestDepthNeitherHidesAReadNorOutrunsTheHook(t *testing.T) {
 		t.Errorf("scripts that double through variables must end in a refusal: %+v", found)
 	}
 
-	// A script that runs itself is cut off by depth while the stack is small.
+	// A script that runs itself is cut off by the bound while the stack is small.
 	stack := debug.SetMaxStack(32 << 20)
 	found := ScanBash(`X='eval "$X"'; eval "$X"`)
 	debug.SetMaxStack(stack)

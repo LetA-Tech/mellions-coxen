@@ -139,8 +139,12 @@ var consumedFlags = map[string]map[string]bool{
 
 // wrappers stand in front of the real command word without changing what it
 // does with its arguments.
-var wrappers = map[string]bool{"sudo": true, "command": true, "builtin": true, "nohup": true, "time": true,
-	"if": true, "then": true, "elif": true, "else": true, "while": true, "until": true, "do": true, "{": true, "!": true}
+var wrappers = map[string]bool{"sudo": true, "command": true, "builtin": true, "nohup": true, "time": true}
+
+// keywords open a body. One stands in the reader's place unless what follows it
+// is a program that never prints: `then wc -c .env` is that program.
+var keywords = map[string]bool{"if": true, "then": true, "elif": true, "else": true,
+	"while": true, "until": true, "do": true, "{": true, "!": true}
 
 // declarers assign the NAME=value words they are given.
 var declarers = map[string]bool{"export": true, "declare": true, "typeset": true, "readonly": true, "local": true}
@@ -451,14 +455,9 @@ const (
 	cloneStep = 64
 )
 
-// maxDepth bounds how deep scripts nest, since a variable can hold a script that
-// runs itself and spend the bound a few bytes at a time.
-const maxDepth = 200
-
 // scanner is one reading of a command line.
 type scanner struct {
 	left   int
-	depth  int
 	inside map[string]string
 }
 
@@ -466,7 +465,7 @@ type scanner struct {
 // substitution, or its path, assigned literally. Using the value is the idiom and
 // printing it is the leak. The path carries the path default: `F=.db_connection;
 // cat "$F"` opens the file exactly as `cat .db_connection` does. text is each
-// variable's assigned word, which eval "$X" runs.
+// variable's assigned word, which a lone `$X` runs.
 type held struct {
 	value, path map[string]bool
 	text        map[string]string
@@ -476,12 +475,6 @@ func (r *scanner) scan(command string, vars held, stdin []string) []Finding {
 	if r.left -= lexCost(command) + scanFloor; r.left < 0 {
 		return nil
 	}
-	if r.depth == maxDepth {
-		r.left = -1
-		return nil
-	}
-	r.depth++
-	defer func() { r.depth-- }()
 	return shellsplit.Each(command, func(cmds []*shellsplit.Command) []Finding {
 		return r.read(cmds, vars, stdin)
 	})
@@ -536,6 +529,12 @@ func (r *scanner) read(cmds []*shellsplit.Command, vars held, stdin []string) []
 			continue
 		}
 		reader := path.Base(strings.TrimLeft(words[i], "("))
+		for k := i; keywords[path.Base(strings.TrimLeft(words[k], "("))] && k+1 < len(words); k++ {
+			if next := path.Base(words[k+1]); safeReaders[next] {
+				reader, i = next, k+1
+				break
+			}
+		}
 		args := words[i+1:]
 
 		out = append(out, r.handed(c, cmds[:ci], vars, inherited)...)
@@ -612,7 +611,7 @@ func (r *scanner) handed(c *shellsplit.Command, earlier []*shellsplit.Command, v
 		return nil
 	}
 	in := c.Input
-	if len(in) == 0 && c.Piped && (runsShell(words[0]) || runsOperands(words)) {
+	if len(in) == 0 && c.Piped {
 		r.left -= pipeStep * len(earlier)
 		in = printedInto(earlier)
 	}
@@ -622,8 +621,8 @@ func (r *scanner) handed(c *shellsplit.Command, earlier []*shellsplit.Command, v
 	if runsShell(words[0]) {
 		return r.handedTo(words, in, vars)
 	}
-	if text, ok := vars.text[loneVariable(words[0])]; ok {
-		return r.handedTo([]string{"eval", text, strings.Join(words[1:], " ")}, in, vars)
+	if text, ok := vars.text[loneVariable(words[0])]; ok && len(words) == 1 {
+		return r.handedTo([]string{"eval", text}, in, vars)
 	}
 	program := path.Base(words[0])
 	if printers[program] || program == "ssh" {
@@ -668,12 +667,6 @@ func (r *scanner) handedTo(words, in []string, vars held) []Finding {
 	}
 	var out []Finding
 	for _, s := range script {
-		if r.left < 0 {
-			break
-		}
-		if text, ok := vars.text[loneVariable(s)]; ok {
-			s = text
-		}
 		out = append(out, r.scan(s, vars, in)...)
 	}
 	return out
