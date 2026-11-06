@@ -106,6 +106,25 @@ if [ -e "$STUB_DIR/limit-late-quote" ]; then
   printf '{"type":"result","is_error":false,"result":"Filed the refusal: You'\''ve hit your weekly limit · resets %s (UTC)"}\n' "$(cat "$STUB_DIR/limit-late-quote")"
   exit 124
 fi
+# A refusal followed by a textless result; a quotation followed by a textless error.
+if [ -e "$STUB_DIR/limit-then-empty" ]; then
+  printf '{"type":"system","session_id":"aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"}\n'
+  printf '{"type":"result","is_error":true,"result":"You'\''ve hit your weekly limit · resets %s (UTC)"}\n' "$(cat "$STUB_DIR/limit-then-empty")"
+  printf '{"type":"result","is_error":false,"result":""}\n'
+  exit 1
+fi
+if [ -e "$STUB_DIR/limit-quote-then-error" ]; then
+  printf '{"type":"system","session_id":"aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"}\n'
+  printf '{"type":"result","is_error":false,"result":"Filed the refusal: You'\''ve hit your weekly limit · resets %s (UTC)"}\n' "$(cat "$STUB_DIR/limit-quote-then-error")"
+  printf '{"type":"result","subtype":"error_during_execution","is_error":true,"errors":["x"]}\n'
+  exit 1
+fi
+# The sentence on an error result in a session that exited zero.
+if [ -e "$STUB_DIR/limit-exit0" ]; then
+  printf '{"type":"system","session_id":"aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"}\n'
+  printf '{"type":"result","is_error":true,"result":"You'\''ve hit your weekly limit · resets %s (UTC)"}\n' "$(cat "$STUB_DIR/limit-exit0")"
+  exit 0
+fi
 if [ -e "$STUB_DIR/hang" ]; then echo $$ > "$STUB_DIR/hang.pid"; sleep 3131; exit 0; fi
 # Stands in for the session itself filing a report mid-shift: a claim
 # (O_CREATE|O_EXCL leaves an empty .md) that a crash left unwritten, or a real
@@ -909,6 +928,36 @@ env MELLIONS_HOME="$k13home" MELLIONS_PROMPT="$tmp/k-task.md" "$root/scripts/shi
 rm -f "$STUB_DIR/limit-late-quote"
 ls "$k13home"/shifts/*.limit >/dev/null 2>&1 \
   && bad "K13: a timeout kill that quoted a weekly refusal was filed as the account refusing it"
+
+# K14: the mark is judged on the result the reply came from, and needs the error
+# exit. A refusal then an empty result is a refusal; a quotation then a textless
+# error, or the sentence on a session that exited zero, parks nothing.
+printf '%s' "$wk_text" > "$STUB_DIR/limit-then-empty"
+k14home="$tmp/k14a/home"; mkdir -p "$k14home"
+env MELLIONS_HOME="$k14home" MELLIONS_PROMPT="$tmp/k-task.md" "$root/scripts/shift.sh" > "$tmp/k14.out" 2>&1
+rm -f "$STUB_DIR/limit-then-empty"
+case "$(cat "$k14home"/shifts/*.limit 2>/dev/null)" in
+  *" dated") ;;
+  *) bad "K14: a refusal followed by an empty result was not marked" ;;
+esac
+for k14 in limit-quote-then-error limit-exit0; do
+  printf '%s' "$wk_text" > "$STUB_DIR/$k14"
+  k14home=$(mktemp -d "$tmp/k14.XXXXXX")
+  env MELLIONS_HOME="$k14home" MELLIONS_PROMPT="$tmp/k-task.md" "$root/scripts/shift.sh" > "$tmp/k14.out" 2>&1
+  rm -f "$STUB_DIR/$k14"
+  ls "$k14home"/shifts/*.limit >/dev/null 2>&1 && bad "K14: $k14 was filed as the account refusing it"
+done
+
+# K15: a reset in another year names the year, whose digits are not the hour.
+wk_year=$(date -u -d '+3 days' '+%b %-d, %Y, %-I%P' 2>/dev/null || date -u -v+3d '+%b %-d, %Y, %-I%p')
+printf '%s' "$wk_year" > "$STUB_DIR/limit-weekly"
+k15home="$tmp/k15/home"; mkdir -p "$k15home"
+env MELLIONS_HOME="$k15home" MELLIONS_PROMPT="$tmp/k-task.md" "$root/scripts/shift.sh" > "$tmp/k15.out" 2>&1
+rm -f "$STUB_DIR/limit-weekly"
+case "$(cat "$k15home"/shifts/*.limit 2>/dev/null)" in
+  *" $wk_iso "*" dated") ;;
+  *) bad "K15: '$wk_year' was not read as $wk_iso: '$(cat "$k15home"/shifts/*.limit 2>/dev/null)'" ;;
+esac
 
 note "K: a refused shift is filed interrupted with its window and its lane; a quoted refusal and a timeout kill that quoted it are not; the runner waits for the window rather than backing off; and the cap counts the shifts that ran"
 

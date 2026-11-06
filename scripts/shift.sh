@@ -478,7 +478,7 @@ say "session exited $rc, reply $(wc -c < "$reply" | tr -d ' ') bytes"
 # morning as a session that ran and had nothing to say, and the runner starts
 # the next one into the same wall.
 #
-# Matched on the reply alone. The reply is written only from the stream's
+# The sentence is matched on the reply alone. The reply is written only from the stream's
 # `result` event (scripts/shift-follow.py:76-82), and the refusal produces one:
 # that is why the observed shift's reply is the 52-byte sentence and nothing
 # else. Reading the stream's tail as well would buy no refusal this misses and
@@ -501,10 +501,10 @@ say "session exited $rc, reply $(wc -c < "$reply" | tr -d ' ') bytes"
 # The sentence alone is not the signal. A session working on this very defect
 # quotes it, into a result event as well as its tool output, and can then be
 # killed at its timeout. What the account's refusal has and a quotation does not
-# is an error exit and a final result event the runtime marked is_error. All
-# three, or none. The stream is read for that mark, and the kinds of limit are
-# not enumerated: an unrecognised kind or reset wording still ends as a refusal
-# with no time named, never as a good shift.
+# is an error exit and a runtime is_error on the result the reply came from, the
+# last with text. All three, or none. A limit sentence whose reset wording is
+# unrecognised is a refusal with no time named; one in a wording the pattern does
+# not read is filed as an ordinary shift.
 limit_epoch=0 limit_at="" limit_wait="-" limit=""
 [ "$rc" -eq 0 ] || limit=$(cat "$reply" 2>/dev/null | "$PYTHON" -c '
 import calendar, datetime, json, re, sys, time
@@ -519,15 +519,15 @@ try:
             event = json.loads(line)
         except ValueError:
             continue
-        if isinstance(event, dict) and event.get("type") == "result":
+        if isinstance(event, dict) and event.get("type") == "result" and event.get("result"):
             last = event
 except OSError:
     pass
 if last.get("is_error") is not True:
     sys.exit(1)
 text = sys.stdin.read()
-kind = r"(?:hit\s+your(?:\s+\S+)?|session|usage)\s+limit"
-m = re.search(kind + r"[^\n]{0,200}?reset[a-z]*(?:\s+at)?\s+(?:([a-z]{3})[a-z]*\.?\s+(\d{1,2}),?\s+(?:at\s+)?)?(\d{1,2})(?::(\d{2}))?\s*(am|pm)?", text, re.I)
+kind = r"(?:(?:hit|reached)\s+your(?:\s+\S+){0,4}|session|usage|weekly)\s+limit"
+m = re.search(kind + r"[^\n]{0,200}?reset[a-z]*(?:\s+at)?\s+(?:([a-z]{3})[a-z]*\.?\s+(\d{1,2}),?\s+(?:\d{4},?\s+)?(?:at\s+)?)?(\d{1,2})(?::(\d{2}))?\s*(am|pm)?", text, re.I)
 if not m:
     if re.search(kind, text, re.I):
         print("0 - -")
