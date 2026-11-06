@@ -478,7 +478,7 @@ say "session exited $rc, reply $(wc -c < "$reply" | tr -d ' ') bytes"
 # morning as a session that ran and had nothing to say, and the runner starts
 # the next one into the same wall.
 #
-# Matched on the reply alone. The reply is written only from the stream's
+# The sentence is matched on the reply alone. The reply is written only from the stream's
 # `result` event (scripts/shift-follow.py:76-82), and the refusal produces one:
 # that is why the observed shift's reply is the 52-byte sentence and nothing
 # else. Reading the stream's tail as well would buy no refusal this misses and
@@ -489,41 +489,82 @@ say "session exited $rc, reply $(wc -c < "$reply" | tr -d ' ') bytes"
 # session that said nothing.
 #
 # The reset time is taken only when the sentence names UTC, which the observed
-# refusal does. A bare local time is the runtime naming a zone this script
-# cannot resolve, so it is read as "interrupted, reset time not named" and the
-# runner falls back to its own wait rather than inventing an offset.
+# refusals do. A bare local time is the runtime naming a zone this script cannot
+# resolve, so it is read as "interrupted, reset time not named" and the runner
+# falls back to its own wait rather than inventing an offset.
+#
+# A date names its own instant, so a dated reset is marked `dated` and the runner
+# honours it past the ceiling it holds a bare time to. A dated reset that is
+# passed, invalid, or further off than the longest window the account runs is
+# read as not named, because the runner would otherwise park on it.
 #
 # The sentence alone is not the signal. A session working on this very defect
-# quotes it — into its reply, and into every tool result in its stream — and
-# would file itself as refused. What the account's refusal has and the quotation
-# does not is that the session did not get to choose how it ended: the refusal
-# exits non-zero. Both, or neither.
-limit_epoch=0 limit_at="" limit=""
+# quotes it, into a result event as well as its tool output, and can then be
+# killed at its timeout. What the account's refusal has and a quotation does not
+# is an error exit and a runtime is_error on the result the reply came from, the
+# last with text. All three, or none. A limit sentence whose reset wording is
+# unrecognised is a refusal with no time named; one in a wording the pattern does
+# not read is filed as an ordinary shift.
+limit_epoch=0 limit_at="" limit_wait="-" limit=""
 [ "$rc" -eq 0 ] || limit=$(cat "$reply" 2>/dev/null | "$PYTHON" -c '
-import calendar, re, sys, time
+import calendar, datetime, json, re, sys, time
+LONGEST_WINDOW = 8 * 86400
+MONTHS = "jan feb mar apr may jun jul aug sep oct nov dec".split()
+last = {}
+try:
+    for line in open(sys.argv[1], errors="replace"):
+        if "\"result\"" not in line:
+            continue
+        try:
+            event = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(event, dict) and event.get("type") == "result" and event.get("result"):
+            last = event
+except OSError:
+    pass
+if last.get("is_error") is not True:
+    sys.exit(1)
 text = sys.stdin.read()
-m = re.search(r"(?:session|usage)\s+limit[^\n]{0,200}?reset[a-z]*(?:\s+at)?\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?", text, re.I)
+kind = r"(?:(?:hit|reached)\s+your(?:\s+\S+){0,4}|session|usage|weekly)\s+limit"
+m = re.search(kind + r"[^\n]{0,200}?reset[a-z]*(?:\s+at)?\s+(?:([a-z]{3})[a-z]*\.?\s+(\d{1,2}),?\s+(?:\d{4},?\s+)?(?:at\s+)?)?(\d{1,2})(?::(\d{2}))?\s*(am|pm)?", text, re.I)
 if not m:
+    if re.search(kind, text, re.I):
+        print("0 - -")
+        sys.exit(0)
     sys.exit(1)
 tail = text[m.start():m.end() + 24]
-hour, minute = int(m.group(1)), int(m.group(2) or 0)
-suffix = (m.group(3) or "").lower()
+hour, minute = int(m.group(3)), int(m.group(4) or 0)
+suffix = (m.group(5) or "").lower()
 if suffix == "pm" and hour < 12:
     hour += 12
 elif suffix == "am" and hour == 12:
     hour = 0
 if hour > 23 or minute > 59 or not re.search(r"\bUTC\b", tail, re.I):
-    print("0 -")
+    print("0 - -")
     sys.exit(0)
 now = time.time()
 u = time.gmtime(now)
+if m.group(1):
+    month = m.group(1).lower()
+    for year in (u.tm_year, u.tm_year + 1):
+        try:
+            when = datetime.datetime(year, MONTHS.index(month) + 1, int(m.group(2)), hour, minute)
+        except ValueError:
+            break
+        target = calendar.timegm(when.timetuple())
+        if now < target <= now + LONGEST_WINDOW:
+            print("%d %s dated" % (target, when.strftime("%Y-%m-%dT%H:%M")))
+            sys.exit(0)
+    print("0 - -")
+    sys.exit(0)
 target = calendar.timegm((u.tm_year, u.tm_mon, u.tm_mday, hour, minute, 0, 0, 0, 0))
 if target <= now:
     target += 86400
-print("%d %02d:%02d" % (target, hour, minute))
-') || limit=""
+print("%d %02d:%02d -" % (target, hour, minute))
+' "$stream") || limit=""
 if [ -n "$limit" ]; then
-  limit_epoch=${limit%% *} limit_at=${limit#* }
+  read -r limit_epoch limit_at limit_wait <<< "$limit"
   [ "$limit_at" = "-" ] && limit_at=""
   session_id=$(head -20 "$stream" 2>/dev/null | "$PYTHON" -c '
 import json, sys
@@ -541,9 +582,9 @@ for line in sys.stdin:
   say "shift $stamp interrupted by the usage limit${when:-, reset time not named}"
   # What the runner reads. Written before anything that can fail, so a shift
   # killed while filing still leaves the window on disk.
-  # Three fields, never an empty one: the reader splits on whitespace, and a
-  # blank middle field would hand it the session id as the reset time.
-  printf '%s %s %s\n' "$limit_epoch" "${limit_at:--}" "${session_id:--}" > "$HOME_DIR/shifts/$stamp.limit"
+  # Four fields, never an empty one: the reader splits on whitespace, and a blank
+  # field would hand it the next one in its place.
+  printf '%s %s %s %s\n' "$limit_epoch" "${limit_at:--}" "${session_id:--}" "$limit_wait" > "$HOME_DIR/shifts/$stamp.limit"
   # The lane, not only the shift. An assignment record carries the session that
   # last worked it, so the lanes this shift cut are the ones naming this
   # session — marked here as interrupted rather than left looking like any

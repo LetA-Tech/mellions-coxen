@@ -56,14 +56,14 @@ while [ -e "$STUB_DIR/pin.$n" ]; do sleep 0.1; done
 # A runtime usage-limit refusal carries a session id, reset time and non-zero exit.
 if [ -e "$STUB_DIR/limit" ]; then
   printf '{"type":"system","session_id":"aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"}\n'
-  printf '{"type":"result","result":"You'\''ve hit your session limit · resets %s (UTC)"}\n' "$STUB_RESET_12"
+  printf '{"type":"result","is_error":true,"result":"You'\''ve hit your session limit · resets %s (UTC)"}\n' "$STUB_RESET_12"
   exit 1
 fi
 # A session that quotes the sentence and ends of its own accord — a shift
 # working on this defect does exactly this.
 if [ -e "$STUB_DIR/limit-quoted" ]; then
   printf '{"type":"system","session_id":"aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"}\n'
-  printf '{"type":"result","result":"Handled the refusal: You'\''ve hit your session limit · resets 6:10pm (UTC)"}\n'
+  printf '{"type":"result","is_error":false,"result":"Handled the refusal: You'\''ve hit your session limit · resets 6:10pm (UTC)"}\n'
   exit 0
 fi
 # A session killed at its timeout that had quoted the sentence: non-zero exit,
@@ -78,14 +78,52 @@ fi
 if [ -e "$STUB_DIR/limit-far" ]; then
   far=$(date -u -d '+8 hours' +%H:%M 2>/dev/null || date -u -v+8H +%H:%M)
   printf '{"type":"system","session_id":"aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"}\n'
-  printf '{"type":"result","result":"You'\''ve hit your session limit · resets %s (UTC)"}\n' "$far"
+  printf '{"type":"result","is_error":true,"result":"You'\''ve hit your session limit · resets %s (UTC)"}\n' "$far"
   exit 1
 fi
 # A refusal naming a time in no zone this script can resolve.
 if [ -e "$STUB_DIR/limit-nozone" ]; then
   printf '{"type":"system","session_id":"aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"}\n'
-  printf '{"type":"result","result":"You'\''ve hit your session limit · resets 6:10pm"}\n'
+  printf '{"type":"result","is_error":true,"result":"You'\''ve hit your session limit · resets 6:10pm"}\n'
   exit 1
+fi
+# A weekly refusal: the reset names a date, days past any session window's ceiling.
+if [ -e "$STUB_DIR/limit-weekly" ]; then
+  printf '{"type":"system","session_id":"aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"}\n'
+  printf '{"type":"result","is_error":true,"result":"You'\''ve hit your weekly limit · resets %s (UTC)"}\n' "$(cat "$STUB_DIR/limit-weekly")"
+  exit 1
+fi
+# A refusal of a kind and wording nothing here has seen.
+if [ -e "$STUB_DIR/limit-otherkind" ]; then
+  printf '{"type":"system","session_id":"aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"}\n'
+  printf '{"type":"result","is_error":true,"result":"You'\''ve hit your monthly limit · try again next month"}\n'
+  exit 1
+fi
+# A session killed at its timeout after a turn whose result quoted a weekly
+# refusal: non-zero exit and the sentence in its reply, and no is_error.
+if [ -e "$STUB_DIR/limit-late-quote" ]; then
+  printf '{"type":"system","session_id":"aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"}\n'
+  printf '{"type":"result","is_error":false,"result":"Filed the refusal: You'\''ve hit your weekly limit · resets %s (UTC)"}\n' "$(cat "$STUB_DIR/limit-late-quote")"
+  exit 124
+fi
+# A refusal followed by a textless result; a quotation followed by a textless error.
+if [ -e "$STUB_DIR/limit-then-empty" ]; then
+  printf '{"type":"system","session_id":"aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"}\n'
+  printf '{"type":"result","is_error":true,"result":"You'\''ve hit your weekly limit · resets %s (UTC)"}\n' "$(cat "$STUB_DIR/limit-then-empty")"
+  printf '{"type":"result","is_error":false,"result":""}\n'
+  exit 1
+fi
+if [ -e "$STUB_DIR/limit-quote-then-error" ]; then
+  printf '{"type":"system","session_id":"aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"}\n'
+  printf '{"type":"result","is_error":false,"result":"Filed the refusal: You'\''ve hit your weekly limit · resets %s (UTC)"}\n' "$(cat "$STUB_DIR/limit-quote-then-error")"
+  printf '{"type":"result","subtype":"error_during_execution","is_error":true,"errors":["x"]}\n'
+  exit 1
+fi
+# The sentence on an error result in a session that exited zero.
+if [ -e "$STUB_DIR/limit-exit0" ]; then
+  printf '{"type":"system","session_id":"aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"}\n'
+  printf '{"type":"result","is_error":true,"result":"You'\''ve hit your weekly limit · resets %s (UTC)"}\n' "$(cat "$STUB_DIR/limit-exit0")"
+  exit 0
 fi
 if [ -e "$STUB_DIR/hang" ]; then echo $$ > "$STUB_DIR/hang.pid"; sleep 3131; exit 0; fi
 # Stands in for the session itself filing a report mid-shift: a claim
@@ -820,6 +858,106 @@ before=$(count 'starting' "$log"); sleep 3
   || bad "K8: another shift started straight after a refusal naming no window: $(tail -5 "$log")"
 kill -TERM "$k8" 2>/dev/null; wait_gone 10 "$k8"
 rm -f "$STUB_DIR/limit-nozone"
+
+# K9: a weekly refusal names a date. The mark carries that instant, and the
+# runner waits for it rather than clamping it to a session window's ceiling and
+# starting shifts into the same wall.
+wk_text=$(date -u -d '+3 days' '+%b %-d, %-I%P' 2>/dev/null || date -u -v+3d '+%b %-d, %-I%p')
+wk_iso=$(date -u -d '+3 days' '+%Y-%m-%dT%H:00' 2>/dev/null || date -u -v+3d '+%Y-%m-%dT%H:00')
+printf '%s' "$wk_text" > "$STUB_DIR/limit-weekly"
+k9home="$tmp/k9/home"; mkdir -p "$k9home"
+: > "$STUB_DIR/mellions.calls"
+env MELLIONS_HOME="$k9home" MELLIONS_PROMPT="$tmp/k-task.md" "$root/scripts/shift.sh" > "$tmp/k9.out" 2>&1
+rc=$?
+[ "$rc" -eq 3 ] || bad "K9: a weekly refusal exited $rc, not 3: $(cat "$tmp/k9.out")"
+k9mark=$(cat "$k9home"/shifts/*.limit 2>/dev/null)
+case "$k9mark" in
+  *" $wk_iso "*" dated") ;;
+  *) bad "K9: the mark does not carry the stated reset $wk_iso: '$k9mark'" ;;
+esac
+[ "${k9mark%% *}" -gt "$(( $(date -u +%s) + 21600 ))" ] 2>/dev/null \
+  || bad "K9: the mark's instant is not past the 6h ceiling: '$k9mark'"
+k10home="$tmp/k10/home"; mkdir -p "$k10home"
+start_runner "$k10home" "MELLIONS_SHIFTS_PER_DAY=9"; k10=$pid
+log="$k10home.out"
+wait_for 25 'no shift starts for [0-9]' "$log" \
+  || bad "K10: the runner never waited on a weekly refusal: $(tail -5 "$log")"
+w=$(grep -oE 'no shift starts for [0-9]+s' "$log" | head -1 | grep -oE '[0-9]+')
+[ "${w:-0}" -gt 21600 ] || bad "K10: a weekly reset was clamped: the wait was ${w:-none}s"
+grep -q "resets at $wk_iso UTC" "$log" || bad "K10: the runner does not name the reset: $(tail -3 "$log")"
+grep -q 'further off than a usage window runs' "$log" \
+  && bad "K10: a dated reset was held to a session window's ceiling"
+kill -TERM "$k10" 2>/dev/null; wait_gone 10 "$k10"
+rm -f "$STUB_DIR/limit-weekly"
+
+# K11: dates the runner must not park on. Each is still the account's refusal, so
+# each is marked, with no time named, and the runner uses its own wait.
+for k11 in "$(date -u -d '-10 days' '+%b %-d, %-I%P' 2>/dev/null || date -u -v-10d '+%b %-d, %-I%p')" \
+           "$(date -u -d '+30 days' '+%b %-d, %-I%P' 2>/dev/null || date -u -v+30d '+%b %-d, %-I%p')" \
+           "Feb 30, 11pm"; do
+  printf '%s' "$k11" > "$STUB_DIR/limit-weekly"
+  k11home=$(mktemp -d "$tmp/k11.XXXXXX")
+  env MELLIONS_HOME="$k11home" MELLIONS_PROMPT="$tmp/k-task.md" "$root/scripts/shift.sh" > "$tmp/k11.out" 2>&1
+  rc=$?
+  [ "$rc" -eq 3 ] || bad "K11: '$k11' exited $rc, not 3: $(cat "$tmp/k11.out")"
+  m=$(cat "$k11home"/shifts/*.limit 2>/dev/null)
+  case "$m" in
+    "0 - "*" -") ;;
+    *) bad "K11: '$k11' was not marked with no time named: '$m'" ;;
+  esac
+done
+rm -f "$STUB_DIR/limit-weekly"
+
+# K12: a kind and wording nothing here has seen is a refusal with no time named.
+touch "$STUB_DIR/limit-otherkind"
+k12home="$tmp/k12/home"; mkdir -p "$k12home"
+env MELLIONS_HOME="$k12home" MELLIONS_PROMPT="$tmp/k-task.md" "$root/scripts/shift.sh" > "$tmp/k12.out" 2>&1
+rc=$?
+rm -f "$STUB_DIR/limit-otherkind"
+[ "$rc" -eq 3 ] || bad "K12: an unrecognised refusal exited $rc, not 3: $(cat "$tmp/k12.out")"
+case "$(cat "$k12home"/shifts/*.limit 2>/dev/null)" in
+  "0 - "*" -") ;;
+  *) bad "K12: an unrecognised refusal was not marked: $(ls "$k12home"/shifts 2>/dev/null)" ;;
+esac
+
+# K13: a timeout kill whose last result quoted a dated refusal. Filed as refused,
+# this one parks the runner for days on a shift the account never refused.
+printf '%s' "$wk_text" > "$STUB_DIR/limit-late-quote"
+k13home="$tmp/k13/home"; mkdir -p "$k13home"
+env MELLIONS_HOME="$k13home" MELLIONS_PROMPT="$tmp/k-task.md" "$root/scripts/shift.sh" > "$tmp/k13.out" 2>&1
+rm -f "$STUB_DIR/limit-late-quote"
+ls "$k13home"/shifts/*.limit >/dev/null 2>&1 \
+  && bad "K13: a timeout kill that quoted a weekly refusal was filed as the account refusing it"
+
+# K14: the mark is judged on the result the reply came from, and needs the error
+# exit. A refusal then an empty result is a refusal; a quotation then a textless
+# error, or the sentence on a session that exited zero, parks nothing.
+printf '%s' "$wk_text" > "$STUB_DIR/limit-then-empty"
+k14home="$tmp/k14a/home"; mkdir -p "$k14home"
+env MELLIONS_HOME="$k14home" MELLIONS_PROMPT="$tmp/k-task.md" "$root/scripts/shift.sh" > "$tmp/k14.out" 2>&1
+rm -f "$STUB_DIR/limit-then-empty"
+case "$(cat "$k14home"/shifts/*.limit 2>/dev/null)" in
+  *" dated") ;;
+  *) bad "K14: a refusal followed by an empty result was not marked" ;;
+esac
+for k14 in limit-quote-then-error limit-exit0; do
+  printf '%s' "$wk_text" > "$STUB_DIR/$k14"
+  k14home=$(mktemp -d "$tmp/k14.XXXXXX")
+  env MELLIONS_HOME="$k14home" MELLIONS_PROMPT="$tmp/k-task.md" "$root/scripts/shift.sh" > "$tmp/k14.out" 2>&1
+  rm -f "$STUB_DIR/$k14"
+  ls "$k14home"/shifts/*.limit >/dev/null 2>&1 && bad "K14: $k14 was filed as the account refusing it"
+done
+
+# K15: a reset in another year names the year, whose digits are not the hour.
+wk_year=$(date -u -d '+3 days' '+%b %-d, %Y, %-I%P' 2>/dev/null || date -u -v+3d '+%b %-d, %Y, %-I%p')
+printf '%s' "$wk_year" > "$STUB_DIR/limit-weekly"
+k15home="$tmp/k15/home"; mkdir -p "$k15home"
+env MELLIONS_HOME="$k15home" MELLIONS_PROMPT="$tmp/k-task.md" "$root/scripts/shift.sh" > "$tmp/k15.out" 2>&1
+rm -f "$STUB_DIR/limit-weekly"
+case "$(cat "$k15home"/shifts/*.limit 2>/dev/null)" in
+  *" $wk_iso "*" dated") ;;
+  *) bad "K15: '$wk_year' was not read as $wk_iso: '$(cat "$k15home"/shifts/*.limit 2>/dev/null)'" ;;
+esac
 
 note "K: a refused shift is filed interrupted with its window and its lane; a quoted refusal and a timeout kill that quoted it are not; the runner waits for the window rather than backing off; and the cap counts the shifts that ran"
 
