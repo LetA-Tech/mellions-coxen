@@ -29,6 +29,7 @@ func TestAGitBashRunsInsideAnotherCommandIsRead(t *testing.T) {
 		{"nested substitution", shared, "echo $(echo $(git clean -fdx))", true},
 		{"substitution in a cd operand", shared, "cd $(git checkout dev; echo /tmp)", true},
 		{"bash -c", shared, "bash -c 'git reset --hard'", true},
+		{"eval", shared, "eval 'git reset --hard'", true},
 		{"sh -c with a name operand", shared, `sh -c "git reset --hard" name`, true},
 		{"bash -ec clustered", shared, "bash -ec 'git stash pop'", true},
 		{"bash -o value then -c", shared, "bash -o pipefail -c 'git restore .'", true},

@@ -399,10 +399,35 @@ func ScanPath(p string) []Finding {
 // handed to a command that does not emit content. What is: everything else,
 // including shapes this scan cannot classify.
 //
-// Heredoc bodies are data and are never scanned — shellsplit already separates
-// them from the words — so writing a document that discusses a credential file
-// by name is silent, which is what makes the guard survivable.
+// A heredoc body is data unless a shell reads it as its script, so writing a
+// document that discusses a credential file by name is silent, which is what
+// makes the guard survivable.
 func ScanBash(command string) []Finding {
+	return scan(command, 0, map[string][]Finding{})
+}
+
+// maxShells bounds how deep a script held inside a script is lexed. Past it the
+// text is only searched for names, so depth neither hides a read nor outruns the
+// hook's timeout; seen keeps each script to one reading.
+const maxShells = 16
+
+func scan(command string, depth int, seen map[string][]Finding) []Finding {
+	if found, ok := seen[command]; ok {
+		return found
+	}
+	var found []Finding
+	if depth > maxShells {
+		if f := secretInText(strings.ReplaceAll(command, `\`, " ")); f != "" {
+			found = []Finding{{Path: f, Reader: "sh"}}
+		}
+	} else {
+		found = scanCommands(command, depth, seen)
+	}
+	seen[command] = found
+	return found
+}
+
+func scanCommands(command string, depth int, seen map[string][]Finding) []Finding {
 	return shellsplit.Each(command, func(cmds []*shellsplit.Command) []Finding {
 		var out []Finding
 		// A variable that holds a credential's VALUE, read by a substitution. Using
@@ -448,6 +473,10 @@ func ScanBash(command string) []Finding {
 			}
 			reader := path.Base(words[i])
 			args := words[i+1:]
+
+			for _, script := range handedToShell(c) {
+				out = append(out, scan(script, depth+1, seen)...)
+			}
 
 			if consumers[reader] {
 				continue
@@ -499,6 +528,25 @@ func ScanBash(command string) []Finding {
 		}
 		return dedupe(out)
 	})
+}
+
+// handedToShell returns the script a command gives a local shell or eval at any
+// word, as `docker exec app sh -c` holds one. The script gets the verdict it would
+// get typed directly. What ssh runs on the far side is not read here.
+func handedToShell(c *shellsplit.Command) []string {
+	words := c.Args()
+	for k, w := range words {
+		base := path.Base(w)
+		if base == "ssh" {
+			return nil
+		}
+		if base == "eval" || shellsplit.Shells[base] {
+			if scripts := shellsplit.Scripts(c, words[k:], true); scripts != nil {
+				return scripts
+			}
+		}
+	}
+	return nil
 }
 
 // pastWrappers returns the index of the command word at or after i.
