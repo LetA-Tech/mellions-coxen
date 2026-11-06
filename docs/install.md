@@ -225,10 +225,18 @@ answer is yours. `codex --dangerously-bypass-hook-trust` runs them for one
 invocation without persisting anything, which is useful for checking that Codex
 finds the hooks at all and is not a substitute for trusting them.
 
-Two Codex limits to know: Codex cuts a plugin Skill at 8,000 bytes and a
+Three Codex limits to know: Codex cuts a plugin Skill at 8,000 bytes and a
 Skill description at 1,024, so every Skill in this repository is held under
-those bounds by a build check; and the unattended shift script drives Claude
-Code only (`CLAUDE_BIN`), so a Codex installation is interactive.
+those bounds by a build check; the unattended shift script drives Claude
+Code only (`CLAUDE_BIN`), so a Codex installation is interactive; and on Codex
+0.163.0 no hook event fires for `write_stdin`, so a command typed into a tty
+session reaches no Mellions guard, the credential guard included. Turning tty
+sessions off closes that route, and polling a running command still works:
+
+```toml
+[features]
+unified_exec_tty = false
+```
 
 The Codex registration is verified by `mellions doctor`. The Codex path has
 less production experience than the Claude Code path, so verify a fresh Codex
