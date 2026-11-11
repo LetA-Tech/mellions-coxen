@@ -12,8 +12,9 @@ The runtime owns native permissions, tools, MCP, sandboxing, credentials and
 model settings; configuration keys that would shadow them are refused.
 Mellions also ships narrow PreToolUse safeguards for closing references,
 shared-checkout mutation, glob deletes over shared temporary roots,
-signals sent by process name or pattern, and credential reads. They are not
-a replacement for runtime permissions or operator-enforced boundaries.
+signals sent by process name or pattern, credential reads, and a SendMessage
+stamp ahead of the host clock. They are not a replacement for runtime
+permissions or operator-enforced boundaries.
 Citations are checked by hand with `mellions cite check`; no hook runs it.
 
 ## Layout
@@ -27,7 +28,8 @@ hooks/                  SessionStart (identity, working rules, work, digest; shi
                         UserPromptSubmit (a governing document that changed since it was
                         handed over, peers, a survey when idle — each said once)
                         PreToolUse (shift clock; closing-reference, shared-tree and
-                        credential-read safeguards)
+                        credential-read safeguards; a SendMessage stamp ahead of the
+                        host clock, which fails open)
 cmd/mellions/           the CLI
 internal/signal         Signal, Source, Registry — provider-neutral core
 internal/survey         collects; never ranks

@@ -31,6 +31,7 @@ var usageForms = map[string]string{
 	"back":              "back [flags]",
 	"cite check":        "cite check [flags]",
 	"cite-check":        "cite-check",
+	"clock-check":       "clock-check [flags]",
 	"config":            "config [flags]",
 	"continue":          "continue [flags]",
 	"doctor":            "doctor [flags]",
