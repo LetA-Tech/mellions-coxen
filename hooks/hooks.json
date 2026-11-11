@@ -101,6 +101,16 @@
             "onFailure": "block"
           }
         ]
+      },
+      {
+        "matcher": "SendMessage",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/clock-check.sh\"; exit 0",
+            "timeout": 5
+          }
+        ]
       }
     ],
     "UserPromptSubmit": [

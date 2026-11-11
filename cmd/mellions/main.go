@@ -158,6 +158,16 @@ const usage = `mellions — the second engineer's deterministic surface
         cut from, rather than in a worktree of the session's own. Silence
         otherwise, including where the directory cannot be resolved.
         hooks/shared-tree.sh is what calls it.
+
+  mellions clock-check [-now HH:MM:SS]
+        Reads a PreToolUse payload on stdin and denies a SendMessage whose
+        stamp, a UTC time (HH:MMZ or HH:MM:SSZ), is more than a minute ahead
+        of the host clock. The stamp is the first time in the message's
+        header: its first line up to the first ": ", or up to the first ", "
+        when the line has no ": ". A time after the header or on a later line
+        is never judged. Silence otherwise, and on anything it cannot read:
+        it fails open, since a refusal stops one session reaching another.
+        -now replaces the clock. hooks/clock-check.sh is what calls it.
   mellions cite check [-file f|-] [-dir checkout] [-commit sha]
         Reports the path:line citations a document makes that the checkout does
         not back — a line the file does not have, and a line that exists and
@@ -245,6 +255,8 @@ func main() {
 		err = cmdPRMergeCheck(ctx, os.Args[2:])
 	case "shared-tree-check":
 		err = cmdSharedTreeCheck(os.Args[2:])
+	case "clock-check":
+		err = cmdClockCheck(os.Args[2:])
 	case "cite":
 		err = cmdCite(ctx, os.Args[2:])
 	case "cite-check":
