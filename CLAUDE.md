@@ -27,7 +27,8 @@ hooks/                  SessionStart (identity, working rules, work, digest; shi
                         UserPromptSubmit (a governing document that changed since it was
                         handed over, peers, a survey when idle — each said once)
                         PreToolUse (shift clock; closing-reference, shared-tree and
-                        credential-read safeguards)
+                        credential-read safeguards; a SendMessage stamp ahead of the
+                        host clock, which fails open)
 cmd/mellions/           the CLI
 internal/signal         Signal, Source, Registry — provider-neutral core
 internal/survey         collects; never ranks

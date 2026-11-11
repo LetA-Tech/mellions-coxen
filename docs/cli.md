@@ -267,6 +267,7 @@ exceeds 16 MiB is denied, since the runtime reads a guard's silence as allow.
 ```text
 mellions pr-body-check
 mellions shared-tree-check
+mellions clock-check [-now HH:MM:SS]
 mellions cite check [-file f|-] [-dir checkout] [-commit sha]
 mellions cite-check
 mellions secret check [-path file] <command...>
@@ -289,6 +290,15 @@ mellions secret-check
   shared checkout instead of an assignment lane, and an `rm` (recursive or not)
   that globs directly under `/tmp`, `/var/tmp`, `/dev/shm` or `$TMPDIR`.
   Unresolved paths are silent.
+- `clock-check` may deny a `SendMessage` whose first line opens with a UTC
+  time (`HH:MMZ` or `HH:MM:SSZ`) more than a minute ahead of the host clock,
+  naming the clock; only the first time on the first line is read, a time with
+  a date in front of it is not, and a stamp more than twelve hours from the
+  clock is read as the neighbouring day's. Unlike the guards above it fails
+  open: an absent, undecodable or unexpected payload, another tool, an
+  unreadable clock and a missing binary are all silence, so a fault in it can
+  never stop one session reaching another. `-now` replaces the clock for a
+  test; `hooks/clock-check.sh` takes it from `MELLIONS_CLOCK_NOW`.
 - `cite check` is the hand-run citation validator. It reports locally
   resolvable `path:line` claims whose lines do not exist or are not quoted in
   the body, and `path:N-M` ranges the file does not reach or that end before
