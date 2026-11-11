@@ -57,6 +57,7 @@ allowed "a time on a later line" 01:14:00 "$(send 'hello\n03:00Z is the plan')"
 allowed "a time on a later line after a stamp that is behind" 01:14:00 "$(send 'lead-68 (01:10Z): hello\nvalid until 03:00Z')"
 allowed "a later time after an earlier stamp in the header" 01:14:00 "$(send 'lead-68 01:10Z by 03:00Z: hello')"
 allowed "a time after the first comma when the line has no colon" 01:14:00 "$(send 'f59 01:10Z, answer by 03:00Z')"
+allowed "a deadline after the first comma when the line has no colon or stamp" 01:14:00 "$(send 'lead-68 GO, valid until 03:00Z')"
 
 allowed "midnight wrap, stamp 23:59Z at 00:00:30Z" 00:00:30 "$(send '23:59Z hello')"
 refused "midnight wrap, stamp 00:05Z at 23:58Z" 23:58:00 "$(send '00:05Z hello')"

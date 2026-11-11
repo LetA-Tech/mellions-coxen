@@ -60,6 +60,7 @@ func TestClockDeny(t *testing.T) {
 		{"a later line is not read after a stamp that is behind", "lead-68 (01:10Z): hello\nvalid until 03:00Z", "01:14:00", false},
 		{"a later time after an earlier stamp is not read", "lead-68 01:10Z by 03:00Z: hello", "01:14:00", false},
 		{"a time after the first comma, no colon, is not read", "f59 01:10Z, answer by 03:00Z", "01:14:00", false},
+		{"a deadline after the first comma, no colon, no stamp", "lead-68 GO, valid until 03:00Z", "01:14:00", false},
 		{"a time after the header's colon when the stamp is behind", "lead-68 (01:10Z): GO, valid until 03:00Z", "01:14:00", false},
 
 		// Known residual: a first line with no header and a future time first.
