@@ -41,12 +41,30 @@ func TestClockDeny(t *testing.T) {
 		{"behind by 10 min", "lead-68 to f51 (01:04Z): hello", "01:14:00", false},
 		{"no stamp", "hello, nothing to see here", "01:14:00", false},
 		{"empty message", "", "01:14:00", false},
-		{"later time and no leading stamp", "report follows\nneeded by 23:00Z", "01:14:00", false},
-		{"a time on the second line is not read", "hello\n23:00Z is the plan", "01:14:00", false},
-		{"only the first time on the first line is read", "01:10Z hello, by 23:00Z", "01:14:00", false},
-		{"the first time is the one compared", "window opens 03:40Z, sent 01:10Z", "01:14:00", true},
+
+		// The shapes sessions write: the stamp sits in the header and is judged.
+		{"stamp in parentheses after date -u", "lead-68 WORD (date -u 01:19Z): hello", "01:14:00", true},
+		{"stamp in parentheses before by date -u", "f60 to lead-68 (01:19Z by date -u): hello", "01:14:00", true},
+		{"stamp after a name, before the colon", "lead-68 01:19Z: hello", "01:14:00", true},
+		{"stamp before the first comma, no colon", "f59 01:19Z, answer on the PR", "01:14:00", true},
+		{"stamp before a full stop, then a colon later", "f56 to lead-68 (host time 01:19Z by date -u). The reviewer's note is back: hello", "01:14:00", true},
 		{"a range reads its Z end", "(read 00:51:15-00:51:45Z by date -u)", "00:50:00", true},
 		{"a range behind the clock", "(read 00:51:15-00:51:45Z by date -u)", "00:52:00", false},
+		{"CRLF line end", "01:19Z hello\r\nsecond", "01:14:00", true},
+
+		// A time that is content, not a stamp, is never judged. Each is under
+		// twelve hours ahead of the clock, so it would be refused if it were read.
+		{"a deadline after the first colon", "lead-68: GO to review. Valid until 03:00Z by date -u", "01:14:00", false},
+		{"a deadline after the colon and a comma", "lead-68: GO, valid until 03:00Z", "01:14:00", false},
+		{"a time on a later line is not read", "hello\n03:00Z is the plan", "01:14:00", false},
+		{"a later line is not read after a stamp that is behind", "lead-68 (01:10Z): hello\nvalid until 03:00Z", "01:14:00", false},
+		{"a later time after an earlier stamp is not read", "lead-68 01:10Z by 03:00Z: hello", "01:14:00", false},
+		{"a time after the first comma, no colon, is not read", "f59 01:10Z, answer by 03:00Z", "01:14:00", false},
+		{"a time after the header's colon when the stamp is behind", "lead-68 (01:10Z): GO, valid until 03:00Z", "01:14:00", false},
+
+		// Known residual: a first line with no header and a future time first.
+		{"a bare future time on the first line is judged", "start between now and 03:00Z", "01:14:00", true},
+
 		{"midnight wrap: stamp before midnight, clock after", "23:59Z hello", "00:00:30", false},
 		{"midnight wrap: stamp after midnight, clock before", "00:05Z hello", "23:58:00", true},
 		{"midnight wrap: stamp after midnight within a minute", "00:00:30Z hello", "23:59:45", false},
@@ -62,7 +80,6 @@ func TestClockDeny(t *testing.T) {
 		{"a longer digit run", "101:14Z hello", "00:00:00", false},
 		{"a longer token after", "05:00Zulu hello", "01:14:00", false},
 		{"a dotted prefix", "1.12:03Z hello", "01:14:00", false},
-		{"CRLF line end", "01:19Z hello\r\nsecond", "01:14:00", true},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -76,7 +93,7 @@ func TestClockDeny(t *testing.T) {
 
 func TestClockDenyNamesTheStampTheClockAndTheRemedy(t *testing.T) {
 	got := clockDeny("f56 to lead-68, 01:19Z (date -u): hello", at(t, "01:14:10"))
-	for _, want := range []string{"01:19Z", "01:14:10Z", "4m50s", "`date -u`", "resend"} {
+	for _, want := range []string{"01:19Z", "01:14:10Z", "4m50s", "`date -u`", "resend", "header"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("the reason does not say %q: %s", want, got)
 		}
@@ -132,8 +149,8 @@ func TestClockCheckWithABadClockAllows(t *testing.T) {
 }
 
 // hooks.json must register the hook for SendMessage alone and leave it able to
-// fail open: onFailure block, or a timeout longer than the hook's own, would
-// turn a broken hook into a refusal of every message.
+// fail open: onFailure block would turn a failed or timed-out hook into a
+// refusal of every message, and a long timeout is what each send would wait on.
 func TestClockCheckIsRegisteredToFailOpen(t *testing.T) {
 	raw, err := os.ReadFile(filepath.Join("..", "..", "hooks", "hooks.json"))
 	if err != nil {

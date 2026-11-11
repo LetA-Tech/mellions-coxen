@@ -290,11 +290,14 @@ mellions secret-check
   shared checkout instead of an assignment lane, and an `rm` (recursive or not)
   that globs directly under `/tmp`, `/var/tmp`, `/dev/shm` or `$TMPDIR`.
   Unresolved paths are silent.
-- `clock-check` may deny a `SendMessage` whose first line opens with a UTC
-  time (`HH:MMZ` or `HH:MM:SSZ`) more than a minute ahead of the host clock,
-  naming the clock; only the first time on the first line is read, a time with
-  a date in front of it is not, and a stamp more than twelve hours from the
-  clock is read as the neighbouring day's. Unlike the guards above it fails
+- `clock-check` may deny a `SendMessage` whose stamp, a UTC time (`HH:MMZ` or
+  `HH:MM:SSZ`), is more than a minute ahead of the host clock, naming the
+  clock. The stamp is the first time in the message's header: its first line
+  up to the first `": "`, or up to the first `", "` when the line has no
+  `": "`. A time after the header or on a later line is never judged, nor is
+  one with a date in front of it. A stamp more than twelve hours from the
+  clock is read as the neighbouring day's, so one written 12 to 24 hours
+  earlier is refused as ahead. Unlike the guards above it fails
   open: an absent, undecodable or unexpected payload, another tool, an
   unreadable clock and a missing binary are all silence, so a fault in it can
   never stop one session reaching another. `-now` replaces the clock for a

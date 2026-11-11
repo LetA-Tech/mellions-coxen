@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 # Mellions Engineer | LetA Tech Ltd. | leta@letatech.ca
 # Sessions on this host open a cross-session message with a UTC time, and other
-# sessions schedule work by it. Written from memory it has run ahead of the real
-# clock every time it was checked, so this hook denies a SendMessage whose first
-# line opens with a time more than a minute ahead of the host clock, and names
-# the clock. Which time is read, and how far ahead counts, is the binary's.
+# sessions schedule work by it. A time written from memory instead of read from
+# `date -u` can be ahead of the real clock, so this hook denies a SendMessage
+# whose stamp is more than a minute ahead, and names the clock. What the stamp is
+# (the first time in the message's header), and how far ahead counts, is the
+# binary's to say.
 #
 # Unlike the other guards this one fails open. A refusal here cuts one session
 # off from another, so only a stamp the clock confirms is ahead may cause one:

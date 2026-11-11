@@ -161,11 +161,13 @@ const usage = `mellions — the second engineer's deterministic surface
 
   mellions clock-check [-now HH:MM:SS]
         Reads a PreToolUse payload on stdin and denies a SendMessage whose
-        first line opens with a UTC time (HH:MMZ or HH:MM:SSZ) more than a
-        minute ahead of the host clock; only the first time on the first line
-        is read. Silence otherwise, and on anything it cannot read: it fails
-        open, since a refusal stops one session reaching another. -now
-        replaces the clock. hooks/clock-check.sh is what calls it.
+        stamp, a UTC time (HH:MMZ or HH:MM:SSZ), is more than a minute ahead
+        of the host clock. The stamp is the first time in the message's
+        header: its first line up to the first ": ", or up to the first ", "
+        when the line has no ": ". A time after the header or on a later line
+        is never judged. Silence otherwise, and on anything it cannot read:
+        it fails open, since a refusal stops one session reaching another.
+        -now replaces the clock. hooks/clock-check.sh is what calls it.
   mellions cite check [-file f|-] [-dir checkout] [-commit sha]
         Reports the path:line citations a document makes that the checkout does
         not back — a line the file does not have, and a line that exists and

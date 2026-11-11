@@ -44,8 +44,20 @@ refused "ahead by 5 min, HH:MM:SSZ" 01:14:00 "$(send '01:19:00Z hello')"
 allowed "ahead by 30 s" 01:14:00 "$(send '01:14:30Z hello')"
 allowed "behind by 10 min" 01:14:00 "$(send 'lead-68 to f51 (01:04Z): hello')"
 allowed "no stamp" 01:14:00 "$(send 'hello')"
-allowed "a later time and no leading stamp" 01:14:00 "$(send 'report follows, needed by 23:00Z')"
-allowed "a time on the second line" 01:14:00 "$(send 'hello\n23:00Z')"
+
+# The stamp is the first time in the header, the first line up to its first ": ".
+# A time that is content is never judged, and each of these is under twelve hours
+# ahead of the clock, so it would be refused if it were read.
+refused "a stamp in parentheses after date -u" 01:14:00 "$(send 'lead-68 WORD (date -u 01:19Z): hello')"
+refused "a stamp in parentheses before by date -u" 01:14:00 "$(send 'f60 to lead-68 (01:19Z by date -u): hello')"
+refused "a stamp after a name, before the colon" 01:14:00 "$(send 'lead-68 01:19Z: hello')"
+refused "a stamp before the first comma, no colon" 01:14:00 "$(send 'f59 01:19Z, answer on the PR')"
+allowed "a deadline after the first colon" 01:14:00 "$(send 'lead-68: GO to review. Valid until 03:00Z by date -u')"
+allowed "a time on a later line" 01:14:00 "$(send 'hello\n03:00Z is the plan')"
+allowed "a time on a later line after a stamp that is behind" 01:14:00 "$(send 'lead-68 (01:10Z): hello\nvalid until 03:00Z')"
+allowed "a later time after an earlier stamp in the header" 01:14:00 "$(send 'lead-68 01:10Z by 03:00Z: hello')"
+allowed "a time after the first comma when the line has no colon" 01:14:00 "$(send 'f59 01:10Z, answer by 03:00Z')"
+
 allowed "midnight wrap, stamp 23:59Z at 00:00:30Z" 00:00:30 "$(send '23:59Z hello')"
 refused "midnight wrap, stamp 00:05Z at 23:58Z" 23:58:00 "$(send '00:05Z hello')"
 allowed "another tool" 01:14:00 '{"tool_name":"Bash","tool_input":{"command":"echo 01:19Z"}}'

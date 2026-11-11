@@ -16,7 +16,7 @@ import (
 )
 
 // clockSlack is how far ahead of the host clock a stamp may read before it is
-// refused: a message composed over a few seconds is stamped a little early.
+// refused: a minute written rounded up (01:15Z at 01:14:30) is not a slip.
 const clockSlack = 60 * time.Second
 
 // clockTime finds a UTC time written HH:MMZ or HH:MM:SSZ. The optional first
@@ -25,8 +25,9 @@ const clockSlack = 60 * time.Second
 var clockTime = regexp.MustCompile(`(\d{4}-\d{2}-\d{2}[T ]+)?(\d{2}):(\d{2})(?::(\d{2}))?Z`)
 
 // cmdClockCheck reads a PreToolUse payload on stdin and denies a SendMessage
-// whose first time on its first line is more than a minute ahead of the host
-// clock. Everything else is silence.
+// whose stamp is more than a minute ahead of the host clock. The stamp is the
+// first time in the message's header, which clockHeader defines. Everything
+// else is silence.
 //
 // Unlike the other guards it fails open. A refusal here stops one session
 // reaching another, so only a stamp the clock confirms is ahead may cause one;
@@ -80,12 +81,25 @@ func cmdClockCheck(args []string) error {
 	return enc.Encode(d)
 }
 
+// clockHeader is the part of a message that can carry its stamp: the first line
+// up to its first ": ", or, when it has none, up to its first ", ". A time
+// after that, or on a later line, is content (a deadline, a schedule) and is
+// never judged.
+func clockHeader(message string) string {
+	line, _, _ := strings.Cut(message, "\n")
+	if head, _, ok := strings.Cut(line, ": "); ok {
+		return head
+	}
+	head, _, _ := strings.Cut(line, ", ")
+	return head
+}
+
 // clockDeny returns the reason to refuse message, or "" to allow it. Only the
 // time-of-day of now is read: the stamp is taken as today in UTC, and one more
 // than twelve hours from the clock is the neighbouring day's, so a stamp just
 // either side of midnight is compared across it.
 func clockDeny(message string, now time.Time) string {
-	line, _, _ := strings.Cut(message, "\n")
+	line := clockHeader(message)
 	loc := clockTime.FindStringSubmatchIndex(line)
 	if loc == nil || loc[2] >= 0 {
 		return ""
@@ -122,11 +136,11 @@ func clockDeny(message string, now time.Time) string {
 		return ""
 	}
 	text := line[loc[0]:loc[1]]
-	return fmt.Sprintf("This message opens with the time %s, which is %s ahead of the host clock: "+
-		"`date -u` reads %s. A stamp is the clock at the moment of sending, and a time written from "+
-		"memory has run ahead of it every time it has been checked. Re-read `date -u` and resend "+
-		"with that time. If %s is a time you mean to schedule rather than a stamp, put the real "+
-		"time before it on the first line, or move it to a later line.",
+	return fmt.Sprintf("The header of this message (its first line, up to the first \": \") carries the "+
+		"time %s, which is %s ahead of the host clock: `date -u` reads %s. A stamp is the clock at "+
+		"the moment of sending, so write it from `date -u`, not from memory. Re-read `date -u` and "+
+		"resend with that time. If %s is a time you mean to schedule rather than a stamp, put it "+
+		"after the first \": \" or on a later line; only the header is judged.",
 		text, ahead.Round(time.Second), now.Format("15:04:05")+"Z", text)
 }
 
