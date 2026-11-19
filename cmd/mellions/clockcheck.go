@@ -52,9 +52,9 @@ func cmdClockCheck(args []string) error {
 	raw, err := readPayload(os.Stdin)
 	if raw == nil {
 		if err == nil {
-			guardUsage("clock-check", "It denies a SendMessage whose header, its first line up to the "+
-				"first \": \" or up to the first \", \" when the line has none, carries a time more than "+
-				"a minute ahead of the host clock, and allows everything else.")
+			guardUsage("clock-check", "It denies a SendMessage whose stamp, the first time in its header "+
+				"(its first line up to the first \": \", or up to the first \", \" when the line has none), "+
+				"is more than a minute ahead of the host clock, and allows everything else.")
 		}
 		return nil
 	}
