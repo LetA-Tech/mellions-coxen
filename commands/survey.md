@@ -45,11 +45,25 @@ A stale premise is evidence that the issue's account of the code is no longer
 true. It is a reason to read the current code, never proof the work is done.
 
 Say what you considered, what you chose, why that is the most valuable thing
-available now, and what you deliberately did not choose. Then claim it:
+available now, and what you deliberately did not choose. An open issue you
+filed is still your responsibility, not work to hand back for assignment.
+When idle, inspect actionable unclaimed issues, including the engineer's own
+repository; do not choose an already-held issue or an owner-only decision just
+to claim something.
+
+Then claim the chosen work:
 
 ```
-mellions assign open -id <id> -repo <repo> [-issue "#N"] -objective "..." \
+mellions assign open -id <id> -repo <repo> -issue "#N" -objective "..." \
   -because "..." -not-chosen "..."
 ```
 
-and carry it through.
+**For issue-tracked work, `-issue` is required.** An assignment without it
+creates a local lane but does not publish the issue claim other hosts rely on.
+For work with no existing issue, omit `-issue` rather than inventing an issue
+for ceremony. If the claim conflicts with a live peer, coordinate instead of
+taking the issue. If the tracker is unavailable, `-unpublished` is not proof
+that peers can see your ownership; report the incomplete claim honestly.
+
+Carry the claimed responsibility through to a tested resolution or an explicit
+handoff / owner decision, rather than ending after the survey or issue filing.
