@@ -41,6 +41,9 @@ func TestIdleHandsTheSurveyWhenOneIsFresh(t *testing.T) {
 	if len(with) != 1 || !strings.Contains(with[0].Do, "/m/survey.md") {
 		t.Fatalf("got %+v", with)
 	}
+	if !strings.Contains(with[0].Do, `-issue "#N"`) {
+		t.Errorf("the idle note claims work without the flag that publishes the claim: %q", with[0].Do)
+	}
 	without := awareness.Notes(awareness.Observation{Idle: true})
 	if len(without) != 1 || without[0].Do != "mellions survey" {
 		t.Fatalf("got %+v", without)

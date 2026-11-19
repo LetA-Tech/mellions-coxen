@@ -45,25 +45,26 @@ A stale premise is evidence that the issue's account of the code is no longer
 true. It is a reason to read the current code, never proof the work is done.
 
 Say what you considered, what you chose, why that is the most valuable thing
-available now, and what you deliberately did not choose. An open issue you
-filed is still your responsibility, not work to hand back for assignment.
-When idle, inspect actionable unclaimed issues, including the engineer's own
-repository; do not choose an already-held issue or an owner-only decision just
-to claim something.
+available now, and what you deliberately did not choose. An issue you filed is
+still yours, not work to hand back for assignment, and Mellions Coxen's own
+issues are as much in scope as any other. Never choose an issue a live peer
+holds, or an owner-only decision, just to have something to claim.
 
-Then claim the chosen work:
+Then claim it:
 
 ```
 mellions assign open -id <id> -repo <repo> -issue "#N" -objective "..." \
   -because "..." -not-chosen "..."
 ```
 
-**For issue-tracked work, `-issue` is required.** An assignment without it
-creates a local lane but does not publish the issue claim other hosts rely on.
-For work with no existing issue, omit `-issue` rather than inventing an issue
-for ceremony. If the claim conflicts with a live peer, coordinate instead of
-taking the issue. If the tracker is unavailable, `-unpublished` is not proof
-that peers can see your ownership; report the incomplete claim honestly.
+`-issue` is what publishes the claim every other host reads; without it the
+lane exists on this machine only. Pass it for every issue-tracked item, and
+omit it for work no issue tracks rather than filing an issue for ceremony.
+When the claim is refused because a live lane holds the issue, coordinate with
+that session; `-alongside` is for reconciling two lanes or one you know has
+finished, never for taking a live peer's work. An `-unpublished` lane is invisible to other hosts: say so wherever you
+report the claim.
 
-Carry the claimed responsibility through to a tested resolution or an explicit
-handoff / owner decision, rather than ending after the survey or issue filing.
+Then carry it through to a verified resolution, a handoff another engineer
+accepted, or a decision package for what is genuinely the owner's. Stopping
+at the survey or at a filed issue is none of those.

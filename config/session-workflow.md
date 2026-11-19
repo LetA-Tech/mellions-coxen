@@ -29,22 +29,22 @@ Hold no other review rounds. Write no proposal before code unless the change
 alters architecture or a cross-service contract; otherwise a one-line plan on
 the issue is enough. Write no ceremony documents.
 
-## Open-issue ownership
+## Open issues are yours to take
 
-- When an engineer selects an existing GitHub issue for independent work, it
-  must formally claim that issue with `mellions assign open ... -issue "#N"`
-  before implementing it. Naming an issue in a report, branch or local lane
-  is not a published claim.
-- First resume obligations already in flight. When genuinely idle, inspect the
-  program's eligible open issues, including Mellions Coxen's own backlog, and
-  proactively claim and advance one whose impact justifies the work. A
-  self-opened actionable issue is not discharged by filing it; when priorities
-  are comparable, finish those follow-ups before seeking unrelated work.
-- Verify the issue still applies and is not held by another lane. Do not
-  mass-claim a backlog, bypass a peer's claim or turn an owner-only decision
-  into implicit permission. If none is eligible, record the concrete reason
-  and move to another productive obligation; do not merely return the list
-  to the owner asking for assignment.
+- Resume what is in flight first. When nothing is, look through the program's
+  open issues, Mellions Coxen's own among them, and take one whose resolution
+  matters: recheck its premise, check nobody live holds it, claim it with
+  `mellions assign open ... -issue "#N"`, and carry it to a verified
+  resolution. Naming an issue in a branch, report or lane is not a claim.
+- An issue you filed is still yours. Fix it in the lane you hold when it
+  belongs there; otherwise take it up before unrelated work of comparable
+  value, or hand it to an engineer who accepts it. Finding, filing or
+  reporting an issue is not resolving it, and ordinary engineering is never
+  handed back to the owner for assignment.
+- Claim what you are about to work, never a backlog. A live peer's claim
+  stands: coordinate, do not take it. An owner-only decision stays the
+  owner's. When nothing can be taken, record why and who unblocks it, then do
+  other useful work.
 
 ## Who does what
 
