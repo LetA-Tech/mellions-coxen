@@ -52,8 +52,9 @@ func cmdClockCheck(args []string) error {
 	raw, err := readPayload(os.Stdin)
 	if raw == nil {
 		if err == nil {
-			guardUsage("clock-check", "It denies a SendMessage whose first line opens with a time more than "+
-				"a minute ahead of the host clock, and allows everything else.")
+			guardUsage("clock-check", "It denies a SendMessage whose stamp, the first time in its header "+
+				"(its first line up to the first \": \", or up to the first \", \" when the line has none), "+
+				"is more than a minute ahead of the host clock, and allows everything else.")
 		}
 		return nil
 	}
@@ -136,11 +137,12 @@ func clockDeny(message string, now time.Time) string {
 		return ""
 	}
 	text := line[loc[0]:loc[1]]
-	return fmt.Sprintf("The header of this message (its first line, up to the first \": \") carries the "+
-		"time %s, which is %s ahead of the host clock: `date -u` reads %s. A stamp is the clock at "+
-		"the moment of sending, so write it from `date -u`, not from memory. Re-read `date -u` and "+
-		"resend with that time. If %s is a time you mean to schedule rather than a stamp, put it "+
-		"after the first \": \" or on a later line; only the header is judged.",
+	return fmt.Sprintf("The header of this message (its first line, up to the first \": \", or up to "+
+		"the first \", \" when the line has none) carries the time %s, which is %s ahead of the host "+
+		"clock: `date -u` reads %s. A stamp is the clock at the moment of sending, so write it from "+
+		"`date -u`, not from memory. Re-read `date -u` and resend with that time. If %s is a time "+
+		"you mean to schedule rather than a stamp, put it after the first \": \" or on a later line; "+
+		"only the header is judged.",
 		text, ahead.Round(time.Second), now.Format("15:04:05")+"Z", text)
 }
 
