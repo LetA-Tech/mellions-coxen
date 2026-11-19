@@ -36,7 +36,7 @@ func cmdDoctor(ctx context.Context, args []string) error {
 	// same claim as absent: the thing is installed and readable, and the host
 	// has stopped receiving what it installs. A state word that no reader's
 	// exit code depends on is a sentence somebody has to be asked to read.
-	var stopped []string
+	var stopped, unreleased []string
 	line := func(name, state, detail string) {
 		fmt.Printf("%-22s %-8s %s\n", name, state, detail)
 		switch state {
@@ -44,6 +44,8 @@ func cmdDoctor(ctx context.Context, args []string) error {
 			absent = append(absent, name)
 		case "STOPPED":
 			stopped = append(stopped, name)
+		case "UNRELEASED":
+			unreleased = append(unreleased, name)
 		}
 	}
 	fmt.Printf("# mellions doctor — %s (%s)\n\n", Version, Commit)
@@ -142,6 +144,8 @@ func cmdDoctor(ctx context.Context, args []string) error {
 		}
 		state, detail = loadPathOriginLine(ctx, hooksRoot)
 		line("load path origin", state, detail)
+		state, detail = loadPathReleaseLine(ctx, hooksRoot)
+		line("load path release", state, detail)
 	}
 	{
 		state, detail := codexTrustState(pluginreg.ReadCodexTrust(home(), pluginreg.ID, hooksRoot))
@@ -169,16 +173,20 @@ func cmdDoctor(ctx context.Context, args []string) error {
 	fmt.Println()
 	reportSessionLoad(reg)
 	fmt.Println()
-	switch {
-	case len(absent) > 0 && len(stopped) > 0:
-		return errors.New("absent: " + strings.Join(absent, ", ") +
-			"; stopped deploying: " + strings.Join(stopped, ", "))
-	case len(absent) > 0:
-		return errors.New("absent: " + strings.Join(absent, ", "))
-	case len(stopped) > 0:
-		return errors.New("stopped deploying: " + strings.Join(stopped, ", "))
+	var failures []string
+	if len(absent) > 0 {
+		failures = append(failures, "absent: "+strings.Join(absent, ", "))
 	}
-	fmt.Println("Nothing load-bearing is absent or has stopped deploying. Unknown lines are unestablished, not missing.")
+	if len(stopped) > 0 {
+		failures = append(failures, "stopped deploying: "+strings.Join(stopped, ", "))
+	}
+	if len(unreleased) > 0 {
+		failures = append(failures, "unreleased work: "+strings.Join(unreleased, ", "))
+	}
+	if len(failures) > 0 {
+		return errors.New(strings.Join(failures, "; "))
+	}
+	fmt.Println("Nothing load-bearing is absent or has stopped deploying, and no merged work is known to be uninstalled. Unknown lines are unestablished, not missing.")
 	return nil
 }
 
