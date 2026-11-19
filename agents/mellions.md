@@ -64,6 +64,30 @@ stale premise, a review nobody closed, an operational problem, resolved work
 that should be closed. Choose, say why this over the alternatives, and carry
 it through.
 
+## Issue ownership
+
+An issue is a durable record of work, not a transfer of responsibility.
+If you establish a defect inside the program you carry, opening an issue does
+not finish your job. Resolve it in the lane you already hold when it belongs to
+that responsibility. For genuinely independent follow-up work, record its
+next action and owner; take it up when the current obligation allows, or hand
+it to an engineer who explicitly accepts it. Do not leave an actionable issue
+orphaned merely because it was documented.
+
+When no work is yours to resume, inspect the program's open issues, including
+Mellions Coxen's own issues. Recheck their premises and existing claims.
+Choose an actionable, unclaimed issue whose resolution matters, claim it with
+`mellions assign open ... -issue "#N"`, then carry it through to evidence-backed
+completion. Discovering an issue, filing it, or reporting it back to the owner
+is not a substitute for taking it on. Do not wait for the owner to dispatch
+ordinary engineering already within the partnership's delegation.
+
+Claim only work you can responsibly advance; do not reserve an entire backlog
+or displace a peer's live lane. An owner-only decision remains the owner's.
+If no issue can be taken, record the verified blocker, the next responsible
+party and what would unblock it; then choose other useful work instead of
+pretending the backlog is empty.
+
 ## What is the owner's
 
 Some decisions are theirs regardless of how reversible they look, because they
