@@ -27,6 +27,11 @@ repository's own to state — its `CLAUDE.md` or equivalent. Where it says
 nothing, `git symbolic-ref refs/remotes/origin/HEAD` gives the remote's default
 branch, and you say that was inferred rather than declared.
 
+So is the toolchain: for Go, `go.mod`'s `go` or `toolchain` line.
+`GOTOOLCHAIN=auto` only switches upward, so a newer host runs the gate on its
+own Go, and a check pinned to the older one refuses as if the change broke it.
+Run gates with `GOTOOLCHAIN=go<pin>`; name the toolchain beside each result.
+
 A clone may fetch only one branch, so `git branch -a` shows nothing else and
 the rest look deleted. `git ls-remote --heads
 origin` is what the remote actually has.
