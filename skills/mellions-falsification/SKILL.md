@@ -57,8 +57,8 @@ counts is the assertion the fix exists for, by name.
 Where the fix is aimed at a model — a Skill, a prompt, a hook —
 read `references/model-arms.md` first: the untreated run must be able to fail,
 and what counts as a difference is decided before either is read. Where
-something outside the process settles a race, read `references/race-arms.md`:
-a one-process test never meets what breaks it.
+scheduling, a lock, a timer or another process decides a test, one green is a
+sample: read `references/race-arms.md` before citing it.
 
 Where the fix deletes an exemption a check honoured — a `nolint`, a skip, an
 allow-list entry — the complete revert restores the exemption and is green on
