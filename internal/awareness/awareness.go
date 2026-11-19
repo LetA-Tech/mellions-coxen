@@ -356,7 +356,8 @@ func Notes(o Observation) []Note {
 		case o.Survey != "":
 			out = append(out, Note{
 				Because: "Nothing is in flight. " + o.SurveyBrief,
-				Do:      "Read " + o.Survey + " and decide what is worth doing; `mellions assign open` claims it.",
+				Do: "Read " + o.Survey + " and take what is worth doing; `mellions assign open ... -issue \"#N\"` " +
+					"claims an issue where every host sees it.",
 			})
 		default:
 			out = append(out, Note{
