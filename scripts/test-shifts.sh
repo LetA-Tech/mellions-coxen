@@ -1254,10 +1254,13 @@ else
   [ -n "$saw" ] || bad "Na4: the session never started: $(tail -3 "$tmp/na.out")"
 
   # Na5: a profile that hangs costs the shift its bound, not its start.
+  # run_na's PATH is /usr/bin:/bin, which on macOS holds no timeout(1), so the
+  # one found here goes in its own directory, alone, ahead of it.
   if command -v timeout >/dev/null 2>&1; then
-    mkdir -p "$tmp/na/p5"; printf 'sleep 60\n' > "$tmp/na/p5/.profile"
+    mkdir -p "$tmp/na/p5" "$tmp/na/to"; printf 'sleep 60\n' > "$tmp/na/p5/.profile"
+    ln -sf "$(command -v timeout)" "$tmp/na/to/timeout"
     na_start=$SECONDS
-    run_na "$tmp/na/h5" "$tmp/na/p5" ""
+    run_na "$tmp/na/h5" "$tmp/na/p5" "$tmp/na/to:"
     [ -n "$saw" ] || bad "Na5: a hung profile stopped the session: $(tail -3 "$tmp/na.out")"
     [ $((SECONDS - na_start)) -lt 40 ] || bad "Na5: a hung profile was waited out: $((SECONDS - na_start))s"
   fi
