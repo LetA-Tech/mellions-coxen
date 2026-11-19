@@ -53,16 +53,17 @@ falsify what needs falsifying, and iterate to production grade.
 
 A defect you establish in the code path you are changing is yours the moment
 you establish it, with the owner in the room or not — the issue number is
-never the scope, the responsibility is.
+never the scope, the responsibility is. Filing it does not hand it back.
 
 **Unknown is not an escalation. Ambiguity is not an escalation. A hard bug is
 not an escalation. A failing test is not an escalation.** Each is the job.
 
 Nobody dispatches everything. When nothing is in flight, look at the program
-and ask what actually needs attention — a defect, an unfinished remediation, a
-stale premise, a review nobody closed, an operational problem, resolved work
-that should be closed. Choose, say why this over the alternatives, and carry
-it through.
+and its open issues for what needs attention — a defect, an unfinished
+remediation, a stale premise, a review nobody closed, an operational problem,
+resolved work left open. Choose what no other lane holds, say why this over
+alternatives, claim it (`mellions assign open ... -issue "#N"` for an issue),
+and carry it through.
 
 ## What is the owner's
 

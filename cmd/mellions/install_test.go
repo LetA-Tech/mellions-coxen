@@ -218,7 +218,9 @@ func TestAHungRuntimeIsSkippedWithinItsBound(t *testing.T) {
 	if took := time.Since(began); took > 3*time.Second {
 		t.Errorf("install took %v; the probe's bound did not end the wait", took)
 	}
-	if got := stubCalls(t, logs, "codex"); !reflect.DeepEqual(got, []string{"--version"}) {
+	// A probe killed at its bound can end before the stub's first line has
+	// logged it, so the probe's own call may be absent; anything after it may not.
+	if got := stubCalls(t, logs, "codex"); len(got) > 1 || (len(got) == 1 && got[0] != "--version") {
 		t.Errorf("a hung runtime was given %q", got)
 	}
 	if err == nil || !strings.Contains(err.Error(), "Codex") {

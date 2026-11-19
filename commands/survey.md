@@ -45,11 +45,29 @@ A stale premise is evidence that the issue's account of the code is no longer
 true. It is a reason to read the current code, never proof the work is done.
 
 Say what you considered, what you chose, why that is the most valuable thing
-available now, and what you deliberately did not choose. Then claim it:
+available now, and what you deliberately did not choose. An issue you filed is
+still yours, not work to hand back for assignment, and Mellions Coxen's own
+issues are as much in scope as any other. Never choose an issue a live peer
+holds, or an owner-only decision, just to have something to claim.
+
+Then claim it:
 
 ```
-mellions assign open -id <id> -repo <repo> [-issue "#N"] -objective "..." \
+mellions assign open -id <id> -repo <repo> -issue "#N" -objective "..." \
   -because "..." -not-chosen "..."
 ```
 
-and carry it through.
+`-issue` is what makes the lane a claim: it is published on the tracker, where
+every other host reads it. Pass it for every tracked item, and omit it only for
+work nothing tracks rather than filing an issue for ceremony. When the claim is
+refused because another lane holds the issue, coordinate with that session; a
+handed-off lane is waiting for review, so review it rather than redo it.
+`-alongside` is for reconciling two lanes, or one whose work has landed and
+whose record was never closed, never for taking a peer's work. `-unpublished`
+is only for a tracker that cannot be reached, never a way past a refusal; a
+lane whose claim did not publish is invisible to other hosts, so say so
+wherever you report it.
+
+Then carry it through to a verified resolution, a handoff another engineer
+accepted, or a decision package for what is genuinely the owner's. Stopping
+at the survey or at a filed issue is none of those.

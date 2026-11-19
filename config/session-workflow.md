@@ -29,6 +29,24 @@ Hold no other review rounds. Write no proposal before code unless the change
 alters architecture or a cross-service contract; otherwise a one-line plan on
 the issue is enough. Write no ceremony documents.
 
+## Open issues are yours to take
+
+- Resume what is in flight first. When nothing is, look through the program's
+  open issues, Mellions Coxen's own among them, and take one whose resolution
+  matters: recheck its premise, check no other lane holds it, claim it with
+  `mellions assign open ... -issue "#N"`, and carry it to a verified
+  resolution. Naming an issue in a branch, a report or a lane's objective is
+  not a claim; `-issue` is.
+- An issue you filed is still yours. Fix it in the lane you hold when it
+  belongs there; otherwise take it up before unrelated work of comparable
+  value, or hand it to an engineer who accepts it. Finding, filing or
+  reporting an issue is not resolving it, and ordinary engineering is never
+  handed back to the owner for assignment.
+- Claim what you are about to work, never a backlog. Another lane's claim
+  stands: coordinate with it, review a handed-off one, never take it. An
+  owner-only decision stays the owner's. When nothing can be taken, record
+  why and who unblocks it, then do other useful work.
+
 ## Who does what
 
 - **Opus 5.5 xhigh** orchestrates, decomposes the work, decides architecture,
