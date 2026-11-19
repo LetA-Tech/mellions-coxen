@@ -45,7 +45,8 @@ allowed "ahead by 30 s" 01:14:00 "$(send '01:14:30Z hello')"
 allowed "behind by 10 min" 01:14:00 "$(send 'lead-68 to f51 (01:04Z): hello')"
 allowed "no stamp" 01:14:00 "$(send 'hello')"
 
-# The stamp is the first time in the header, the first line up to its first ": ".
+# The stamp is the first time in the header: the first line up to its first ": ",
+# or up to its first ", " when the line has none.
 # A time that is content is never judged, and each of these is under twelve hours
 # ahead of the clock, so it would be refused if it were read.
 refused "a stamp in parentheses after date -u" 01:14:00 "$(send 'lead-68 WORD (date -u 01:19Z): hello')"

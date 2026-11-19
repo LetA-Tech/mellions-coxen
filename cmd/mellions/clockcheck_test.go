@@ -94,7 +94,7 @@ func TestClockDeny(t *testing.T) {
 
 func TestClockDenyNamesTheStampTheClockAndTheRemedy(t *testing.T) {
 	got := clockDeny("f56 to lead-68, 01:19Z (date -u): hello", at(t, "01:14:10"))
-	for _, want := range []string{"01:19Z", "01:14:10Z", "4m50s", "`date -u`", "resend", "header"} {
+	for _, want := range []string{"01:19Z", "01:14:10Z", "4m50s", "`date -u`", "resend", "header", `", "`} {
 		if !strings.Contains(got, want) {
 			t.Errorf("the reason does not say %q: %s", want, got)
 		}

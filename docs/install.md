@@ -267,13 +267,14 @@ load path              present  /home/you/mellions-coxen — read in place: know
                                 there deploys them; the copy at ~/.claude/plugins/cache/... is written
                                 by install and never read
 load path commit       present  16b63c8 on dev, clean, up to date with origin/dev
+load path release      present  origin/dev holds 0 commits absent from load path 16b63c8 as of the last fetch
 codex hooks            partial  0 of 16 trusted — start codex once here and trust them, or a Codex
                                 session is not Mellions
 hooks                  present  9 SessionStart hooks declared in .../hooks/hooks.json
 bearing skills         present  reasoning, deep research, falsification, self-learning under ...
 ```
 
-`doctor` observes and configures nothing. Five things it establishes that
+`doctor` observes and configures nothing. It establishes details that
 nothing else does:
 
 - **where the plugin is actually loaded from** — `load path`, decided by the
@@ -284,6 +285,13 @@ nothing else does:
   is behind its upstream. On a checkout install this is the answer to "which
   Mellions is deployed on this host", and `UNCOMMITTED` or `N behind` means the
   host is running something no branch names;
+- **whether merged work is installed** — `load path release` counts commits on
+  fetched `origin/dev` absent from the load path's HEAD, separately from its
+  distance to its own upstream. A checkout can be current with `origin/main`
+  and still lack merged fixes on `dev`. A positive count is `UNRELEASED` and
+  exits non-zero. The count is qualified by the last fetch; a missing working
+  ref, unreadable ancestry, or shallow history reports `unknown`. This check
+  neither fetches nor promotes a release;
 - **whether Codex may run the hooks** — `codex hooks: N of M trusted`. Codex
   loads a plugin's Skills whether or not its hooks are trusted, so an untrusted
   installation reads as complete on every other line and hands you a session
@@ -297,7 +305,8 @@ nothing else does:
   that session's own transcript and says whether the identity reached it, and
   whether the installation it got is current or superseded by a reinstall;
 - **unknown is not absent** — a probe that could not run says so and exits 0.
-  Two states exit non-zero: a confirmed absence of something load-bearing, and
+  Three states exit non-zero: a confirmed absence of something load-bearing,
+  `UNRELEASED` work missing from the installed HEAD, and
   a load path reported `STOPPED` — a checkout `git pull --ff-only` cannot
   deploy into today, so the host has stopped receiving what it installs. A
   checkout deliberately pinned to a tag is `STOPPED` by that definition and

@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -93,8 +94,14 @@ func stubRuntimes(t *testing.T, bodies map[string]string) (logs string) {
 	t.Helper()
 	bin, logs := t.TempDir(), t.TempDir()
 	for name, body := range bodies {
-		script := fmt.Sprintf("#!/bin/sh\necho \"$*\" >> %q\n", filepath.Join(logs, name)) + body
-		if err := os.WriteFile(filepath.Join(bin, name), []byte(script), 0o755); err != nil {
+		script := fmt.Sprintf("#!/bin/sh\n[ \"$1\" = __warm ] && exit 0\necho \"$*\" >> %q\n", filepath.Join(logs, name)) + body
+		path := filepath.Join(bin, name)
+		if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		// macOS can take seconds to first exec a newly written file; paid here,
+		// it stays out of every bound a test times.
+		if err := exec.Command(path, "__warm").Run(); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -203,24 +210,24 @@ func TestABrokenRegistrationIsStillRepaired(t *testing.T) {
 
 // TestAHungRuntimeIsSkippedWithinItsBound: a probe that never answers, from a
 // runtime whose child holds the output pipe after the runtime itself is killed,
-// ends at the probe's bound and is skipped, with nothing cleared.
+// ends at the probe's bound and is skipped, with nothing cleared. The stub was
+// run once when written, so the probe starts it at once and its child holds the
+// pipe well inside the bound.
 func TestAHungRuntimeIsSkippedWithinItsBound(t *testing.T) {
 	probe, wait := probeTimeout, waitDelay
-	probeTimeout, waitDelay = 100*time.Millisecond, 300*time.Millisecond
+	probeTimeout, waitDelay = time.Second, 300*time.Millisecond
 	t.Cleanup(func() { probeTimeout, waitDelay = probe, wait })
-	logs := stubRuntimes(t, map[string]string{"codex": "sleep 4 &\nwait\n"})
+	logs := stubRuntimes(t, map[string]string{"codex": "sleep 6 &\nwait\n"})
 
 	began := time.Now()
 	var err error
 	captureStdout(t, func() {
 		err = cmdInstall(context.Background(), []string{"-runtime", "codex", "-from", marketplaceDir(t)})
 	})
-	if took := time.Since(began); took > 3*time.Second {
+	if took := time.Since(began); took > 4*time.Second {
 		t.Errorf("install took %v; the probe's bound did not end the wait", took)
 	}
-	// A probe killed at its bound can end before the stub's first line has
-	// logged it, so the probe's own call may be absent; anything after it may not.
-	if got := stubCalls(t, logs, "codex"); len(got) > 1 || (len(got) == 1 && got[0] != "--version") {
+	if got := stubCalls(t, logs, "codex"); !reflect.DeepEqual(got, []string{"--version"}) {
 		t.Errorf("a hung runtime was given %q", got)
 	}
 	if err == nil || !strings.Contains(err.Error(), "Codex") {
