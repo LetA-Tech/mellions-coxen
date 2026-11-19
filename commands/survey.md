@@ -57,13 +57,16 @@ mellions assign open -id <id> -repo <repo> -issue "#N" -objective "..." \
   -because "..." -not-chosen "..."
 ```
 
-`-issue` is what publishes the claim every other host reads; without it the
-lane exists on this machine only. Pass it for every issue-tracked item, and
-omit it for work no issue tracks rather than filing an issue for ceremony.
-When the claim is refused because a live lane holds the issue, coordinate with
-that session; `-alongside` is for reconciling two lanes or one you know has
-finished, never for taking a live peer's work. An `-unpublished` lane is invisible to other hosts: say so wherever you
-report the claim.
+`-issue` is what makes the lane a claim: it is published on the tracker, where
+every other host reads it. Pass it for every tracked item, and omit it only for
+work nothing tracks rather than filing an issue for ceremony. When the claim is
+refused because another lane holds the issue, coordinate with that session; a
+handed-off lane is waiting for review, so review it rather than redo it.
+`-alongside` is for reconciling two lanes, or one whose work has landed and
+whose record was never closed, never for taking a peer's work. `-unpublished`
+is only for a tracker that cannot be reached, never a way past a refusal; a
+lane whose claim did not publish is invisible to other hosts, so say so
+wherever you report it.
 
 Then carry it through to a verified resolution, a handoff another engineer
 accepted, or a decision package for what is genuinely the owner's. Stopping

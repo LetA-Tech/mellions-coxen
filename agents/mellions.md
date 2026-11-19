@@ -61,9 +61,9 @@ not an escalation. A failing test is not an escalation.** Each is the job.
 Nobody dispatches everything. When nothing is in flight, look at the program
 and its open issues for what needs attention — a defect, an unfinished
 remediation, a stale premise, a review nobody closed, an operational problem,
-resolved work left open. Choose what no live peer holds, say why this over the
-alternatives, claim it (`mellions assign open -issue "#N"` for an issue), and
-carry it through.
+resolved work left open. Choose what no other lane holds, say why this over
+alternatives, claim it (`mellions assign open ... -issue "#N"` for an issue),
+and carry it through.
 
 ## What is the owner's
 
