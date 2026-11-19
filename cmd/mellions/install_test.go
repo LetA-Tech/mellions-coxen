@@ -203,24 +203,24 @@ func TestABrokenRegistrationIsStillRepaired(t *testing.T) {
 
 // TestAHungRuntimeIsSkippedWithinItsBound: a probe that never answers, from a
 // runtime whose child holds the output pipe after the runtime itself is killed,
-// ends at the probe's bound and is skipped, with nothing cleared.
+// ends at the probe's bound and is skipped, with nothing cleared. The bound is
+// a second because macOS takes over 150 ms to start a newly written script; a
+// shorter one kills the stub before its child exists, and the test proves nothing.
 func TestAHungRuntimeIsSkippedWithinItsBound(t *testing.T) {
 	probe, wait := probeTimeout, waitDelay
-	probeTimeout, waitDelay = 100*time.Millisecond, 300*time.Millisecond
+	probeTimeout, waitDelay = time.Second, 300*time.Millisecond
 	t.Cleanup(func() { probeTimeout, waitDelay = probe, wait })
-	logs := stubRuntimes(t, map[string]string{"codex": "sleep 4 &\nwait\n"})
+	logs := stubRuntimes(t, map[string]string{"codex": "sleep 6 &\nwait\n"})
 
 	began := time.Now()
 	var err error
 	captureStdout(t, func() {
 		err = cmdInstall(context.Background(), []string{"-runtime", "codex", "-from", marketplaceDir(t)})
 	})
-	if took := time.Since(began); took > 3*time.Second {
+	if took := time.Since(began); took > 4*time.Second {
 		t.Errorf("install took %v; the probe's bound did not end the wait", took)
 	}
-	// A probe killed at its bound can end before the stub's first line has
-	// logged it, so the probe's own call may be absent; anything after it may not.
-	if got := stubCalls(t, logs, "codex"); len(got) > 1 || (len(got) == 1 && got[0] != "--version") {
+	if got := stubCalls(t, logs, "codex"); !reflect.DeepEqual(got, []string{"--version"}) {
 		t.Errorf("a hung runtime was given %q", got)
 	}
 	if err == nil || !strings.Contains(err.Error(), "Codex") {
